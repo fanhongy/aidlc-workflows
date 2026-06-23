@@ -102,6 +102,26 @@ if not result.allowed:
     print(f"Denied: {result.reason} ({result.category})")
 ```
 
+## Known Limitations
+
+This hook is a **defense-in-depth measure**, not a security boundary. It provides
+an additional safety layer but cannot guarantee complete prevention of dangerous
+operations. Known gaps include:
+
+- **Regex evasion**: Shell quoting (e.g., `r"m" -rf /`), variable expansion
+  (e.g., `$CMD`), subshell invocation (e.g., `bash -c "rm -rf /"`), and
+  multi-line here-docs can all bypass string-match patterns. The hook inspects
+  the literal command text and cannot evaluate shell semantics.
+
+- **Tool-name allowlist boundary**: Destructive-shell patterns only fire for
+  recognized shell tool names (bash, sh, run_command, etc.). An agent tool with
+  an unrecognized name that executes shell commands will only be checked against
+  the repo-writes policy, not destructive-shell patterns.
+
+- **Not a sandbox replacement**: This hook complements (but does not replace)
+  proper sandboxing, filesystem permissions, and network isolation. Treat it as
+  one layer in a defense-in-depth strategy.
+
 ## Development
 
 ```bash

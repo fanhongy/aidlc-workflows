@@ -11,6 +11,7 @@ Three categories:
 from __future__ import annotations
 
 import re
+import shlex
 from typing import Optional
 
 from deny_hook.models import DenyResult
@@ -47,8 +48,12 @@ def _is_rm_rf_unsafe(command: str) -> Optional[str]:
 
     # Extract the part after rm and its flags
     rm_section = command[rm_match.start():].strip()
-    # Get arguments (non-flag tokens after rm)
-    tokens = rm_section.split()
+    # Use shlex.split for proper handling of quoted paths
+    try:
+        tokens = shlex.split(rm_section)
+    except ValueError:
+        # If shlex can't parse it (unmatched quotes, etc.), fall back to split
+        tokens = rm_section.split()
     targets = [t for t in tokens[1:] if not t.startswith("-") and t != "--"]
 
     if not targets:
@@ -165,9 +170,13 @@ def _is_infra_destructive(command: str) -> bool:
         r"(^|\s)terraform\s+apply\s+.*-auto-approve",
         r"(^|\s)aws\s+s3\s+rm",
         r"(^|\s)aws\s+ec2\s+terminate",
-        r"(^|\s)docker\s+push",
     ]
     return any(re.search(p, cmd_lower) for p in patterns)
+
+
+def _is_docker_push(command: str) -> bool:
+    """Check for docker push commands."""
+    return bool(re.search(r"(^|\s)docker\s+push(\s|$)", command.lower()))
 
 
 def check_destructive_shell(command: str) -> Optional[DenyResult]:
@@ -240,6 +249,13 @@ def check_destructive_shell(command: str) -> Optional[DenyResult]:
         return DenyResult(
             allowed=False,
             reason="Cloud/infrastructure destructive command. Run manually.",
+            category="destructive_shell",
+        )
+
+    if _is_docker_push(command):
+        return DenyResult(
+            allowed=False,
+            reason="docker push is a write operation. Ask the user to push manually.",
             category="destructive_shell",
         )
 
@@ -342,6 +358,7 @@ _GH_WRITE_OPS = frozenset({
     "codespace:create", "codespace:delete", "codespace:edit",
     "project:create", "project:delete", "project:edit", "project:close",
     "cache:delete",
+    "auth:login", "auth:logout", "auth:refresh", "auth:setup-git",
 })
 
 
