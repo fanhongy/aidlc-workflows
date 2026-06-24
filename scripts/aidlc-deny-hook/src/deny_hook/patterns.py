@@ -407,6 +407,8 @@ def _is_gh_write(command: str) -> bool:
         # Skip flag values
         if tokens[topic_idx] in ("--repo", "--hostname", "-R"):
             topic_idx += 2
+            if topic_idx >= len(tokens):
+                return False
         else:
             topic_idx += 1
 
