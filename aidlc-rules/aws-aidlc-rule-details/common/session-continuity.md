@@ -24,7 +24,7 @@ B) Review a previous stage ([Show available stages])
 
 ## MANDATORY: Session Continuity Instructions
 1. **Always read aidlc-state.md first** when detecting existing project
-2. **Load Learning Loop lessons** - If the learning-loop extension is enabled (check aidlc-state.md), read `aidlc-docs/lessons/footguns.md`, `aidlc-docs/lessons/decisions.md`, and `aidlc-docs/lessons/takeaways.md` at session start alongside aidlc-state.md. Before making changes to a module, grep these files for related entries.
+2. **Load Learning Loop lessons** - If the learning-loop extension is enabled (check aidlc-state.md), execute LEARNING-01: read all files in `aidlc-docs/lessons/` (if the directory exists) and grep them for relevant entries before modifying any module.
 3. **Parse current status** from the workflow file to populate the prompt
 4. **MANDATORY: Load Previous Stage Artifacts** - Before resuming any stage, automatically read all relevant artifacts from previous stages:
    - **Reverse Engineering**: Read architecture.md, code-structure.md, api-documentation.md
@@ -51,4 +51,4 @@ B) Review a previous stage ([Show available stages])
 10. **Asking questions**: ALWAYS ask clarification or user feedback questions by placing them in .md files. DO NOT place the multiple-choice questions in-line in the chat session.
 
 ## Error Handling
-If artifacts are missing or corrupted during session resumption, see [error-handling.md](error-handling.md) for guidance on recovery procedures. 
+If artifacts are missing or corrupted during session resumption, see [error-handling.md](error-handling.md) for guidance on recovery procedures.

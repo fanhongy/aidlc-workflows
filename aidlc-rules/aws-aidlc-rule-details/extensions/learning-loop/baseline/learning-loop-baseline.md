@@ -45,7 +45,7 @@ Verification items in this document are plain bullet points describing complianc
 
 ## Rule LEARNING-02: Footgun Capture
 
-**Rule**: When a VERIFY step catches a failure, or the agent corrects course on something that would cause repeated harm, the agent MUST append a structured entry to `aidlc-docs/lessons/footguns.md`. Footguns are reproducible hazards or traps - things that silently break or mislead when encountered again.
+**Rule**: When a VERIFY step catches a failure, or the agent corrects course on something that would cause repeated harm, the agent MUST append a structured entry to `aidlc-docs/lessons/footguns.md`. Create the file (and the `aidlc-docs/lessons/` directory) if it does not yet exist. Footguns are reproducible hazards or traps - things that silently break or mislead when encountered again.
 
 **Verification**:
 
@@ -57,7 +57,7 @@ Verification items in this document are plain bullet points describing complianc
 
 ## Rule LEARNING-03: Decision Recording
 
-**Rule**: When an architectural or significant technical decision is made (technology choice, pattern selection, trade-off resolution, or scope boundary), the agent MUST append a structured entry to `aidlc-docs/lessons/decisions.md` as an ADR-style record. This includes decisions made during design stages and decisions made reactively during construction.
+**Rule**: When an architectural or significant technical decision is made (technology choice, pattern selection, trade-off resolution, or scope boundary), the agent MUST append a structured entry to `aidlc-docs/lessons/decisions.md` as an ADR-style record. Create the file (and the `aidlc-docs/lessons/` directory) if it does not yet exist. This includes decisions made during design stages and decisions made reactively during construction.
 
 **Verification**:
 
@@ -70,7 +70,7 @@ Verification items in this document are plain bullet points describing complianc
 
 ## Rule LEARNING-04: Takeaway Capture
 
-**Rule**: When a fix completes or a lesson is learned from a failure, the agent MUST append a structured entry to `aidlc-docs/lessons/takeaways.md`. Takeaways are reusable insights - generalizable lessons that apply beyond the immediate fix.
+**Rule**: When a fix completes or a lesson is learned from a failure, the agent MUST append a structured entry to `aidlc-docs/lessons/takeaways.md`. Create the file (and the `aidlc-docs/lessons/` directory) if it does not yet exist. Takeaways are reusable insights - generalizable lessons that apply beyond the immediate fix.
 
 **Verification**:
 
