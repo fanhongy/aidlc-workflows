@@ -60,10 +60,10 @@ def _is_rm_rf_unsafe(command: str) -> Optional[str]:
         return "rm -r without explicit target"
 
     for target in targets:
-        target = target.strip("'\"")
+        target = target.strip('\'"')
         target = target.removeprefix("./").rstrip("/")
-        if not target:
-            return "rm -r targeting current directory"
+        if not target or target == '/':
+            return "rm -r targeting root or current directory"
         # Allow /tmp/build-* paths
         if re.match(r"^/tmp/build-[a-zA-Z0-9._-]", target):
             continue
