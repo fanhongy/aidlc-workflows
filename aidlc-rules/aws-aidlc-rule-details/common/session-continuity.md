@@ -24,8 +24,9 @@ B) Review a previous stage ([Show available stages])
 
 ## MANDATORY: Session Continuity Instructions
 1. **Always read aidlc-state.md first** when detecting existing project
-2. **Parse current status** from the workflow file to populate the prompt
-3. **MANDATORY: Load Previous Stage Artifacts** - Before resuming any stage, automatically read all relevant artifacts from previous stages:
+2. **Load Learning Loop lessons** - If the learning-loop extension is enabled (check aidlc-state.md), read `aidlc-docs/lessons/footguns.md`, `aidlc-docs/lessons/decisions.md`, and `aidlc-docs/lessons/takeaways.md` at session start alongside aidlc-state.md. Before making changes to a module, grep these files for related entries.
+3. **Parse current status** from the workflow file to populate the prompt
+4. **MANDATORY: Load Previous Stage Artifacts** - Before resuming any stage, automatically read all relevant artifacts from previous stages:
    - **Reverse Engineering**: Read architecture.md, code-structure.md, api-documentation.md
    - **Requirements Analysis**: Read requirements.md, requirement-verification-questions.md
    - **User Stories**: Read stories.md, personas.md, story-generation-plan.md
@@ -38,16 +39,16 @@ B) Review a previous stage ([Show available stages])
      `unit-of-work-dependency.md`). The exact files in each subdirectory are enumerated by the
      corresponding construction stage rules.
    - **Code Stages**: Read all code files, plans, AND all previous artifacts
-4. **Smart Context Loading by Stage**:
+5. **Smart Context Loading by Stage**:
    - **Early Stages (Workspace Detection, Reverse Engineering)**: Load workspace analysis
    - **Requirements/Stories**: Load reverse engineering + requirements artifacts
    - **Design Stages**: Load requirements + stories + architecture + design artifacts
    - **Code Stages**: Load ALL artifacts + existing code files
-5. **Adapt options** based on architectural choice and current phase
-6. **Show specific next steps** rather than generic descriptions
-7. **Log the continuity prompt** in audit.md with timestamp
-8. **Context Summary**: After loading artifacts, provide brief summary of what was loaded for user awareness
-9. **Asking questions**: ALWAYS ask clarification or user feedback questions by placing them in .md files. DO NOT place the multiple-choice questions in-line in the chat session.
+6. **Adapt options** based on architectural choice and current phase
+7. **Show specific next steps** rather than generic descriptions
+8. **Log the continuity prompt** in audit.md with timestamp
+9. **Context Summary**: After loading artifacts, provide brief summary of what was loaded for user awareness
+10. **Asking questions**: ALWAYS ask clarification or user feedback questions by placing them in .md files. DO NOT place the multiple-choice questions in-line in the chat session.
 
 ## Error Handling
 If artifacts are missing or corrupted during session resumption, see [error-handling.md](error-handling.md) for guidance on recovery procedures. 

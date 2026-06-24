@@ -9,6 +9,11 @@ aidlc-docs/
 ├── aidlc-state.md                                          # Workflow state tracker — project info, stage progress, current status
 ├── audit.md                                                # Complete audit trail — every user input, AI response, and approval with timestamps
 │
+├── lessons/                                                # 📝 LEARNING LOOP — created when the learning-loop extension is enabled
+│   ├── footguns.md                                         # Reproducible hazards and traps encountered during development
+│   ├── decisions.md                                        # Architectural decision records (ADR-style entries)
+│   └── takeaways.md                                        # Reusable lessons learned from failures and fixes
+│
 ├── inception/                                              # 🔵 INCEPTION PHASE — determines WHAT to build and WHY
 │   ├── plans/
 │   │   ├── execution-plan.md                               # Workflow visualization and phase execution decisions (always created)
@@ -100,3 +105,4 @@ aidlc-docs/
 - Application code is never placed inside `aidlc-docs/` — it goes to the workspace root. Only markdown documentation lives here.
 - The `audit.md` file is append-only and captures every interaction with ISO 8601 timestamps.
 - The `aidlc-state.md` file tracks which stages have been completed, skipped, or are in progress, along with extension configuration.
+- The `lessons/` directory is created only when the learning-loop extension is enabled. Files within it are append-only and follow the structured entry format defined by LEARNING-05.
