@@ -1,6 +1,16 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [2.6.8] - 2026-08-15
+
+The code-generation plan now honours the team's affirmed `## Testing Posture`: a team that affirms TDD/BDD/ATDD at practices-discovery gets a plan whose layers split into red-green-refactor sequences (failing tests written before the implementation), while test-after teams keep the existing layer-then-tests ordering unchanged. **Upgrade:** re-copy your `dist/<harness>/` shell into the project so the updated stage file and developer-agent persona are installed.
+
+* Code Generation's planning step (Part 1) resolves `## Testing Posture` from the active space's `memory/{project,team,org}.md` (most-specific non-empty statement; the `org.md` default applies when practices-discovery was skipped) and orders each layer's implementation and test steps to match. The posture governs ordering only; the `--test-strategy` axis still governs test volume.
+* Under a test-first posture the recommended plan structure splits each layer into Red / Green / Refactor sub-steps within the layer; cross-layer dependency ordering (data models before business logic before API) is unchanged.
+* The Part 2 generation dispatch now carries the resolved posture, and where the workspace can already run the test suite, the generation subagent records each Red step's failing output in the plan's checkbox note before implementing.
+* The developer agent's memory consult now names `## Testing Posture` alongside `## Code Style`.
+* `memory/org.md` no longer defers testing methodology to a "testing-strategy stage" that never shipped; it names practices-discovery as the capture point.
+
 ## [2.6.2] - 2026-08-13
 
 Follow-up fixes to the 2.6.1 design-output restructure (review items from #711). No artifact or stage-graph changes — this is a correctness/consistency patch. **Upgrade:** re-copy your `dist/<harness>/` shell into the project.
@@ -115,7 +125,6 @@ AI-DLC now ships a Cursor harness (`dist/cursor/`) for Cursor IDE and Cursor CLI
 * `dist/cursor/install.ts` merges existing Cursor configuration, rejects symlinks in its managed trees before reading or writing them, tracks framework ownership, preserves active-space and plugin selections, restores missing files against the selected space, removes retired receipt-owned files only when their bytes remain unchanged, and recompiles selected-plugin routing data against the upgraded core. Plugin-composed stages are rebuilt from verified prior core bytes plus their recorded contributions, and contribution sidecars relinquish values adopted by core so disabling a plugin cannot remove new core requirements; unverified pre-receipt differences and user-edited or retired files are refused before any writes.
 * Cursor follows the shared fresh-session boundary after creating a second intent, renders every prose question with fresh numbering and deterministic number-to-source-key mapping, and ignores hidden pre-intent runtime state.
 * Release binaries, doctor checks, plugin composition, packaging parity, and deterministic adapter/installer tests now include Cursor.
-
 
 ## [2.5.62] - 2026-08-08
 
