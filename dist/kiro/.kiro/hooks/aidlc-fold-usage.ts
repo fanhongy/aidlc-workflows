@@ -38,11 +38,12 @@ import { isLifecycleBoundaryCommand } from "./aidlc-state-transition-guard.ts";
 import {
   type FoldMode,
   foldTranscriptIntoLedger,
+  usageTrackingDisabled,
   writeCurrentTranscriptPath,
 } from "../tools/aidlc-usage.ts";
 
 // The Current Stage slug from the state file - a minimal substring match,
-// replicating aidlc-stop.ts's currentStageSlug so byStage keys agree. Returns ""
+// replicating aidlc-continue-workflow.ts's currentStageSlug so byStage keys agree. Returns ""
 // when the field is absent.
 function currentStageSlug(stateContent: string): string {
   const stageMatch = stateContent.match(/Current Stage\*{0,2}:?\s*`?([^\n`]*)`?/);
@@ -59,55 +60,45 @@ function isLifecycleBoundaryToolCall(name: string, input: unknown): boolean {
 }
 
 export async function run(input: string): Promise<number> {
+  if (usageTrackingDisabled()) return 0;
+  const projectDir = resolveProjectDirFromHook(import.meta.url);
+  let sessionId = "";
+  let transcriptPath: string | null = null;
+  let foldMode: FoldMode = "holdback";
   try {
-    const projectDir = resolveProjectDirFromHook(import.meta.url);
-    let sessionId = "";
-    let transcriptPath: string | null = null;
-    let foldMode: FoldMode = "holdback";
-    try {
-      const raw: unknown = JSON.parse(input);
-      if (raw !== null && typeof raw === "object") {
-        const obj = raw as Record<string, unknown>;
-        if (typeof obj.session_id === "string") sessionId = obj.session_id;
-        if (obj.hook_event_name === "PreToolUse") {
-          const toolName = typeof obj.tool_name === "string" ? obj.tool_name : "";
-          foldMode = isLifecycleBoundaryToolCall(toolName, obj.tool_input)
-            ? "flush-all"
-            : "seal-main";
-        }
-        if (typeof obj.transcript_path === "string" && obj.transcript_path.length > 0) {
-          transcriptPath = obj.transcript_path;
-        }
+    const raw: unknown = JSON.parse(input);
+    if (raw !== null && typeof raw === "object") {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj.session_id === "string") sessionId = obj.session_id;
+      if (obj.hook_event_name === "PreToolUse") {
+        const toolName = typeof obj.tool_name === "string" ? obj.tool_name : "";
+        foldMode = isLifecycleBoundaryToolCall(toolName, obj.tool_input) ? "flush-all" : "seal-main";
       }
-    } catch {
-      // Malformed / empty stdin - nothing to fold. Exit clean below.
+      if (typeof obj.transcript_path === "string") transcriptPath = obj.transcript_path;
     }
-
-    if (!transcriptPath) return 0;
-
-    // Derive the current stage the same way aidlc-stop.ts does: read the state
-    // file directly. Absent state => null so byStage is not polluted.
-    let currentStage: string | null = null;
-    try {
-      const statePath = stateFilePath(projectDir);
-      if (existsSync(statePath)) {
-        currentStage = currentStageSlug(readFileSync(statePath, "utf-8")) || null;
-      }
-    } catch {
-      currentStage = null;
-    }
-
-    if (sessionId) writeCurrentSessionId(projectDir, sessionId);
-    writeCurrentTranscriptPath(projectDir, sessionId, transcriptPath);
-    // PreToolUse seals the main assistant message. Before an engine call it
-    // also closes completed subagent groups so lifecycle rollups include their
-    // final calls; other PreToolUse events retain subagent holdback.
-    foldTranscriptIntoLedger(projectDir, transcriptPath, currentStage, foldMode, {
-      sessionId,
-    });
   } catch {
-    // Usage bookkeeping is best-effort and must never break a hook.
+    return 0;
   }
+  if (!transcriptPath) return 0;
+  let currentStage: string | null = null;
+  try {
+    const statePath = stateFilePath(projectDir);
+    if (existsSync(statePath)) {
+      currentStage = currentStageSlug(readFileSync(statePath, "utf-8")) || null;
+    }
+  } catch {
+    currentStage = null;
+  }
+
+  if (sessionId) writeCurrentSessionId(projectDir, sessionId);
+  writeCurrentTranscriptPath(projectDir, sessionId, transcriptPath);
+  // PreToolUse seals the main assistant message. Before an engine call it also
+  // closes completed subagent groups so lifecycle rollups include their final
+  // calls; other PreToolUse events retain subagent holdback. PostToolUse is the
+  // normal delayed-write fallback.
+  foldTranscriptIntoLedger(projectDir, transcriptPath, currentStage, foldMode, {
+    sessionId,
+  });
   return 0;
 }
 

@@ -18,7 +18,7 @@ how that works and where everything lives.
 
 When you run `aidlc config`, it projects the selected engine into one
 harness-specific directory (`.claude/` on Claude Code, `.kiro/` on Kiro,
-`.codex/` on Codex). That directory is the *only* part of the layout that
+`.codex/` on Codex, `.aidlc/` on opencode and GitHub Copilot). That directory is the *only* part of the layout that
 differs by harness. From then on, everything AI-DLC produces lives under one
 neutral `aidlc/` directory at your project root — organized by *what you're
 working on*, not by which harness you happen to run. You browse `aidlc/`; you

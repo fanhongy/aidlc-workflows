@@ -9,6 +9,7 @@ mode: inline
 summary_confirmation: required
 reviewer: aidlc-product-lead-agent
 reviewer_max_iterations: 2
+review_class: advisory
 produces:
   - requirements
   - requirements-analysis-questions
@@ -90,7 +91,7 @@ Extract and organize what is already known from the user's input:
 
 Evaluate coverage across six dimensions:
 1. **Functional requirements** — Core behaviors, features, use cases
-2. **Non-functional requirements** — Performance, security, scalability, reliability
+2. **Non-functional requirements** - Performance, security, scalability, reliability, observability
 3. **User scenarios** — User workflows, edge cases, error scenarios
 4. **Business context** — Goals, success metrics, stakeholders, constraints
 5. **Technical context** — Integration points, platform requirements, technology constraints
@@ -131,7 +132,8 @@ filled, append or update a `## Consolidated Summary Confirmation` entry in
 `<record>/inception/requirements-analysis/requirements-analysis-questions.md`.
 The entry MUST contain:
 
-- A clear list summarizing every answer
+- An unordered bullet list summarizing every answer (never number these summary
+  items; the following structured question starts its own response keys at 1)
 - `Does this all look correct before I generate the requirements artifact?`
 - `Looks correct` and `Request changes` options
 - A blank `[Answer]:` tag
@@ -152,18 +154,21 @@ confirmation `[Answer]:` to blank, and repeat this step. Do NOT create
 
 Create `<record>/inception/requirements-analysis/requirements.md` containing:
 - **Intent analysis** — What the user is trying to achieve (goals, not just features)
-- **Functional requirements** — Organized by feature area or domain
-- **Non-functional requirements** — Performance, security, scalability targets
+- **Functional requirements** — Organized by feature area or domain. Give every requirement a stable `FR{n}` ID (for example `FR1`) and every sub-requirement an `FR{n}.{m}` ID (for example `FR1.2`).
+- **Non-functional requirements** — Performance, security, scalability, reliability, and observability targets. Give every requirement a stable `NFR{n}` ID (for example `NFR3`).
 - **Constraints** — Technical, business, and organizational constraints
 - **Assumptions** — Documented assumptions with rationale
 - **Out of scope** — Explicitly excluded items
 - **Open questions** — Any remaining uncertainties for later stages
 
+These IDs are permanent traceability keys. Downstream stages must preserve
+them exactly rather than renumbering or replacing them with prose references.
+
 ### Step 12: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
 `bun .kiro/tools/aidlc.ts engine orchestrate report --stage requirements-analysis --result <outcome>`.
-The engine owns all lifecycle transitions and advancement.
+That `report` call owns every lifecycle transition and advancement; never perform one in prose, and never narrate this bookkeeping to the user.
 
 ### Step 13: Present Completion & Request Approval
 

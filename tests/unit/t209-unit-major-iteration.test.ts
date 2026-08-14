@@ -9,19 +9,20 @@
 // `Construction Iteration: unit-major` under `## Runtime State`, the engine
 // walks unit-major instead: for each unit in Bolt build order (outer), for each
 // design stage in graph order (inner), it emits the FIRST uncovered (stage, unit)
-// pair with the gate suppressed (false), so one unit's four design documents are
-// authored consecutively before the next unit begins. The four per-stage gates
-// are UNCHANGED: they fire late, in stage order, once the whole (stage x unit)
-// grid is covered (the fully-covered walk delegates to the stage-major
-// pick === null branch, presenting the current stage's real gate on the last
-// unit; handleApprove then advances to the next design stage, whose next re-emits
-// its gate, so the four gates cascade). code-generation (mode: subagent) is never
-// part of this walk. The early-approve per-unit coverage guard is unchanged.
+// pair with the gate suppressed (false), so one unit's design documents are
+// authored consecutively - and, since the walk's block was widened to include
+// code-generation, the unit is BUILT - before the next unit begins. The
+// per-stage gates are UNCHANGED: they fire late, in stage order, once the whole
+// (stage x unit) grid is covered (the fully-covered walk delegates to the
+// stage-major pick === null branch, presenting the current stage's real gate on
+// the last unit; handleApprove then advances to the next block stage, whose
+// next re-emits its gate, so the gates cascade). t272 pins the code-generation
+// half of the walk. The early-approve per-unit coverage guard is unchanged.
 //
 // SOURCE UNDER TEST (dist/claude/.claude/tools/aidlc-orchestrate.ts):
 //   - readConstructionIteration (strict read; only "unit-major" activates it),
-//     constructionDesignBlock, emitUnitMajorRunStage, and the emitForSlug routing
-//     branch (inline + unit-major -> emitUnitMajorRunStage).
+//     constructionUnitMajorBlock, emitUnitMajorRunStage, and the emitForSlug
+//     routing branch (unit-major -> emitUnitMajorRunStage).
 //   - aidlc-state.ts set-construction-iteration (the knob's write path).
 // NONE are exported (the tools have zero exports), so the behaviour is observable
 // only on the JSON directive the spawned engine emits, MECHANISM = cli: SPAWN
@@ -54,6 +55,7 @@ import {
   seededRecordDir,
   seededStateFile,
 } from "../harness/fixtures.ts";
+import { artifactFilename } from "../../dist/claude/.claude/tools/aidlc-lib.ts";
 
 resetAidlcEnv();
 
@@ -69,40 +71,55 @@ const RP = `aidlc/spaces/${DEFAULT_SPACE}/intents/${DEFAULT_RECORD_DIR}`;
 // "covered" for a stage once all of its produces exist on disk.
 const PRODUCES: Record<string, string[]> = {
   "functional-design": [
-    "business-logic-model",
-    "business-rules",
-    "domain-entities",
+    "entities",
+    "rules",
+    "functional-spec",
     "frontend-components",
+    "traceability",
   ],
   "nfr-requirements": [
     "performance-requirements",
     "security-requirements",
     "scalability-requirements",
     "reliability-requirements",
+    "observability-requirements",
     "tech-stack-decisions",
+    "traceability",
   ],
   "nfr-design": [
     "performance-design",
     "security-design",
     "scalability-design",
     "reliability-design",
+    "observability-design",
     "logical-components",
+    "traceability",
   ],
   "infrastructure-design": [
-    "deployment-architecture",
-    "infrastructure-services",
+    "infrastructure-specification",
     "monitoring-design",
     "cicd-pipeline",
-    "shared-infrastructure",
+    "traceability",
+  ],
+  "code-generation": [
+    "code-generation-plan",
+    "unit-test-instructions",
+    "code-summary",
+    "traceability",
   ],
 };
-// The four inline design stages, in graph order (the walk's inner list).
+// The walk's inner list in graph order: the four inline design stages, then
+// code-generation (mode: subagent, in the walk since the block filter was
+// widened per the original increment's follow-up).
 const BLOCK = [
   "functional-design",
   "nfr-requirements",
   "nfr-design",
   "infrastructure-design",
+  "code-generation",
 ];
+// The design-only prefix, for cases that pin the design-block ordering.
+const DESIGN_BLOCK = BLOCK.slice(0, 4);
 
 const tempDirs: string[] = [];
 afterEach(() => {
@@ -144,7 +161,7 @@ function constructionState(opts: {
 - **Project**: unit-major iteration test
 - **Project Type**: Greenfield
 - **Scope**: feature
-- **State Version**: 7
+- **State Version**: 8
 ${stanceLine}
 ## Runtime State
 - **Revision Count**: 0
@@ -166,7 +183,7 @@ ${iterationLine}
 - [ ] build-and-test — EXECUTE
 
 ### INCEPTION PHASE
-- [-] application-design — EXECUTE
+- [-] domain-design — EXECUTE
 
 ## Current Status
 - **Lifecycle Phase**: CONSTRUCTION
@@ -180,7 +197,7 @@ function coverUnit(proj: string, unit: string, slug: string): void {
   const dir = join(seededRecordDir(proj), "construction", unit, slug);
   mkdirSync(dir, { recursive: true });
   for (const name of PRODUCES[slug]) {
-    writeFileSync(join(dir, `${name}.md`), `# ${name} for ${unit}\n`);
+    writeFileSync(join(dir, artifactFilename(name)), `# ${name} for ${unit}\n`);
   }
 }
 
@@ -255,8 +272,35 @@ function setIteration(proj: string, value: string): { rc: number; out: string } 
   return { rc: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
+function unitVerb(
+  proj: string,
+  stage: string,
+  action: "start" | "complete",
+  unit: string,
+): { rc: number; out: string } {
+  const r = spawnSync(
+    BUN,
+    [
+      STATE,
+      "unit",
+      action,
+      "--stage",
+      stage,
+      "--unit",
+      unit,
+      "--project-dir",
+      proj,
+    ],
+    { encoding: "utf-8", env: process.env },
+  );
+  return {
+    rc: r.status ?? -1,
+    out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+  };
+}
+
 function logReviewReady(proj: string, stage: string, unit: string): void {
-  const r = spawnSync(BUN, [
+  const args = [
     LOG,
     "review",
     "--stage",
@@ -267,13 +311,14 @@ function logReviewReady(proj: string, stage: string, unit: string): void {
     unit,
     "--iteration",
     "1",
-    "--verdict",
-    "READY",
     "--project-dir",
     proj,
-  ], { encoding: "utf-8" });
-  if ((r.status ?? -1) !== 0) {
-    throw new Error(`review log failed: ${r.stdout ?? ""}${r.stderr ?? ""}`);
+  ];
+  for (const suffix of [[], ["--verdict", "READY"]]) {
+    const r = spawnSync(BUN, [...args, ...suffix], { encoding: "utf-8" });
+    if ((r.status ?? -1) !== 0) {
+      throw new Error(`review log failed: ${r.stdout ?? ""}${r.stderr ?? ""}`);
+    }
   }
 }
 
@@ -332,9 +377,27 @@ describe("t209 opt-in unit-major construction design iteration", () => {
     );
   }, 30000);
 
-  // 3: only after alpha is covered for ALL FOUR block stages does the walk move to
-  // the next unit: functional-design/beta.
-  test("3: alpha covered for all four block stages emits functional-design/beta", () => {
+  // 3: THE TIME-TO-FIRST-CODE ASSERTION. After alpha's four design stages, the
+  // walk emits code-generation/alpha - alpha is BUILT before beta's design
+  // begins. This is the widened block: the first code directive arrives after
+  // ONE unit's design documents, not after every unit's.
+  test("3: alpha's design covered emits code-generation/alpha (not functional-design/beta)", () => {
+    const proj = seedProject("unit-major");
+    seedBoltDag(proj, ["alpha", "beta"]);
+    for (const s of DESIGN_BLOCK) coverUnit(proj, "alpha", s);
+    const d = runNext(proj);
+    expect(d.kind).toBe("run-stage");
+    expect(d.stage).toBe("code-generation");
+    expect(d.unit).toBe("alpha");
+    expect(d.gate).toBe(false);
+    expect(d.produces).toContain(
+      `${RP}/construction/alpha/code-generation/code-generation-plan.md`,
+    );
+  }, 30000);
+
+  // 3b: only after alpha is covered for ALL FIVE block stages (design + build)
+  // does the walk move to the next unit: functional-design/beta.
+  test("3b: alpha fully covered incl. code-generation emits functional-design/beta", () => {
     const proj = seedProject("unit-major");
     seedBoltDag(proj, ["alpha", "beta"]);
     for (const s of BLOCK) coverUnit(proj, "alpha", s);
@@ -433,16 +496,16 @@ describe("t209 opt-in unit-major construction design iteration", () => {
     expect(d.unit).toBe("contract");
     expect(d.gate).toBe(false);
 
-    // A spec unit owes business rules and domain entities, but not the
+    // A spec unit owes rules and entities, but not the
     // service/ui-only functional-design artifacts. The kind comes from the
     // dependency artifact because the cached graph deliberately has no DAG.
     expect(d.produces).toContain(
-      `${RP}/construction/contract/functional-design/business-rules.md`,
+      `${RP}/construction/contract/functional-design/rules.md`,
     );
     expect(d.produces).toContain(
-      `${RP}/construction/contract/functional-design/domain-entities.md`,
+      `${RP}/construction/contract/functional-design/entities.md`,
     );
-    expect(d.produces?.some((path) => path.endsWith("/business-logic-model.md"))).toBe(false);
+    expect(d.produces?.some((path) => path.endsWith("/functional-spec.md"))).toBe(false);
     expect(d.produces?.some((path) => path.endsWith("/frontend-components.md"))).toBe(false);
 
     const warning =
@@ -478,5 +541,33 @@ describe("t209 opt-in unit-major construction design iteration", () => {
       "approved",
     ]);
     expect(nfr.kind).toBe("done");
+  }, 30000);
+
+  test("10: lifecycle receipts for a later unit-major stage survive its STAGE_STARTED", () => {
+    const proj = seedProject("unit-major");
+    seedBoltDag(proj, ["alpha"]);
+
+    coverUnit(proj, "alpha", "functional-design");
+    expect(unitVerb(proj, "nfr-requirements", "start", "alpha").rc).toBe(0);
+    coverUnit(proj, "alpha", "nfr-requirements");
+    expect(unitVerb(proj, "nfr-requirements", "complete", "alpha").rc).toBe(0);
+
+    coverFullGrid(proj, ["alpha"]);
+    logReviewReady(proj, "functional-design", "alpha");
+    logReviewReady(proj, "nfr-requirements", "alpha");
+
+    const functional = runReport(proj, [
+      "--stage",
+      "functional-design",
+      "--result",
+      "approved",
+    ]);
+    expect(functional.kind).toBe("done");
+
+    const nfr = runNext(proj);
+    expect(nfr.kind).toBe("run-stage");
+    expect(nfr.stage).toBe("nfr-requirements");
+    expect(nfr.unit).toBe("alpha");
+    expect(nfr.gate).toBe(true);
   }, 30000);
 });

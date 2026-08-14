@@ -38,11 +38,11 @@
 //   SP3 jump redo   (2): --stage == current; run-stage(code-generation) +
 //       resolve `.direction` === "redo".
 //   SP4 resume (2): kind==="ask"; out contains "existing workflow was found".
-//   SP5 birth (P4: --init retired, engine names intent-birth):
+//   SP5 birth (P4: --init retired, engine names intent-create):
 //     - (a) named scope on a clean workspace -> kind==="print" naming
-//       intent-birth + NO aidlc-state.md created by next (read-only — mutation
+//       intent-create + NO aidlc-state.md created by next (read-only — mutation
 //       stays conductor-side).
-//     - (b) named scope over existing state -> NOT a birth (no intent-birth
+//     - (b) named scope over existing state -> NOT a birth (no intent-create
 //       print; the old --force re-init guard is gone).
 //   SP6 scope-change (2): kind==="print" + out contains "scope-change --scope mvp".
 //   SP7 normal gate (1):
@@ -151,7 +151,7 @@ function nextDirective(p: string, args: string[] = []): any {
 
 /** Fresh CLEAN temp project — an empty workspace, NO intent record (SP5a). P9:
  *  createTestProject seeds a default record + cursor, so strip it; otherwise the
- *  engine resolves the seeded intent instead of naming intent-birth. */
+ *  engine resolves the seeded intent instead of naming intent-create. */
 function cleanProj(): string {
   const p = createTestProject();
   tempDirs.push(p);
@@ -368,12 +368,37 @@ describe("t118 differential corpus — engine vs aidlc-jump resolve (migrated fr
     expect(readFileSync(statePath(p), "utf-8")).toBe(before);
   });
 
+  test("SP4d: exact numbered resume-menu answers map to the four semantic choices", () => {
+    const p = projWithState("state-jumped.md");
+    const before = readFileSync(statePath(p), "utf-8");
+    const report = (answer: string) =>
+      directive(run(ORCHESTRATE, [
+        "report",
+        "--result",
+        "resumed",
+        "--user-input",
+        answer,
+        "--project-dir",
+        p,
+      ]));
+
+    expect(report("1").message).toContain("Re-run `next`");
+    expect(report("2").message).toContain("--direction redo");
+    expect(report("3").message).toContain("next --stage");
+    expect(report("4").message).toContain("--new-intent");
+
+    const outOfRange = report("5");
+    expect(outOfRange.kind).toBe("error");
+    expect(outOfRange.message).toContain("Accepted choices: 1/resume");
+    expect(readFileSync(statePath(p), "utf-8")).toBe(before);
+  });
+
   // ============================================================
   // Special path 5: BIRTH (P4: --init retired) — (a) named scope on a clean
-  // workspace prints the intent-birth move + creates NO state; (b) a named scope
+  // workspace prints the intent-create move + creates NO state; (b) a named scope
   // over existing state is a resume/scope-change, NOT a birth.
   // ============================================================
-  test("SP5a: named scope (clean) -> print naming intent-birth, next creates NO state (read-only)", () => {
+  test("SP5a: named scope (clean) -> print naming intent-create, next creates NO state (read-only)", () => {
     const p = cleanProj();
     const r = run(ORCHESTRATE, [
       "next",
@@ -383,7 +408,7 @@ describe("t118 differential corpus — engine vs aidlc-jump resolve (migrated fr
       p,
     ]);
     expect(directive(r).kind).toBe("print");
-    expect(directive(r).message).toContain("intent birth");
+    expect(directive(r).message).toContain("intent create");
     // Mutation stays conductor-side: next must not have birthed/scaffolded state.
     expect(existsSync(statePath(p))).toBe(false);
   });
@@ -402,7 +427,7 @@ describe("t118 differential corpus — engine vs aidlc-jump resolve (migrated fr
     ]);
     const d = directive(r);
     expect(d.kind).toBe("print");
-    expect(d.message).toContain("intent birth --scope bugfix");
+    expect(d.message).toContain("intent create --scope bugfix");
     expect(d.message).toContain(
       '--arguments "Fix duplicate todo persistence"',
     );
@@ -410,10 +435,10 @@ describe("t118 differential corpus — engine vs aidlc-jump resolve (migrated fr
     expect(existsSync(statePath(p))).toBe(false);
   });
 
-  test("SP5b: named scope over existing state -> not a birth (no intent-birth print)", () => {
+  test("SP5b: named scope over existing state -> not a birth (no intent-create print)", () => {
     const p = projWithState("state-mid-ideation.md"); // feature scope state
     const r = run(ORCHESTRATE, ["next", "--scope", "feature", "--project-dir", p]);
-    expect(r.out).not.toContain("intent-birth");
+    expect(r.out).not.toContain("intent-create");
     expect(r.out).not.toContain("Use --force to reinitialize");
   });
 

@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc engine adapter codex mint"
+            "command": "aidlc engine adapter codex record-human-turn"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc engine adapter codex dispatch-rules"
+            "command": "aidlc engine adapter codex deliver-stage-rules"
           }
         ],
         "matcher": "spawn_agent"
@@ -77,7 +77,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc engine adapter codex state-sync"
+            "command": "aidlc engine adapter codex sync-workflow-state"
           }
         ],
         "matcher": "update_plan"
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc engine adapter codex runtime-compile"
+            "command": "aidlc engine adapter codex rebuild-stage-graph"
           }
         ],
         "matcher": "Bash"
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc engine adapter codex stop"
+            "command": "aidlc engine adapter codex continue-workflow"
           }
         ]
       }

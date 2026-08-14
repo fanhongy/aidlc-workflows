@@ -89,7 +89,7 @@ const DRIVE_TIMEOUT_MS = Math.max(120_000, TEST_TIMEOUT_MS - 15_000);
 // Known-answer literals from the SHIPPED handler / fixture (see header).
 const SCANNED_EVENT = "WORKSPACE_SCANNED"; // aidlc-utility.ts:1914
 const PROJECT_TYPE = "Greenfield"; // detectWorkspace :1666 for the bare-README stub
-const STATE_VERSION = "7"; // aidlc-utility.ts:2051 (hard literal)
+const STATE_VERSION = "8"; // aidlc-utility.ts state template (hard literal)
 const COMPLETED_INIT = "3"; // init-phase stage count (:2009 -> :2071)
 const INIT_STDOUT_TYPE_LINE = "Project type: Greenfield"; // verbatim init stdout :2151
 const STOP_AFTER_INIT = { toolName: "Bash", resultIncludes: INIT_STDOUT_TYPE_LINE } as const;
@@ -103,7 +103,7 @@ function countCompletedCheckboxes(stateText: string): number {
 describe("t70 /aidlc birth on a greenfield stub (sdk)", () => {
   // -------------------------------------------------------------------------
   // P4: the user-facing --init is retired; naming a scope on a fresh workspace
-  // BIRTHS the first intent (the engine NAMES intent-birth, the conductor runs
+  // BIRTHS the first intent (the engine NAMES intent-create, the conductor runs
   // it). The deterministic birth tool classifies the greenfield-todo stub and
   // writes aidlc-state.md into the BORN intent's record. Every .sh state-grep is
   // re-expressed against the on-disk per-intent state fields / the typed audit

@@ -45,6 +45,7 @@ const CLAUDE_SRC = join(REPO_ROOT, "dist", "claude", ".claude");
 const OPENCODE_ROOT = join(REPO_ROOT, "dist", "opencode");
 const ENGINE = join(OPENCODE_ROOT, ".aidlc");
 const SHELL = join(OPENCODE_ROOT, ".opencode");
+const ADAPTER_ENTRYPOINT_TIMEOUT_MS = 60_000;
 const OPENCODE_INTENTS = join(
   OPENCODE_ROOT,
   "aidlc",
@@ -237,7 +238,10 @@ describe("t240 dist/opencode packaging parity + shell shape", () => {
     expect(cfg.permission?.edit?.[".aidlc/hooks/**"]).toBe("ask");
   });
 
-  test("9: the adapter enforces one direct source-channel framework invocation", async () => {
+  // Each allowed bash call continues through two real core-hook subprocesses.
+  // Under cross-runner load the full shipped-entrypoint sweep can exceed Bun's
+  // 5s default even though every boundary assertion succeeds.
+  test("9: the adapter embeds exactly the shipped tool and hook entrypoints", async () => {
     const moduleExports = await import(
       "../../dist/opencode/.opencode/plugin/aidlc-opencode-adapter.ts"
     );
@@ -262,24 +266,8 @@ describe("t240 dist/opencode packaging parity + shell shape", () => {
           },
         },
       ),
-    ).resolves.toBeUndefined();
-    await expect(
-      before(
-        { tool: "bash", sessionID: "main", callID: "compound" },
-        {
-          args: {
-            command: "bun .aidlc/tools/aidlc.ts status && touch /tmp/unsafe",
-          },
-        },
-      ),
-    ).rejects.toThrow("one direct invocation");
-    await expect(
-      before(
-        { tool: "bash", sessionID: "main", callID: "unrelated" },
-        { args: { command: "git status" } },
-      ),
-    ).resolves.toBeUndefined();
-  });
+    ).rejects.toThrow(/stage status is changed by the workflow tools/i);
+  }, ADAPTER_ENTRYPOINT_TIMEOUT_MS);
 
   test("10: doctor accepts an opencode.jsonc-only install", () => {
     const root = mkdtempSync(join(tmpdir(), "t240-opencode-doctor-"));

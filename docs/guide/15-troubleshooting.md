@@ -70,16 +70,7 @@ hooks and permission/trust entries consistently select the native command.
 
 ### Native channel versus copy-channel Bun
 
-Native projects route all 17 hook sources through the self-contained `aidlc`
-binary and do not require Bun. Run `aidlc doctor` to verify the active command
-pointer and native host wiring.
-
-Copied `dist/<harness>/` projects still execute the TypeScript hook files with
-Bun. If Bun is missing from the PATH seen by non-interactive host processes,
-those hooks do not fire. The roster includes mint-presence, dispatch-rules,
-state-transition, reviewer-scope, review-freeze, plan-approval, audit, sensor,
-runtime compile, token-usage fold, subagent, stop, state validation, statusline
-sync, session start/end, and the statusline command.
+All 17 TypeScript hooks (`aidlc-record-human-turn.ts`, `aidlc-deliver-stage-rules.ts`, `aidlc-plan-approval-guard.ts`, `aidlc-state-transition-guard.ts`, `aidlc-reviewer-scope.ts`, `aidlc-review-freeze.ts`, `aidlc-write-audit-log.ts`, `aidlc-run-sensors.ts`, `aidlc-rebuild-stage-graph.ts`, `aidlc-fold-usage.ts`, `aidlc-log-subagent.ts`, `aidlc-continue-workflow.ts`, `aidlc-validate-state.ts`, `aidlc-sync-workflow-state.ts`, `aidlc-session-start.ts`, `aidlc-session-end.ts`, `aidlc-statusline.ts`) require `bun`. If `bun` is missing or not on PATH for non-interactive shells, these hooks will not fire.
 
 ```bash
 # macOS / Linux
@@ -101,6 +92,10 @@ set by `npm install -g bun` is sufficient.
 ### Reviewer tool calls refused ("reviewer read-scope: ...")
 
 During a per-unit Construction review, the reviewer-scope hook refuses the dispatched reviewer's tool calls that reach into sibling units' `construction/` paths (the stage-protocol §12a read-scope bound); the refusal message names the scoped unit and the passed contract paths, and each refusal records a `REVIEWER_SCOPE_BLOCKED` audit row. If your own source tree contains a `construction/` directory unrelated to AI-DLC units (so legitimate reviewer reads are being refused), set `AIDLC_DISABLE_REVIEWER_SCOPE_HOOK=1` to disable enforcement; the prose bound still governs. A reviewer being refused with NO review in flight means a stale dispatch record - check `/aidlc --doctor`'s hook-drop counters (`reviewer-scope.drops`) and delete `<record>/.aidlc-reviewer-dispatch.json` if present (records older than 6 hours are ignored and cleaned automatically).
+
+### Statusline shows a cost segment you don't want (or usage tracking concerns)
+
+On Claude Code, per-stage token usage and cost tracking is on by default: the fold-usage hook records transcript usage into a gitignored local ledger (`aidlc/.aidlc-sessions/usage-ledger.json`), the statusline appends `↑<in> ↓<out> $<usd>`, and completion audit events carry cost rollups. Nothing is transmitted anywhere (metrics emission is separately opt-in via `AIDLC_METRICS_ENDPOINT`). To turn all local tracking off, set `AIDLC_DISABLE_USAGE_TRACKING=1`: the ledger stops updating, the statusline segment disappears, and completion events add no rollup fields. An existing ledger is left on disk; delete it manually if you also want the history gone. Unsetting the flag resumes tracking.
 
 ### Hook not configured
 
@@ -274,18 +269,7 @@ The `--doctor` utility command validates your setup. Run it whenever something s
 /aidlc --doctor
 ```
 
-It checks the self-contained runtime (or Bun for a copy install), all 17
-framework hooks wired by the host, project structure, workspace shell,
-state/audit consistency, hook heartbeats, active command and rollback pointers,
-project pins and version skew, transaction recovery, update cache, plugin
-composition, graph integrity, scope and stage schemas, graph references, and
-keyword overlap. Passing advisory rows include **Rule drift**, **Paired sensor
-coverage**, uncommitted workspace records, and, when `repos.json` exists,
-declared-repo and managed-`.gitignore` drift. A `[degraded]` hook-drop row fails
-doctor; an `[advisory]` row remains passing. Exit is 0 on full pass, 1 on failed
-checks, or 2 for invalid machine configuration. The report writes to stdout.
-Doctor is read-only except for an explicitly allowed update-cache refresh and,
-once an intent exists, its normal health-check audit rows.
+It checks: prerequisite (`bun`), hook availability (every hook `settings.json` wires — all 17 framework hooks — must exist in `.claude/hooks/`, and a wired-but-missing hook fails loudly), project structure (`settings.json`), workspace shell readiness (`.claude/` + `aidlc/spaces/default/memory/`), state/audit consistency, hook heartbeats, graph integrity (no cycles, every graph entry has a file), scope validation across all 9 scopes, stage schema + graph references, and keyword overlap across scopes. Passing advisory rows include **Rule drift**, **Paired sensor coverage**, uncommitted workspace records, and, when `repos.json` exists, declared-repo and managed-`.gitignore` drift. **Hook drops** is conditional: a hook that silently degraded (e.g. a plugin compose that could not apply a contribution, or a failed recompile) records a severity-tagged line to `<hooks-health>/<hook>.drops`; a `[degraded]` drop **fails** doctor (so a CI gate catches a half-applied plugin), while an `[advisory]` drop (an expected/benign condition) is a passing row. The plugin compose hook rewrites its drops file each run, so fixing the cause and re-composing self-clears it. Exits 0 on full pass, 1 on any failure; the report writes to stdout either way. `--doctor` is **read-only**: on a fresh shell with no intent yet it creates nothing — safe to run before the first intent is born, as the first thing you try when something seems off. Once an intent exists it records a `HEALTH_CHECKED` (and `GUARDRAIL_LOADED`) audit row.
 
 When a workflow has issues, `--doctor` also prints a **Workflow diagnosis** section listing structured findings (unresolved gates, a stale or missing runtime graph, cold hooks, and similar "it will not advance" causes) — the same analysis `--doctor --export` writes to its report.
 

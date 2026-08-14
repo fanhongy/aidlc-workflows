@@ -20,7 +20,7 @@ export interface ProjectHarness {
   frameworkVersion?: string;
 }
 
-const HARNESS_PRECEDENCE = [".claude", ".kiro", ".codex", ".aidlc"] as const;
+const HARNESS_PRECEDENCE = [".claude", ".kiro", ".codex", ".cursor", ".aidlc"] as const;
 
 function markerRecord(path: string): Record<string, unknown> {
   let value: unknown;
@@ -189,40 +189,47 @@ export function runtimeHarnessDir(projectDir = runtimeProjectDir()): string {
   return discoverProjectHarnesses(projectDir)[0]?.harnessDir ?? ".claude";
 }
 
-function packagedDistributions(harnessDir: string): string[] {
-  const runtimeRoot = join(dirname(process.execPath), "runtime");
-  let entries: Dirent[];
+function readHarnessName(root: string): string | null {
   try {
-    entries = readdirSync(runtimeRoot, { withFileTypes: true });
+    const parsed = JSON.parse(
+      readFileSync(join(root, "tools", "data", "harness.json"), "utf-8"),
+    ) as { name?: unknown };
+    return typeof parsed.name === "string" && parsed.name.trim()
+      ? parsed.name.trim()
+      : null;
   } catch {
-    return [];
+    return null;
   }
-  const distributions = new Set<string>();
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const identity = discoverProjectHarnesses(join(runtimeRoot, entry.name))
-      .find((candidate) => candidate.harnessDir === harnessDir);
-    if (identity) distributions.add(identity.distribution);
-  }
-  return [...distributions].sort();
 }
 
-function distributionFor(harnessDir: string, projectDir = runtimeProjectDir()): string {
+export function runtimeHarnessName(
+  projectDir = runtimeProjectDir(),
+  harnessDir = runtimeHarnessDir(projectDir),
+): string {
   const explicit = process.env.AIDLC_HARNESS_NAME?.trim();
   if (explicit) return explicit;
 
-  const project = discoverProjectHarnesses(projectDir)
-    .find((candidate) => candidate.harnessDir === harnessDir);
-  if (project) return project.distribution;
+  const projectRoot =
+    basename(projectDir) === harnessDir && existsSync(join(projectDir, "tools"))
+      ? projectDir
+      : join(projectDir, harnessDir);
+  for (const root of [projectRoot, MODULE_HARNESS_ROOT]) {
+    const name = readHarnessName(root);
+    if (name) return name;
+  }
 
-  const module = harnessIdentity(MODULE_HARNESS_ROOT);
-  if (module?.harnessDir === harnessDir) return module.distribution;
-
-  const packaged = packagedDistributions(harnessDir);
-  if (packaged.length === 1) return packaged[0];
-  const conventional = harnessDir.replace(/^\./, "");
-  if (packaged.includes(conventional)) return conventional;
+  // Copilot and OpenCode intentionally share .aidlc. Their harness.json name
+  // above is the authoritative discriminator; retain OpenCode only as the
+  // metadata-unavailable compatibility fallback.
+  if (harnessDir === ".aidlc") return "opencode";
+  if (harnessDir === ".codex") return "codex";
+  if (harnessDir === ".kiro") return "kiro";
+  if (harnessDir === ".cursor") return "cursor";
   return "claude";
+}
+
+function distributionFor(harnessDir: string, projectDir = runtimeProjectDir()): string {
+  return runtimeHarnessName(projectDir, harnessDir);
 }
 
 function explicitHarnessRoot(harnessDir: string, distribution: string): string | null {
@@ -309,13 +316,20 @@ export function resolveSkillsPath(
     ...location,
     harnessDir,
   });
-  if (harnessDir !== ".codex" || existsSync(harnessSkills)) return harnessSkills;
-  return join(
-    dirname(resolveHarnessRoot({ ...location, harnessDir })),
-    ".agents",
-    "skills",
-    ...segments,
-  );
+  const distribution = location.distribution ??
+    runtimeHarnessName(projectDir, harnessDir);
+  const distributionRoot = dirname(resolveHarnessRoot({
+    ...location,
+    harnessDir,
+    distribution,
+  }));
+  if (distribution === "copilot") {
+    return join(distributionRoot, ".github", "skills", ...segments);
+  }
+  if (distribution === "codex" && !existsSync(harnessSkills)) {
+    return join(distributionRoot, ".agents", "skills", ...segments);
+  }
+  return harnessSkills;
 }
 
 export function resolveDistributionPath(

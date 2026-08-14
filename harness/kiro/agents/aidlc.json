@@ -79,7 +79,7 @@
       },
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} engine adapter kiro pretool-block",
+        "command": "{{INVOKE}} engine adapter kiro guard-tool-call",
         "timeout_ms": 15000
       },
       {
@@ -94,7 +94,7 @@
       },
       {
         "matcher": "subagent",
-        "command": "{{INVOKE}} engine adapter kiro dispatch-rules",
+        "command": "{{INVOKE}} engine adapter kiro deliver-stage-rules",
         "timeout_ms": 15000
       },
       {
@@ -111,12 +111,12 @@
       },
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} engine adapter kiro runtime-compile",
+        "command": "{{INVOKE}} engine adapter kiro rebuild-stage-graph",
         "timeout_ms": 45000
       },
       {
         "matcher": "todo_list",
-        "command": "{{INVOKE}} engine adapter kiro state-sync"
+        "command": "{{INVOKE}} engine adapter kiro sync-workflow-state"
       },
       {
         "matcher": "subagent",
@@ -125,7 +125,7 @@
     ],
     "stop": [
       {
-        "command": "{{INVOKE}} engine adapter kiro stop",
+        "command": "{{INVOKE}} engine adapter kiro continue-workflow",
         "timeout_ms": 30000
       }
     ]

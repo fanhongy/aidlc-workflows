@@ -6,6 +6,7 @@ import {
   auditFilePath,
   cloneIdPath,
   errorMessage,
+  hasUnsafeSingleLineCharacter,
   isoTimestamp,
   parseFieldArgs,
   relativeRecordDir,
@@ -63,6 +64,17 @@ const VALID_EVENT_TYPES = new Set([
   // and complete-workflow).
   "REVIEW_REQUESTED",
   "REVIEW_COMPLETED",
+  // Unit-of-work lifecycle on INLINE per-unit Construction stages (for_each:
+  // unit-of-work, mode: inline) — emitted by `aidlc-state.ts unit
+  // start|pause|resume|complete`. UNIT_COMPLETED is the completion receipt the
+  // engine's coverage walk prefers over bare artifact existence (artifacts are
+  // evidence checked AT the receipt, never the transition itself); UNIT_PAUSED
+  // carries Reason + Next Action so a resumed session lands on the exact
+  // checkpoint. The autonomous swarm path keeps its own SWARM_UNIT_* ledger.
+  "UNIT_STARTED",
+  "UNIT_PAUSED",
+  "UNIT_RESUMED",
+  "UNIT_COMPLETED",
   // Artifact events (hook-emitted)
   "ARTIFACT_CREATED",
   "ARTIFACT_UPDATED",
@@ -90,6 +102,9 @@ const VALID_EVENT_TYPES = new Set([
   "PLUGIN_SELECTION_CHANGED",
   "DEPTH_CHANGED",
   "TEST_STRATEGY_CHANGED",
+  // Per-run review-class override changed (config-change --review). The
+  // effective class each stage runs at is resolved at directive emission.
+  "REVIEW_CLASS_CHANGED",
   // Adaptive composer: an in-flight plan re-shape (pending-stage suffix flips
   // via the recompose verb). Emitted by aidlc-utility.ts handleRecompose.
   "RECOMPOSED",
@@ -178,6 +193,10 @@ const EVENT_HEADINGS: Record<string, string> = {
   SUMMARY_CONFIRMATION_RECORDED: "Summary Confirmation Recorded",
   REVIEW_REQUESTED: "Review Requested",
   REVIEW_COMPLETED: "Review Completed",
+  UNIT_STARTED: "Unit Started",
+  UNIT_PAUSED: "Unit Paused",
+  UNIT_RESUMED: "Unit Resumed",
+  UNIT_COMPLETED: "Unit Completed",
   ARTIFACT_CREATED: "Artifact Created",
   ARTIFACT_UPDATED: "Artifact Updated",
   ARTIFACT_REUSED: "Artifact Reused",
@@ -191,6 +210,7 @@ const EVENT_HEADINGS: Record<string, string> = {
   PLUGIN_SELECTION_CHANGED: "Plugin Selection Change",
   DEPTH_CHANGED: "Depth Change",
   TEST_STRATEGY_CHANGED: "Test Strategy Change",
+  REVIEW_CLASS_CHANGED: "Review Class Change",
   RECOMPOSED: "Plan Recomposed",
   ERROR_LOGGED: "Error Logged",
   RECOVERY_COMPLETED: "Recovery Completed",
@@ -256,6 +276,8 @@ const CLI_RESERVED_EVENT_TYPES = new Set([
   "SUMMARY_CONFIRMATION_RECORDED",
   "ARTIFACT_CREATED",
   "ARTIFACT_UPDATED",
+  "REVIEW_REQUESTED",
+  "REVIEW_COMPLETED",
 ]);
 
 function refuseReservedCliEvent(eventType: string): void {
@@ -292,11 +314,80 @@ export interface AuditEntryInput {
   fields: Record<string, string>;
 }
 
+// Authority-bearing events: rows the engine's guards read as authorization
+// evidence — human presence (humanActedSinceGate), gate resolutions, interview
+// answers (one-answer-per-human-turn), reviewer receipts
+// (verifyReviewerPrecondition), swarm attempt/convergence (the finalize and
+// artifact-guard boundaries), and the autonomy grant. Each has exactly one owning emitter that
+// reaches appendAuditEntry through the library import (hooks, aidlc-state,
+// aidlc-log, aidlc-swarm, aidlc-bolt). The public CLI refuses them so a
+// conductor cannot mint authority it does not have; everything else stays
+// CLI-appendable as the diagnostic escape hatch. Test fixtures that simulate
+// the owning emitters set AIDLC_ALLOW_DIRECT_AUDIT_EVENTS=1 (the same escape
+// idiom as AIDLC_ALLOW_DIRECT_STATE_TRANSITIONS in aidlc-state.ts).
+export const CLI_PROTECTED_EVENT_TYPES = new Set([
+  "HUMAN_TURN",
+  "GATE_APPROVED",
+  "GATE_REJECTED",
+  "QUESTION_ANSWERED",
+  "REVIEW_REQUESTED",
+  "REVIEW_COMPLETED",
+  "SWARM_STARTED",
+  "SWARM_UNIT_CONVERGED",
+  "AUTONOMY_MODE_SET",
+  // Unit lifecycle receipts: routing trusts UNIT_COMPLETED as the completion
+  // signal (unitSettled) and UNIT_PAUSED as the hard-stop checkpoint, and the
+  // owning verb verifies artifacts before committing — a CLI-forged receipt
+  // would skip that verification. Owned by `aidlc-state.ts unit`.
+  "UNIT_STARTED",
+  "UNIT_PAUSED",
+  "UNIT_RESUMED",
+  "UNIT_COMPLETED",
+]);
+
+function directAuditEventsAllowed(): boolean {
+  return process.env.AIDLC_ALLOW_DIRECT_AUDIT_EVENTS === "1";
+}
+
+function refuseProtectedEvent(eventType: string): never {
+  jsonError(
+    `Direct emission of ${eventType} is blocked: it is an authority-bearing receipt owned by its ` +
+      "emitting tool or hook (gate resolutions and approvals come from aidlc-orchestrate.ts report, " +
+      "interview answers and reviews from aidlc-log.ts, human presence from the prompt-submit hook). " +
+      "The audit CLI appends diagnostic events only."
+  );
+}
+
+// Field keys that can spoof event queries. A caller-supplied `Event` field
+// lands as a SECOND `**Event**:` line, and the multiline regex in
+// findAllEvents matches ANY line of a block — so a smuggled `--field
+// Event=HUMAN_TURN` on a harmless event type would register as a forged event
+// in every query. `Timestamp` is deliberately NOT reserved: several owning
+// emitters pass it as a documented field (park/unpark rows), and it cannot
+// spoof — the emitter's own `**Timestamp**:` line is written first and every
+// parser takes the first match.
+const RESERVED_FIELD_KEYS = new Set(["Event"]);
+const AUDIT_FIELD_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9 ._()/-]*$/;
+
 function validateAuditEntry(entry: AuditEntryInput): void {
   if (!VALID_EVENT_TYPES.has(entry.eventType)) {
     throw new Error(
       `Invalid event type: ${entry.eventType}. Must be one of: ${[...VALID_EVENT_TYPES].join(", ")}`
     );
+  }
+  for (const key of Object.keys(entry.fields)) {
+    if (RESERVED_FIELD_KEYS.has(key)) {
+      throw new Error(
+        `Reserved field key: ${key}. The emitter writes **${key}**: itself; a caller-supplied ` +
+          "value would forge a second matching line and spoof multiline event queries."
+      );
+    }
+    if (!AUDIT_FIELD_KEY_PATTERN.test(key)) {
+      throw new Error(
+        `Invalid audit field key: ${JSON.stringify(key)}. Field keys must match ` +
+          `${AUDIT_FIELD_KEY_PATTERN} so they remain one Markdown label on one physical line.`
+      );
+    }
   }
 }
 
@@ -309,9 +400,9 @@ function renderAuditBlock(
   block += `**Timestamp**: ${timestamp}\n`;
   block += `**Event**: ${entry.eventType}\n`;
   for (const [key, value] of Object.entries(entry.fields)) {
-    // Escape CR/LF in values so a malicious or malformed input (e.g., a file
-    // path containing '\n**Event**: FAKE\n') cannot forge an audit entry.
-    const safeValue = String(value).replace(/\r?\n/g, "\\n");
+    // Escape every JavaScript line terminator in values so a malicious or
+    // malformed input cannot forge a second audit field or event line.
+    const safeValue = String(value).replace(/\r\n?|\n|\u2028|\u2029/g, "\\n");
     block += `**${key}**: ${safeValue}\n`;
   }
   return `${block}\n---\n`;
@@ -441,6 +532,9 @@ export function handleAppend(
   fields: Record<string, string>,
   projectDir: string
 ): void {
+  if (CLI_PROTECTED_EVENT_TYPES.has(eventType) && !directAuditEventsAllowed()) {
+    refuseProtectedEvent(eventType);
+  }
   const result = appendAuditEntry(eventType, fields, projectDir);
   jsonSuccess(result);
 }
@@ -478,6 +572,15 @@ function handleAppendBatch(rawEntries: string, projectDir: string): void {
       fields: fields as Record<string, string>,
     };
   });
+  // Same ownership floor as `append`: a batch must not smuggle an
+  // authority-bearing receipt among diagnostic rows. The engine's own batch
+  // caller (handleSingleReport's synthetic STAGE_STARTED/STAGE_COMPLETED pair)
+  // emits no protected types, so the single-stage path is unaffected.
+  for (const entry of entries) {
+    if (CLI_PROTECTED_EVENT_TYPES.has(entry.eventType) && !directAuditEventsAllowed()) {
+      refuseProtectedEvent(entry.eventType);
+    }
+  }
   jsonSuccess(appendAuditEntries(entries, projectDir));
 }
 
@@ -488,6 +591,29 @@ function handleAppendRaw(
   body: string,
   projectDir: string
 ): void {
+  if (hasUnsafeSingleLineCharacter(heading)) {
+    jsonError("append-raw heading must be printable text on one physical line");
+  }
+  // A raw body is written verbatim, and every event query (findAllEvents,
+  // auditBlockField) matches `**Event**:` lines anywhere in a block — so a raw
+  // body carrying an `**Event**: <taxonomy event>` line IS that event to every
+  // reader, timestamp and all. Refuse taxonomy names outright (canonical events
+  // go through `append`, which validates ownership); non-taxonomy Event lines
+  // (custom diagnostics) stay allowed — no query resolves them to authority.
+  const expandedBody = body.replace(/\\n/g, "\n");
+  for (const raw of expandedBody.split(/\r\n?|\n|\u2028|\u2029/)) {
+    const line = raw.startsWith("- ") ? raw.slice(2) : raw;
+    if (!line.startsWith("**Event**:")) continue;
+    const value = line.slice("**Event**:".length).trim();
+    if (VALID_EVENT_TYPES.has(value)) {
+      jsonError(
+        `append-raw refuses a body carrying **Event**: ${value} — that line would register as a ` +
+          "canonical audit event to every reader. Emit taxonomy events through their owning tool " +
+          "(or `append` for diagnostic types); append-raw is for free-form notes only."
+      );
+    }
+  }
+
   const ts = isoTimestamp();
 
   if (!acquireAuditLock(projectDir)) {
@@ -498,8 +624,6 @@ function handleAppendRaw(
     const path = ensureAuditFile(projectDir);
 
     // Interpret literal \n sequences in the body as actual newlines
-    const expandedBody = body.replace(/\\n/g, "\n");
-
     let block = `\n## ${heading}\n`;
     block += `**Timestamp**: ${ts}\n`;
     block += `${expandedBody}\n`;

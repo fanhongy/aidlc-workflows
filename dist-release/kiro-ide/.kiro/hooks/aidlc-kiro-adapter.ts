@@ -27,23 +27,27 @@
 //   4. The tool name arrives as the IDE tool name: `fs_write`, `str_replace`,
 //      `fs_append`, `execute_bash`, etc.
 //
-// Payload acquisition is GATED to the two payload-dependent targets
-// (audit-and-sensors, log-subagent). Every other target is payload-independent
-// and never touches stdin — block fires on EVERY PreToolUse, and a 2s stall on
-// a never-closing stdin there would be felt on every tool call.
+// Payload acquisition is GATED to the three tool-payload targets plus the
+// lifecycle boundaries that carry modern session identity (SessionStart and
+// Stop). Every other target is payload-independent and never touches stdin —
+// block fires on EVERY PreToolUse, and a 2s stall on a never-closing stdin
+// there would be felt on every tool call.
 //
 // Consequences, by target:
 //   - audit-and-sensors: scrape the written file path from toolResult prose
 //     (strict patterns, fail-open) and feed the core hooks the Claude-shaped
 //     {tool_input:{file_path}}.
-//   - runtime-compile: the command is unrecoverable, so drop the command
+//   - rebuild-stage-graph: the command is unrecoverable, so drop the command
 //     filter and always forward — the core hook self-gates on the audit tail.
 //   - state-sync: payload-independent — the core hook reads the latest
 //     STAGE_STARTED slug from the audit tail (no task payload needed).
 //   - log-subagent: recovers the delegate's identity from the result prose or
 //     the 1.x `subagent_<agent>` tool name, plus the message (#459/#543).
-//   - session-start/session-end/stop: no payload needed; build the same
-//     fixed inputs as before.
+//   - session-start: retain the modern session_id (or the legacy synthetic id)
+//     in workspace-local runtime state.
+//   - stop: prefer the event-local modern session_id; use retained identity for
+//     the legacy channel and broken modern payloads.
+//   - session-end: read retained identity without probing payload.
 //
 // session-start emits {"additionalContext": "..."} — Kiro's context channel is
 // plain stdout at exit 0, so the shim unwraps the JSON and prints the text.
@@ -52,8 +56,9 @@
 // Usage (registered in .kiro/hooks/aidlc-*.json — the IDE's v2 hook schema,
 // {"version":"v1","hooks":[{name,trigger,matcher,action}]}):
 //   aidlc engine adapter kiro-ide <target>
-// where <target> ∈ mint | block | session-start | audit-and-sensors |
-//                  runtime-compile | state-sync | log-subagent | stop |
+// where <target> ∈ record-human-turn | enforce-approval-gate | session-start |
+//                  audit-and-sensors | rebuild-stage-graph |
+//                  sync-workflow-state | log-subagent | continue-workflow |
 //                  session-end
 
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -64,12 +69,14 @@ import {
   humanActedSinceGate,
   humanPresenceGuardDisabled,
   isAutonomousMode,
+  markHumanTurn,
   recordHookDrop,
   resolveProjectDirFromHook,
+  sessionsDir,
   stateFilePath,
 } from "../tools/aidlc-lib.ts";
 import { appendAuditEntry } from "../tools/aidlc-audit.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const HOOKS_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -79,6 +86,7 @@ const HOOKS_DIR = dirname(fileURLToPath(import.meta.url));
 // captures have empty inputs; later 1.x builds populate some PreToolUse and
 // delegation inputs (#543), so normalization preserves either shape.
 interface IdeHookContext {
+  sessionId?: string;
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
@@ -90,10 +98,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-// The two targets whose forward depends on the tool payload. Every other
+// The three targets whose forward depends on the tool payload. Every other
 // target builds a fixed input (or reads only the filesystem), so it skips
 // payload acquisition entirely and keeps its zero-latency path.
-const PAYLOAD_TARGETS = new Set(["audit-and-sensors", "log-subagent"]);
+const PAYLOAD_TARGETS = new Set([
+  "audit-and-sensors",
+  "log-subagent",
+  "rebuild-stage-graph",
+]);
+const SESSION_ID_TARGETS = new Set(["session-start", "continue-workflow"]);
+const INPUT_TARGETS = new Set([...PAYLOAD_TARGETS, ...SESSION_ID_TARGETS]);
+const LEGACY_SESSION_ID = "kiro-ide-legacy-current";
+const KIRO_IDE_SESSION_FILE = ".kiro-ide-current-session";
 
 export async function run(
   target: string,
@@ -102,7 +118,7 @@ export async function run(
 ): Promise<number> {
 // LOAD-BEARING (not debug-only): this is the base dir for resolve(projectDir,
 // rawPath) that turns the IDE's workspace-relative write path into the absolute
-// path the core audit-logger's record-root check needs — the core fix of this
+// path the core write-audit-log's record-root check needs — the core fix of this
 // harness. It also feeds hookDebug/recordHookDrop. Do not remove it.
 const projectDir = resolveProjectDirFromHook(import.meta.url);
 
@@ -113,7 +129,7 @@ const projectDir = resolveProjectDirFromHook(import.meta.url);
 // camelCase {toolName, toolArgs, toolResult, toolSuccess}; 1.x snake_case
 // {tool_name, tool_input, tool_response} (no success flag) — accept both.
 let ide: IdeHookContext = {};
-if (PAYLOAD_TARGETS.has(target)) {
+if (INPUT_TARGETS.has(target)) {
   let raw = input;
   if (raw.trim().length === 0) raw = process.env.USER_PROMPT ?? "";
   if (raw.trim().length > 0) {
@@ -126,6 +142,7 @@ if (PAYLOAD_TARGETS.has(target)) {
         const rawArgs = parsed.toolArgs ?? parsed.tool_input;
         const rawResult = parsed.toolResult ?? parsed.tool_response;
         const rawSuccess = parsed.toolSuccess ?? parsed.tool_success;
+        const rawSessionId = parsed.session_id;
         const malformedFields: string[] = [];
         if (rawName !== null && rawName !== undefined && typeof rawName !== "string") {
           malformedFields.push("toolName");
@@ -144,6 +161,7 @@ if (PAYLOAD_TARGETS.has(target)) {
           malformedFields.push("toolSuccess");
         }
         ide = {
+          sessionId: typeof rawSessionId === "string" ? rawSessionId : undefined,
           toolName: typeof rawName === "string" ? rawName : undefined,
           toolArgs: isRecord(rawArgs) ? rawArgs : undefined,
           toolResult: typeof rawResult === "string" ? rawResult : "",
@@ -163,8 +181,37 @@ hookDebug(projectDir, "kiro-adapter", "invoked", {
   hasStdinPayload: input.trim().length > 0,
   hasUserPrompt: (process.env.USER_PROMPT ?? "").length > 0,
   toolName: ide.toolName ?? "",
+  sessionId: ide.sessionId ?? "",
   toolResult: (ide.toolResult ?? "").slice(0, 160),
 });
+
+// Persist the effective SessionStart identity under the existing gitignored
+// runtime dir so separate adapter processes can forward it to payload-free
+// SessionEnd and use it when a legacy or broken-channel Stop has no event-local
+// session_id. A legacy promptSubmit writes the synthetic id, replacing any
+// stale modern value from a prior IDE generation in the same workspace.
+function rememberKiroIdeSessionId(sessionId: string): void {
+  if (!sessionId) return;
+  try {
+    const dir = sessionsDir(projectDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, KIRO_IDE_SESSION_FILE), `${sessionId}\n`, "utf-8");
+  } catch {
+    // Per-user runtime state; lifecycle hooks retain the legacy fallback.
+  }
+}
+
+function rememberedKiroIdeSessionId(): string {
+  try {
+    const sessionId = readFileSync(
+      join(sessionsDir(projectDir), KIRO_IDE_SESSION_FILE),
+      "utf-8",
+    ).trim();
+    return sessionId || LEGACY_SESSION_ID;
+  } catch {
+    return LEGACY_SESSION_ID;
+  }
+}
 
 // --- mint: record a HUMAN_TURN event on prompt submit ---
 //
@@ -178,11 +225,19 @@ hookDebug(projectDir, "kiro-adapter", "invoked", {
 // prompt in a project that never ran the framework does not scaffold audit
 // shards. Fail-open (try/catch, exit 0) so a mint failure never blocks the
 // human's turn.
-if (target === "mint") {
+//
+// The seam ALSO touches the .aidlc-human-turn marker (markHumanTurn), which is
+// what makes the Stop hook's conversational carve-out work on this harness. The
+// IDE delivers no `transcript_path`, so the carve-out cannot read the turn
+// history; it compares this marker's mtime against .aidlc-engine-touch instead.
+// Both writes ride this one seam so the ledger and the marker can never
+// disagree about when a human spoke. See the marker family in aidlc-lib.ts.
+if (target === "record-human-turn") {
   try {
     const pd = process.cwd();
     if (existsSync(stateFilePath(pd))) {
       appendAuditEntry("HUMAN_TURN", {}, pd);
+      markHumanTurn(pd);
     }
   } catch {
     /* advisory - mint never blocks the turn */
@@ -202,7 +257,7 @@ if (target === "mint") {
 // Construction (swarm/Bolt has no human at the gate) and the deterministic
 // off-switch. The IDE gives no cwd payload, so the project dir is process.cwd().
 // All read from disk. Fail-open on any read/parse error (advisory).
-if (target === "block") {
+if (target === "enforce-approval-gate") {
   try {
     const pd = process.cwd();
     const sp = stateFilePath(pd);
@@ -286,7 +341,7 @@ function isFailedWriteResult(toolResult: string): boolean {
 
 // Map the IDE tool name to the canonical name the core hooks match on. Write
 // creates a (possibly new) file; str_replace/fs_append always target an
-// existing file → Edit (forces ARTIFACT_UPDATED in the core audit-logger).
+// existing file → Edit (forces ARTIFACT_UPDATED in the core write-audit-log).
 function canonicalWriteTool(name: string): "Write" | "Edit" | "" {
   if (name === "fs_write") return "Write";
   if (name === "str_replace" || name === "fs_append") return "Edit";
@@ -323,7 +378,7 @@ function extractAgentIdentity(toolResult: string, toolName = ""): string {
 type Forward = { hook: string; input: Record<string, unknown> } | null;
 
 function buildForward(): Forward {
-  if ((ide.malformedFields?.length ?? 0) > 0) {
+  if (PAYLOAD_TARGETS.has(target) && (ide.malformedFields?.length ?? 0) > 0) {
     recordHookDrop(
       projectDir,
       "kiro-adapter",
@@ -333,17 +388,23 @@ function buildForward(): Forward {
   }
 
   switch (target) {
-    case "session-start":
-      // UserPromptSubmit carries no source discrimination — every submit is a
-      // startup from the core hook's perspective; its state-file self-gate
-      // makes this a no-op outside active workflows.
+    case "session-start": {
+      // Modern IDE payloads carry session_id. Legacy promptSubmit does not, so
+      // use one workspace-local synthetic id for its promptSubmit/agentStop pair.
+      const sessionId = ide.sessionId?.trim() || LEGACY_SESSION_ID;
+      rememberKiroIdeSessionId(sessionId);
       return {
         hook: "aidlc-session-start.ts",
-        input: { hook_event_name: "SessionStart", source: "startup" },
+        input: {
+          hook_event_name: "SessionStart",
+          source: "startup",
+          session_id: sessionId,
+        },
       };
+    }
 
     case "audit-and-sensors": {
-      // postToolUse(write) → audit-logger THEN sensor-fire (both ship core).
+      // postToolUse(write) → write-audit-log THEN run-sensors (both ship core).
       // Captured PostToolUse write inputs are empty, so the file path comes
       // from the toolResult prose.
       //
@@ -418,30 +479,32 @@ function buildForward(): Forward {
       };
     }
 
-    case "runtime-compile": {
+    case "rebuild-stage-graph": {
       // The IDE does not surface the shell command (toolResult is only
       // stdout+exit), so the command filter cannot run here. The
       // ide-audit-sync marker tells the core hook to skip the command filter
       // and gate purely on the audit tail (idempotent + cheap); its own
       // MEMORY_EMPTY emit is not in the transition regex (no recursion).
       return {
-        hook: "aidlc-runtime-compile.ts",
+        hook: "aidlc-rebuild-stage-graph.ts",
         input: {
           hook_event_name: "PostToolUse",
           tool_name: "Bash",
           tool_input: { command: "", source: "ide-audit-sync" },
+          session_id: ide.sessionId?.trim() || rememberedKiroIdeSessionId(),
+          tool_response: ide.toolResult ?? "",
         },
       };
     }
 
-    case "state-sync": {
+    case "sync-workflow-state": {
       // Payload-independent. The IDE gives no task payload (toolArgs is empty),
       // so instead of extracting a slug from the tool call, the core hook reads
       // the latest STAGE_STARTED slug from the audit tail and reconciles the
       // state file's Current Stage. The IDE_AUDIT_SYNC marker tells the core
       // hook to take that audit-tail path rather than parse a TaskUpdate.
       return {
-        hook: "aidlc-sync-statusline.ts",
+        hook: "aidlc-sync-workflow-state.ts",
         input: {
           hook_event_name: "PostToolUse",
           tool_name: "TaskUpdate",
@@ -511,19 +574,62 @@ function buildForward(): Forward {
       };
     }
 
-    case "stop":
-      // Kiro provides no stop_hook_active signal; the core hook's own
-      // 8-block no-progress ceiling is the loop guard (it defaults the flag
-      // to false). The {"decision":"block"} stdout contract is identical.
+    case "continue-workflow":
+      // ADVISORY ONLY ON THIS HARNESS. The IDE's `Stop` trigger cannot block and
+      // does not forward the hook's output — matching what
+      // aidlc-continue-workflow.json and the kiro-ide guide have always said.
+      // Measured live on IDE 1.x with a probe hook: the command RAN (witness
+      // file written), and neither its stdout nor its stderr reached the
+      // agent's context. The Stop payload is only
+      // `{session_id, hook_event_name, cwd}` — no transcript, no turn id. Kiro
+      // documents `Stop` outside the blockable set (only PreToolUse,
+      // UserPromptSubmit and PreTaskExec can block) and forwards stdout only for
+      // SessionStart and UserPromptSubmit. There is no `{"decision":"block"}`
+      // contract in Kiro for any trigger; that shape is Claude Code's.
+      //
+      // So the core hook still runs and its side effects are what matter here:
+      // the `continue-workflow.drops` carve-out record and the no-progress
+      // counter under `.aidlc-stop-hook/`. Its `{"decision":"block"}` stdout is
+      // produced and then discarded by the host. Forwarding-loop enforcement on
+      // the IDE therefore rests on the conductor's own Stop protocol, NOT on
+      // this hook. (An earlier revision of this comment claimed the block
+      // contract was "identical to Claude's". It never was; the probe above
+      // settles it.)
+      //
+      // Kiro also provides no `stop_hook_active`, so the flag defaults to false.
+      // That makes decideBlock's `prior === null && stopHookActive` seeding branch
+      // unreachable here: a hook joining an already-in-flight block sequence
+      // starts its count at 1 instead of 2, i.e. one extra counted block before
+      // releasing. The ceiling is run-mode aware (INTERACTIVE_BLOCK_CAP=2,
+      // AUTONOMOUS_BLOCK_CAP=8), not the fixed 8 a still earlier revision promised.
+      //
+      // The absent transcript no longer leaves the conversational carve-out inert:
+      // the core hook falls back to the `.aidlc-human-turn` / `.aidlc-engine-touch`
+      // mtime comparison, and the `record-human-turn` target above writes the
+      // former. On this harness that changes which record
+      // `continue-workflow.drops` gets and whether the counter advances — not
+      // what the human sees.
+      // Modern Stop carries the exact chat identity. Prefer it over the
+      // workspace-global SessionStart marker so concurrent chats cannot consume
+      // one another's post-create handoff receipt; retain the marker for legacy
+      // agentStop and broken modern channels.
       return {
-        hook: "aidlc-stop.ts",
-        input: { hook_event_name: "Stop", stop_hook_active: false },
+        hook: "aidlc-continue-workflow.ts",
+        input: {
+          hook_event_name: "Stop",
+          stop_hook_active: false,
+          session_id: ide.sessionId?.trim() || rememberedKiroIdeSessionId(),
+        },
       };
 
     case "session-end":
       return {
         hook: "aidlc-session-end.ts",
-        input: { hook_event_name: "SessionEnd", reason: "agent_stop" },
+        input: {
+          hook_event_name: "SessionEnd",
+          reason: "agent_stop",
+          session_id: rememberedKiroIdeSessionId(),
+        },
       };
 
     default:
@@ -561,8 +667,8 @@ hookDebug(projectDir, "kiro-adapter", "forward", {
 if (fwd.hook === "__audit_and_sensors__") {
   // Two core hooks ride the same write event, in audit-then-sensors order
   // (mirrors the Claude settings.json registration). Both advisory: exit 0.
-  runCore("aidlc-audit-logger.ts", fwd.input);
-  runCore("aidlc-sensor-fire.ts", fwd.input);
+  runCore("aidlc-write-audit-log.ts", fwd.input);
+  runCore("aidlc-run-sensors.ts", fwd.input);
   return 0;
 }
 
@@ -582,8 +688,9 @@ if (target === "session-start") {
   return 0;
 }
 
-// stop (and any future passthrough target): forward stdout + exit code
-// verbatim — the {"decision":"block","reason"} contract is shared.
+// Preserve the core hook's stdout and exit code for passthrough targets. On
+// Kiro IDE 1.x the host discards Stop-hook output, so this relay does not imply
+// a shared `{"decision":"block","reason"}` contract.
 if (result.stdout) process.stdout.write(result.stdout);
 return result.code;
 }
@@ -613,14 +720,14 @@ async function readStdinWithTimeout(timeoutMs: number): Promise<string> {
 
 if (import.meta.main) {
   const target = process.argv[2] ?? "";
-  // Acquire payload only for payload-dependent targets. A non-empty
+  // Acquire input only for targets that need tool payload or session identity. A non-empty
   // USER_PROMPT identifies the 0.12 channel and is consumed immediately: that
   // IDE leaves stdin open forever, so probing stdin first imposed a mandatory
   // 2s delay on every payload hook. IDE 1.x sends USER_PROMPT empty and writes
   // + closes stdin; retain the timeout only as a defensive broken-channel
   // ceiling. Every other target skips both channels (zero latency).
   let input = "";
-  if (PAYLOAD_TARGETS.has(target)) {
+  if (INPUT_TARGETS.has(target)) {
     const legacyPayload = process.env.USER_PROMPT ?? "";
     if (legacyPayload.trim().length > 0) {
       input = legacyPayload;

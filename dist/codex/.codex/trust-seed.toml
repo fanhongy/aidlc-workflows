@@ -14,10 +14,10 @@
 trusted_hash = "sha256:92de9e3a0fc738d1645c02577f54f3c5ce9892ec8389c000bc5f14ba5cb3bee9"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:user_prompt_submit:0:0"]
-trusted_hash = "sha256:40fca2d03e7bd64fe653ab876c1796428fbad72de3a9e76867a5577b31e8b86d"
+trusted_hash = "sha256:9c879451a9ce417668e2405db2c9c480523d6406b07f8c705149042a8d224610"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:pre_tool_use:0:0"]
-trusted_hash = "sha256:83e6f4a2af4b24ae755f8fccf9259fe47f4818775ca85191f7576fb3c7222977"
+trusted_hash = "sha256:68514af85d58c7365cefcd57ab1357f3ecfb357e3044a089496504c0dbe3ff7a"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:pre_tool_use:1:0"]
 trusted_hash = "sha256:f97e3f335da2f09f13477e068d50b5284b3c89a0a0ecc04ed0b2695942b6a7f3"
@@ -35,10 +35,10 @@ trusted_hash = "sha256:43bb29ce2e3c374b23987a2daaaa9d1c2c18e0eda729967d03cdd0a9f
 trusted_hash = "sha256:abb971504e301b5369fad755fdd5eabe56ca4ddf2910bb60922fe1fbfdd9cc45"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:post_tool_use:1:0"]
-trusted_hash = "sha256:d22abaeaf78dee8c65c72ce4dd9d89062cdcde00e6f44ea748d49221eb68de62"
+trusted_hash = "sha256:50d3e5159462a6c41b65a5ef77880f60ba62219664a0a93466565abc4f415f41"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:post_tool_use:2:0"]
-trusted_hash = "sha256:0efef1f04b602e001da69c78d6d7429de96592ff13834866528d70f3fb6e4ac3"
+trusted_hash = "sha256:7173b19a5bb39f139908c6303c41420a3b249bf34ca23f13ed78a49505378e81"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:pre_compact:0:0"]
 trusted_hash = "sha256:82a21648c43d8c5e448e6d11a43d56cdc0d4da6e280de0142166d354960006bb"
@@ -47,4 +47,4 @@ trusted_hash = "sha256:82a21648c43d8c5e448e6d11a43d56cdc0d4da6e280de0142166d3549
 trusted_hash = "sha256:202c582338d6b3484a8fec3afb29d45b02498d4fb52e2d30c89e21767f0e48e1"
 
 [hooks.state."<PROJECT_DIR>/.codex/hooks.json:stop:0:0"]
-trusted_hash = "sha256:2a6d7c707caa0adff14e11ce3726cfccf6a7969e8a8171b4f1578a246887d340"
+trusted_hash = "sha256:d69aff4cbd9a2cb3c2ec149e805d918550b692d0d6e0c7e671b66eebe4bbef85"

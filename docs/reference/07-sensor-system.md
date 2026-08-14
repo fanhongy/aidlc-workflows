@@ -11,7 +11,7 @@ frames both as control-plane inputs that the compile resolves into each
 stage node.
 
 This chapter covers the manifest *file format* — what a sensor manifest
-contains, how stages import sensors, and how the five shipped manifests
+contains, how stages import sensors, and how the six shipped manifests
 are configured. For the user-facing view of how sensors fire during a
 workflow, see [Rules and the Learning Loop](../guide/09-rules-and-the-learning-loop.md)
 in the User Guide.
@@ -161,22 +161,25 @@ filename stem minus the `aidlc-` prefix. The compile resolver:
 5. Emits the per-stage resolved array on the canonical
    `data/stage-graph.json` (FIELD_ORDER pinned: after `rules_in_context`).
 
-The runtime PostToolUse hook (`aidlc-sensor-fire.ts`) reads
+The runtime PostToolUse hook (`aidlc-run-sensors.ts`) reads
 `sensors_applicable` off the graph node — never re-opens the manifest.
 `matches` is
 compile-snapshotted: a manifest edit during the workflow does NOT
 change what fires for the in-flight workflow's writes (BGP-stability
 property — see [Plane Architecture](02-plane-architecture.md)).
 
-### Per-stage sensor matrix (32 framework stages)
+### Per-stage sensor matrix (33 framework stages)
 
 | Stages | `sensors:` |
 |---|---|
 | 3 initialization (workspace-scaffold, workspace-detection, state-init) | `[]` (deterministic setup, no agent-authored markdown) |
 | `intent-capture` | `[claim-sources, required-sections, upstream-coverage]` (`claim-sources` checks visible inline provenance, authoritative source-register values, and exact human-confirmed assumptions across the stage's deliverables) |
-| 6 other ideation, 8 inception, 7 operation markdown stages + `code-generation` | `[required-sections, upstream-coverage]` for markdown stages; `[linter, type-check]` for `code-generation` (code only) |
+| 6 other ideation, 6 other inception, 7 operation markdown stages | `[required-sections, upstream-coverage]` |
+| `user-stories`, `domain-design`, `units-generation` | `[required-sections, upstream-coverage, traceability]` |
 | `build-and-test` | `[required-sections, upstream-coverage, type-check]` (linter intentionally omitted — build runs canonical lint) |
-| 5 construction-design (ci-pipeline, functional-design, infrastructure-design, nfr-design, nfr-requirements) | `[required-sections, upstream-coverage, linter, type-check]` (markdown design with code samples) |
+| `ci-pipeline` | `[required-sections, upstream-coverage, linter, type-check]` |
+| 4 per-Unit construction-design stages (`functional-design`, `infrastructure-design`, `nfr-design`, `nfr-requirements`) | `[required-sections, upstream-coverage, linter, type-check, traceability]` |
+| `code-generation` | `[linter, type-check, traceability]` |
 
 Forks customise stages by editing the stage's `sensors:` list directly
 — the binding lives next to the thing being customised. A manifest is a
@@ -199,16 +202,17 @@ the PostToolUse hook at fire time, not by the resolver at compile time.
 | `aidlc-claim-sources.md` | `**/{aidlc-docs,intents}/**` |
 | `aidlc-required-sections.md` | `**/{aidlc-docs,intents}/**` |
 | `aidlc-upstream-coverage.md` | `**/{aidlc-docs,intents}/**` |
+| `aidlc-traceability.md` | `**/traceability.json` |
 | `aidlc-linter.md` | `**/*.{ts,js}` |
 | `aidlc-type-check.md` | `**/*.{ts,tsx}` |
 
 `matches` **is** the fire filter — it is not optional in practice. The hook
 compares the path being written against the glob and fires only on a match;
-an entry **without** a `matches` glob never fires at all (`aidlc-sensor-fire.ts`:
-`if (!entry.matches) continue`). All five shipped manifests therefore declare
-one — the provenance and two document-shape sensors scope to the artifact tree
-(the shipped manifests carry the `matches` value shown above), the two
-code-quality sensors to their language globs. The compile resolver copies
+an entry **without** a `matches` glob never fires at all (`aidlc-run-sensors.ts`:
+`if (!entry.matches) continue`). All six shipped manifests therefore declare
+one — the provenance and two document-shape sensors scope to the artifact tree,
+traceability scopes to its JSON artifact, and the two code-quality sensors to
+their language globs. The compile resolver copies
 `matches` verbatim into the per-stage `sensors_applicable[]` entry; the hook
 reads the snapshotted value off the graph node.
 

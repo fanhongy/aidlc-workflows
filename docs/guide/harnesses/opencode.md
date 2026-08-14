@@ -131,13 +131,11 @@ the project.
   truth.
 - **Hooks ride the adapter plugin.** opencode has no hooks.json/settings hook
   registry; `.opencode/plugin/aidlc-opencode-adapter.ts` maps opencode's
-  plugin hook moments onto the core hook bodies. Native projections dispatch
-  them through `aidlc`; source/development copies use Bun subprocesses.
-  The mapped moments include reviewer read-scope and the AIDLC bash boundary
-  before tool execution; audit + sensors on write/edit/apply_patch;
-  runtime-compile on bash; statusline sync on todowrite; subagent logging on
-  task; presence minting on each human turn; and state validation before
-  compaction.
+  plugin hook moments onto the core hook bodies in `.aidlc/hooks/` (run as bun
+  subprocesses): reviewer read-scope and the AIDLC bash boundary before tool
+  execution; audit + sensors on write/edit/apply_patch; rebuild-stage-graph on
+  bash; statusline sync on todowrite; subagent logging on task; presence
+  minting on each human turn; state validation before compaction.
 - **Forwarding-loop enforcement is advisory.** The Stop seam is the
   `session.idle` event — reactive, not blocking. When the core stop hook
   answers `block`, the plugin re-engages the loop by injecting a nudge prompt

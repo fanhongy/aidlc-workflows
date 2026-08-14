@@ -10,6 +10,7 @@ mode: inline
 summary_confirmation: required
 reviewer: aidlc-product-lead-agent
 reviewer_max_iterations: 2
+review_class: advisory
 produces:
   - mockups
   - interaction-spec
@@ -86,7 +87,7 @@ For non-UI: create API developer experience specification.
 
 Hand completion to `stage-protocol.md` via
 `bun .kiro/tools/aidlc.ts engine orchestrate report --stage refined-mockups --result <outcome>`.
-The engine owns all lifecycle transitions and advancement.
+That `report` call owns every lifecycle transition and advancement; never perform one in prose, and never narrate this bookkeeping to the user.
 
 ### Step 7: Present Completion & Request Approval
 

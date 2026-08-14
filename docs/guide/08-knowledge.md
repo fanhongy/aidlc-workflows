@@ -52,7 +52,7 @@ Ships with the framework. Contains shared principles and per-agent methodology r
 .claude/knowledge/
 ├── aidlc-shared/                       # Loaded by every agent
 │   ├── ai-dlc-principles.md        # Core methodology principles
-│   ├── audit-format.md             # 77-event audit taxonomy
+│   ├── audit-format.md             # 82-event audit taxonomy
 │   ├── brownfield.md               # Brownfield safeguards and reverse-engineering guidance
 │   ├── knowledge-readme-template.md # Optional README template a team can copy into Tier 2
 │   ├── state-template.md           # State file contract
@@ -207,7 +207,7 @@ Find the most recent `STAGE_STARTED` entry for your stage and confirm the **Agen
 /aidlc poc Prototype a new inventory API
 ```
 
-The aidlc-architect-agent runs during Application Design; any Tier 2 file it loaded will influence its output visibly (in our example, the generated architecture should reference API Gateway with a Lambda authorizer).
+The aidlc-architect-agent runs during Domain Design; any Tier 2 file it loaded will influence its output visibly (in our example, the generated architecture should reference API Gateway with a Lambda authorizer).
 
 ---
 

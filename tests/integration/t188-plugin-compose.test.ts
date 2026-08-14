@@ -17,9 +17,9 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   acquireAuditLock,
@@ -39,8 +39,11 @@ const TIMEOUT_MS = 60_000;
 const PLUGIN = "test-pro";
 const CLAUDE_DIST = join(REPO_ROOT, "dist", "claude", ".claude");
 const OPENCODE_DIST = join(REPO_ROOT, "dist", "opencode");
+const COPILOT_DIST = join(REPO_ROOT, "dist", "copilot");
 const KIRO_DIST = join(REPO_ROOT, "dist", "kiro", ".kiro");
 const CODEX_DIST = join(REPO_ROOT, "dist", "codex", ".codex");
+const CURSOR_DIST = join(REPO_ROOT, "dist", "cursor");
+const CURSOR_INSTALLER_SOURCE = join(REPO_ROOT, "harness", "cursor", "install.ts");
 const STAGE_TABLE_BEGIN =
   "<!-- BEGIN: compiled stage graph via `bun .claude/tools/aidlc.ts engine gen stage-table` - do NOT hand-edit -->";
 const STAGE_TABLE_END = "<!-- END: compiled stage graph -->";
@@ -182,9 +185,18 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
         join(built, harness.capabilities.plugin.wiringFile),
         "utf-8",
       );
-      expect(wiring, `${harness.name}: harness dir wiring`).toContain(
-        `AIDLC_HARNESS_DIR=${harness.manifest.harnessDir}`,
-      );
+      if (harness.name === "cursor") {
+        expect(wiring, `${harness.name}: harness dir argument`).toContain(
+          `aidlc-plugin-compose.ts ${harness.manifest.harnessDir}`,
+        );
+      } else {
+        expect(wiring, `${harness.name}: harness dir wiring`).toContain(
+          `AIDLC_HARNESS_DIR=${harness.manifest.harnessDir}`,
+        );
+        expect(wiring, `${harness.name}: harness name wiring`).toContain(
+          `AIDLC_HARNESS_NAME=${harness.name}`,
+        );
+      }
       expect(existsSync(join(built, "stages", "construction", "test-pro-integration.md"))).toBe(
         true,
       );
@@ -194,12 +206,287 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
       // #550 plugin content buckets: scopes, agents, and knowledge must project
       // into EVERY harness (stronger than the pre-matrix Claude-only guard).
       expect(existsSync(join(built, "scopes", "test-pro-validation.md")), `${harness.name}: scope`).toBe(true);
-      expect(existsSync(join(built, "agents", "test-pro-metrics-agent.md")), `${harness.name}: agent`).toBe(true);
+      const agentSource =
+        harness.name === "cursor"
+          ? join(built, "aidlc", "agents", "test-pro-metrics-agent.md")
+          : join(built, "agents", "test-pro-metrics-agent.md");
+      expect(existsSync(agentSource), `${harness.name}: agent`).toBe(true);
       expect(
         existsSync(join(built, "knowledge", "test-pro-metrics-agent", "methodology.md")),
         `${harness.name}: knowledge`,
       ).toBe(true);
     }
+  });
+
+  test("Cursor projection uses Cursor's flat camelCase hook schema", () => {
+    const built = pluginBuilds.get("cursor")!;
+    const wiring = JSON.parse(
+      readFileSync(join(built, "hooks", "hooks.json"), "utf-8"),
+    ) as {
+      version?: number;
+      hooks?: Record<string, Array<Record<string, unknown>>>;
+    };
+    // `version` is REQUIRED, not cosmetic: Cursor's hook loader delivers zero
+    // events for a hooks.json missing it, silently and with rc 0, so a
+    // version-less projection ships an inert plugin that looks installed.
+    expect(Object.keys(wiring)).toEqual(["version", "hooks"]);
+    expect(wiring.version).toBe(1);
+    expect(Object.keys(wiring.hooks ?? {})).toEqual(["sessionStart"]);
+    const entries = wiring.hooks?.sessionStart ?? [];
+    expect(entries).toHaveLength(1);
+    expect(Object.keys(entries[0] ?? {})).toEqual(["command"]);
+    const command = String(entries[0]?.command ?? "");
+    expect(command).toBe("bun ./hooks/aidlc-plugin-compose.ts .cursor");
+    expect(command).not.toContain("sh -c");
+    expect(existsSync(join(built, "hooks", "aidlc-plugin-compose.ts"))).toBe(true);
+  });
+
+  test("Cursor's cross-platform launcher resolves its plugin root from the hook path", () => {
+    const built = pluginBuilds.get("cursor")!;
+    const cursorProject = join(tmp, "cursor-compose");
+    mkdirSync(cursorProject, { recursive: true });
+    const initialInstall = spawnSync(
+      BUN,
+      [join(CURSOR_DIST, "install.ts"), cursorProject],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+      },
+    );
+    expect(initialInstall.status, initialInstall.stderr).toBe(0);
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    delete env.PLUGIN_ROOT;
+    delete env.AIDLC_PLUGIN_ROOT;
+    delete env.CLAUDE_PROJECT_DIR;
+    delete env.CURSOR_PROJECT_DIR;
+    delete env.AIDLC_PROJECT_DIR;
+    env.AIDLC_HARNESS_DIR = ".cursor";
+
+    env.PATH = "";
+    const compose = spawnSync(
+      BUN,
+      [join(built, "hooks", "aidlc-plugin-compose.ts"), ".cursor"],
+      {
+        cwd: built,
+        input: JSON.stringify({
+          hook_event_name: "sessionStart",
+          workspace_roots: [cursorProject],
+        }),
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+        env,
+      },
+    );
+    expect(compose.status, compose.stderr).toBe(0);
+    const cursorGraph = JSON.parse(
+      readFileSync(join(cursorProject, ".cursor", "tools", "data", "stage-graph.json"), "utf-8"),
+    ) as GraphStage[];
+    expect(cursorGraph.some((item) => item.slug === "test-pro-integration")).toBe(true);
+    expect(existsSync(join(built, "agents"))).toBe(false);
+    const internalAgent = readFileSync(
+      join(built, "aidlc", "agents", "test-pro-metrics-agent.md"),
+      "utf-8",
+    );
+    expect(internalAgent).not.toContain("{{HARNESS_DIR}}");
+    expect(internalAgent).not.toMatch(/^model:/m);
+    const composedAgent = readFileSync(
+      join(cursorProject, ".cursor", "agents", "test-pro-metrics-agent.md"),
+      "utf-8",
+    );
+    expect(composedAgent).not.toContain("{{HARNESS_DIR}}");
+    expect(composedAgent).not.toMatch(/^model:/m);
+    expect(composedAgent).toContain(".cursor/knowledge/test-pro-metrics-agent/");
+
+    const pureCoreStage = join(
+      cursorProject,
+      ".cursor",
+      "aidlc-common",
+      "stages",
+      "inception",
+      "requirements-analysis.md",
+    );
+    const pureCoreBefore = readFileSync(pureCoreStage, "utf-8");
+    writeFileSync(pureCoreStage, `${pureCoreBefore}\n<!-- stale core marker -->\n`);
+    const refusedReinstall = spawnSync(
+      BUN,
+      [join(CURSOR_DIST, "install.ts"), cursorProject],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+      },
+    );
+    expect(refusedReinstall.status).toBe(1);
+    expect(refusedReinstall.stderr).toContain(
+      ".cursor/aidlc-common/stages/inception/requirements-analysis.md",
+    );
+    expect(readFileSync(pureCoreStage, "utf-8")).toContain("stale core marker");
+    writeFileSync(pureCoreStage, pureCoreBefore);
+
+    const pluginModifiedStage = join(
+      cursorProject,
+      ".cursor",
+      "aidlc-common",
+      "stages",
+      "construction",
+      "build-and-test.md",
+    );
+    const pluginModifiedBefore = readFileSync(pluginModifiedStage, "utf-8");
+    const upgradedDist = join(tmp, "cursor-upgrade-dist");
+    cpSync(CURSOR_DIST, upgradedDist, { recursive: true });
+    cpSync(CURSOR_INSTALLER_SOURCE, join(upgradedDist, "install.ts"));
+    const pluginStageRel =
+      ".cursor/aidlc-common/stages/construction/build-and-test.md";
+    const upgradedCoreStage = join(upgradedDist, pluginStageRel);
+    writeFileSync(
+      upgradedCoreStage,
+      `${readFileSync(upgradedCoreStage, "utf-8").trimEnd()}\n\n<!-- upgraded core v2 -->\n`,
+    );
+
+    writeFileSync(
+      pluginModifiedStage,
+      `${pluginModifiedBefore.trimEnd()}\n\n<!-- user-owned stage edit -->\n`,
+    );
+    const refusedComposedUpgrade = spawnSync(
+      BUN,
+      [join(upgradedDist, "install.ts"), cursorProject],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+      },
+    );
+    expect(refusedComposedUpgrade.status).toBe(1);
+    expect(refusedComposedUpgrade.stderr).toContain(pluginStageRel);
+    expect(readFileSync(pluginModifiedStage, "utf-8")).toContain(
+      "user-owned stage edit",
+    );
+    writeFileSync(pluginModifiedStage, pluginModifiedBefore);
+
+    const reinstall = spawnSync(
+      BUN,
+      [join(upgradedDist, "install.ts"), cursorProject],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+      },
+    );
+    expect(reinstall.status, reinstall.stderr).toBe(0);
+    expect(reinstall.stdout).toContain("refreshed plugin routing");
+    const pluginModifiedAfter = readFileSync(pluginModifiedStage, "utf-8");
+    expect(pluginModifiedAfter).toContain("<!-- upgraded core v2 -->");
+    expect(pluginModifiedAfter).toContain(
+      "test-pro-branch-coverage-instructions",
+    );
+    expect(pluginModifiedAfter).toContain("Step 9a (test-pro)");
+    expect(pluginModifiedAfter).not.toBe(pluginModifiedBefore);
+    const graphAfterReinstall = JSON.parse(
+      readFileSync(
+        join(cursorProject, ".cursor", "tools", "data", "stage-graph.json"),
+        "utf-8",
+      ),
+    ) as GraphStage[];
+    expect(
+      graphAfterReinstall.some((item) => item.slug === "test-pro-integration"),
+    ).toBe(true);
+  });
+
+  test("Cursor launcher passes its plugin root through the installed aidlc branch", () => {
+    const built = pluginBuilds.get("cursor")!;
+    const cursorProject = join(tmp, "cursor-compose-installed-aidlc");
+    cpSync(CURSOR_DIST, cursorProject, { recursive: true });
+    const binDir = join(tmp, "cursor-fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const aidlc = join(binDir, "aidlc");
+    writeFileSync(
+      aidlc,
+      [
+        "#!/bin/sh",
+        `exec ${JSON.stringify(BUN)} ${JSON.stringify(
+          join(cursorProject, ".cursor", "tools", "aidlc.ts"),
+        )} "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(aidlc, 0o755);
+
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+      AIDLC_HARNESS_DIR: ".cursor",
+    };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    delete env.PLUGIN_ROOT;
+    delete env.AIDLC_PLUGIN_ROOT;
+    delete env.CLAUDE_PROJECT_DIR;
+    delete env.CURSOR_PROJECT_DIR;
+    delete env.AIDLC_PROJECT_DIR;
+
+    const compose = spawnSync(
+      BUN,
+      [join(built, "hooks", "aidlc-plugin-compose.ts"), ".cursor"],
+      {
+        cwd: built,
+        input: JSON.stringify({
+          hook_event_name: "sessionStart",
+          workspace_roots: [cursorProject],
+        }),
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+        env,
+      },
+    );
+    expect(compose.status, compose.stderr || compose.stdout).toBe(0);
+    expect(compose.stdout).toContain("plugin sync complete: 1 plugin(s)");
+    const cursorGraph = JSON.parse(
+      readFileSync(join(cursorProject, ".cursor", "tools", "data", "stage-graph.json"), "utf-8"),
+    ) as GraphStage[];
+    expect(cursorGraph.some((item) => item.slug === "test-pro-integration")).toBe(true);
+    const pluginRunner = readFileSync(
+      join(cursorProject, ".cursor", "skills", "test-pro-integration", "SKILL.md"),
+      "utf-8",
+    );
+    expect(pluginRunner).toMatch(/^disable-model-invocation: true$/m);
+  });
+
+  test("Cursor launcher refuses an ambiguous multi-root workspace", () => {
+    const built = pluginBuilds.get("cursor")!;
+    const first = join(tmp, "cursor-multiroot-a");
+    const second = join(tmp, "cursor-multiroot-b");
+    cpSync(CURSOR_DIST, first, { recursive: true });
+    cpSync(CURSOR_DIST, second, { recursive: true });
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: "",
+      AIDLC_HARNESS_DIR: ".cursor",
+    };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    delete env.PLUGIN_ROOT;
+    delete env.AIDLC_PLUGIN_ROOT;
+    delete env.CLAUDE_PROJECT_DIR;
+    delete env.CURSOR_PROJECT_DIR;
+    delete env.AIDLC_PROJECT_DIR;
+
+    const compose = spawnSync(
+      BUN,
+      [join(built, "hooks", "aidlc-plugin-compose.ts"), ".cursor"],
+      {
+        cwd: built,
+        input: JSON.stringify({
+          hook_event_name: "sessionStart",
+          workspace_roots: [first, second],
+        }),
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+        env,
+      },
+    );
+    expect(compose.status).toBe(1);
+    expect(compose.stderr).toContain("multiple Cursor workspace roots");
+    expect(compose.stderr).toContain("AIDLC_PROJECT_DIR");
   });
 
   test("OpenCode compose emits plugin agents to both inline and native rosters", () => {
@@ -243,12 +530,92 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     expect(body).toContain("aidlc/spaces/default/memory/");
   });
 
+  test("Copilot compose and selection use .github agent and skill surfaces", () => {
+    const pluginCopilot = pluginBuilds.get("copilot")!;
+    const copilotProject = mkdtempSync(join(tmp, "copilot-compose-"));
+    cpSync(COPILOT_DIST, copilotProject, { recursive: true });
+    const env = {
+      ...process.env,
+      PLUGIN_ROOT: pluginCopilot,
+      AIDLC_PROJECT_DIR: copilotProject,
+      AIDLC_HARNESS_DIR: ".aidlc",
+      AIDLC_HARNESS_NAME: "copilot",
+    };
+    const compose = spawnSync(BUN, [join(pluginCopilot, "hooks", "compose.ts")], {
+      cwd: copilotProject,
+      encoding: "utf-8",
+      timeout: TIMEOUT_MS - 5_000,
+      env,
+    });
+    if (compose.status !== 0) throw new Error(`copilot compose failed: ${compose.stderr}`);
+
+    const inline = join(copilotProject, ".aidlc", "agents", "test-pro-metrics-agent.md");
+    const native = join(copilotProject, ".github", "agents", "test-pro-metrics-agent.md");
+    const runner = join(copilotProject, ".github", "skills", "test-pro-integration", "SKILL.md");
+    expect(existsSync(inline)).toBe(true);
+    expect(existsSync(native)).toBe(true);
+    expect(existsSync(join(copilotProject, ".opencode", "agents", "test-pro-metrics-agent.md"))).toBe(
+      false,
+    );
+    expect(existsSync(runner)).toBe(true);
+    const body = readFileSync(native, "utf-8");
+    expect(body).toMatch(/^tools: \["read", "edit", "search", "execute", "web", "todo"\]$/m);
+    expect(body).not.toMatch(/^(model|tier|effort|disallowedTools):/m);
+    expect(body).toContain("aidlc/spaces/default/memory/");
+
+    const unsafePlugin = join(tmp, "plugin", "copilot-missing-disallowed-tools");
+    cpSync(pluginCopilot, unsafePlugin, { recursive: true });
+    const unsafeAgent = join(unsafePlugin, "agents", "test-pro-metrics-agent.md");
+    writeFileSync(
+      unsafeAgent,
+      readFileSync(unsafeAgent, "utf-8").replace(/^disallowedTools:.*\r?\n/m, ""),
+      "utf-8",
+    );
+    const unsafeProject = mkdtempSync(join(tmp, "copilot-unsafe-agent-"));
+    cpSync(COPILOT_DIST, unsafeProject, { recursive: true });
+    const unsafeCompose = spawnSync(BUN, [join(unsafePlugin, "hooks", "compose.ts")], {
+      cwd: unsafeProject,
+      encoding: "utf-8",
+      timeout: TIMEOUT_MS - 5_000,
+      env: {
+        ...env,
+        PLUGIN_ROOT: unsafePlugin,
+        AIDLC_PROJECT_DIR: unsafeProject,
+      },
+    });
+    if (unsafeCompose.status !== 0) {
+      throw new Error(`unsafe Copilot compose failed: ${unsafeCompose.stderr}`);
+    }
+    expect(
+      existsSync(join(unsafeProject, ".github", "agents", "test-pro-metrics-agent.md")),
+    ).toBe(false);
+    expect(hookDrops(unsafeProject)).toContain(
+      "must declare disallowedTools: Task for Copilot",
+    );
+
+    const select = spawnSync(
+      BUN,
+      [join(copilotProject, ".aidlc", "tools", "aidlc-utility.ts"), "select-plugins", "aidlc"],
+      {
+        cwd: copilotProject,
+        encoding: "utf-8",
+        timeout: TIMEOUT_MS - 5_000,
+        env,
+      },
+    );
+    expect(select.status, select.stderr).toBe(0);
+    expect(select.stdout).toContain("Enabled plugins: aidlc");
+    expect(existsSync(join(copilotProject, ".aidlc", "skills"))).toBe(false);
+    expect(existsSync(join(copilotProject, ".github", "skills", "aidlc", "SKILL.md"))).toBe(true);
+    expect(existsSync(runner)).toBe(false);
+  });
+
   // --- New stages compose + route ---
   test("new plugin stages are in the compiled graph", () => {
     const slugs = graph(project).map((s) => s.slug);
     expect(slugs).toContain("test-pro-integration");
     expect(slugs).toContain("test-pro-full-suite");
-    expect(graph(project).length).toBe(34); // 32 core + 2 test-pro
+    expect(graph(project).length).toBe(35); // 33 core + 2 test-pro
   });
 
   test("compose refreshes SKILL.md Stage Graph with plugin stages", () => {
@@ -781,7 +1148,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     expect(existsSync(auditLockDir(proj))).toBe(false);
   }, TIMEOUT_MS);
 
-  test("intent-birth and recompose wait beyond the default budget behind a live workspace holder", async () => {
+  test("intent-create and recompose wait beyond the default budget behind a live workspace holder", async () => {
     const proj = mkdtempSync(join(tmp, "syn-utility-wait-"));
     cpSync(CLAUDE_DIST, join(proj, ".claude"), { recursive: true });
     const utility = join(proj, ".claude", "tools", "aidlc-utility.ts");
@@ -792,7 +1159,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     };
     const initialBirth = spawnSync(
       BUN,
-      [utility, "intent-birth", "--scope", "feature", "--project-dir", proj],
+      [utility, "intent-create", "--scope", "feature", "--project-dir", proj],
       { cwd: proj, encoding: "utf-8", timeout: TIMEOUT_MS - 5_000, env },
     );
     expect(initialBirth.status).toBe(0);
@@ -803,7 +1170,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
         cmd: [
           BUN,
           utility,
-          "intent-birth",
+          "intent-create",
           "--scope",
           "feature",
           "--label",

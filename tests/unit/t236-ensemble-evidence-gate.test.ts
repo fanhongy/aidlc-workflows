@@ -85,7 +85,7 @@ function inceptionState(checkbox = "[?]"): string {
 - **Project**: ensemble evidence test
 - **Project Type**: Greenfield
 - **Scope**: feature
-- **State Version**: 7
+- **State Version**: 8
 
 ## Scope Configuration
 - **Stages to Execute**: all
@@ -117,7 +117,7 @@ function practicesState(
 - **Project**: practices ensemble evidence test
 - **Project Type**: Greenfield
 - **Scope**: feature
-- **State Version**: 7
+- **State Version**: 8
 - **Practices Affirmed Timestamp**: ${affirmedTimestamp}
 
 ## Scope Configuration
@@ -298,16 +298,26 @@ function recordReview(proj: string, unit?: string, graphPath?: string): void {
   if (!stage) throw new Error("user-stories missing from shipped graph");
   const fingerprint = reviewArtifactFingerprint(proj, stage, unit);
   if (!fingerprint) throw new Error("could not fingerprint user-stories fixture");
+  const identity = {
+    Stage: "user-stories",
+    Reviewer: "aidlc-product-lead-agent",
+    Iteration: "1",
+    ...(unit ? { Unit: unit } : {}),
+  };
+  appendAuditEvent(
+    proj,
+    "REVIEW_REQUESTED",
+    "2026-07-19T00:00:00.000Z",
+    identity,
+  );
   appendAuditEvent(
     proj,
     "REVIEW_COMPLETED",
-    `2026-07-19T00:00:${unit ? "01" : "00"}.000Z`,
+    "2026-07-19T00:00:01.000Z",
     {
-      Stage: "user-stories",
-      Reviewer: "aidlc-product-lead-agent",
+      ...identity,
       Verdict: "READY",
       "Artifact Fingerprint": fingerprint,
-      ...(unit ? { Unit: unit } : {}),
     },
   );
 }
@@ -363,7 +373,7 @@ function perUnitEnsembleGraph(
 function seedSwarmConverged(proj: string, units: string[]): void {
   // Rows carry the attempt-identity stamp (Stage + Run floor) the consumers
   // require; the fixture audit has no STAGE_STARTED for the stage, so the
-  // matching floor is "".
+  // matching floor is the exact no-boundary sentinel.
   const shard = seededAuditShard(proj);
   mkdirSync(dirname(shard), { recursive: true });
   const blocks = units.map((unit, index) =>
@@ -373,7 +383,7 @@ function seedSwarmConverged(proj: string, units: string[]): void {
       "**Event**: SWARM_UNIT_CONVERGED",
       `**Unit name**: ${unit}`,
       "**Stage**: user-stories",
-      "**Run floor**: ",
+      "**Run floor**: unstarted#0",
       "",
       "---",
       "",

@@ -333,10 +333,10 @@ describe("t230 dispatcher route parity", () => {
       fixture: true,
     },
     {
-      name: "intent birth maps through workspace parser",
-      routerArgs: ["engine", "intent", "birth"],
+      name: "intent create maps through workspace parser",
+      routerArgs: ["engine", "intent", "create"],
       tool: "aidlc-utility.ts",
-      toolArgs: ["intent-birth"],
+      toolArgs: ["intent-create"],
     },
     {
       name: "space list maps through workspace parser",
@@ -396,6 +396,13 @@ describe("t230 dispatcher route parity", () => {
       routerArgs: ["engine", "config", "set", "test-strategy", "standard"],
       tool: "aidlc-utility.ts",
       toolArgs: ["config-change", "--test-strategy", "standard"],
+      fixture: true,
+    },
+    {
+      name: "config review maps to config-change",
+      routerArgs: ["engine", "config", "set", "review", "advisory"],
+      tool: "aidlc-utility.ts",
+      toolArgs: ["config-change", "--review", "advisory"],
       fixture: true,
     },
     {
@@ -533,10 +540,10 @@ describe("t230 dispatcher route parity", () => {
     }
   });
 
-  test("semantic intent birth receives project mutation policy", () => {
+  test("semantic intent create receives project mutation policy", () => {
     const projectDir = makeProject();
     const result = viaDispatcher(
-      ["engine", "intent", "birth", "--scope", "poc"],
+      ["engine", "intent", "create", "--scope", "poc"],
       projectDir,
       { AIDLC_DISPATCH_TOOLS_DIR: DIST_TOOLS_DIR },
     );
@@ -1369,6 +1376,18 @@ describe("t230 dispatcher help and errors", () => {
     );
   });
 
+  test("plugin help and invalid plugin verbs use the shared noun grammar", () => {
+    const help = viaDispatcher(["engine", "plugin", "help"], REPO_ROOT);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout.toString("utf-8")).toContain("plugin: select [names]");
+
+    const invalid = viaDispatcher(["engine", "plugin", "remove"], REPO_ROOT);
+    expect(invalid.exitCode).toBe(1);
+    expect(invalid.stderr.toString("utf-8")).toBe(
+      "aidlc: unknown verb 'remove' for noun 'plugin'; try 'aidlc help --all'\n",
+    );
+  });
+
   test("formerly stubbed routes now reach utility handlers", () => {
     const projectDir = makeProject();
     writeMinimalState(projectDir);
@@ -1415,6 +1434,15 @@ describe("t230 dispatcher hook routing", () => {
       expect(codex.target).toBe("session-start");
       expect(codex.extraArgs).toEqual([]);
       expect(codex.path.endsWith("aidlc-codex-adapter.ts")).toBe(true);
+    }
+
+    const cursor = resolveAction(["engine", "adapter", "cursor", "validate-state"]);
+    expect(cursor.type).toBe("adapter");
+    if (cursor.type === "adapter") {
+      expect(cursor.harness).toBe("cursor");
+      expect(cursor.target).toBe("validate-state");
+      expect(cursor.extraArgs).toEqual([]);
+      expect(cursor.path.endsWith("aidlc-cursor-adapter.ts")).toBe(true);
     }
 
     const kiro = resolveAction([
@@ -1504,7 +1532,7 @@ describe("t230 dispatcher hook routing", () => {
     const cwdProject = makeProject();
     const targetProject = makeProject();
     writeMinimalState(cwdProject, "intent-capture");
-    writeMinimalState(targetProject, "application-design");
+    writeMinimalState(targetProject, "domain-design");
 
     const hook = viaDispatcher(
        ["engine", "hook", "validate-state", "--project-dir", targetProject],
@@ -1533,7 +1561,7 @@ describe("t230 dispatcher hook routing", () => {
       }),
     );
     expect(statusline.exitCode).toBe(0);
-    expect(statusline.stdout.toString("utf-8")).toContain("Application Design");
+    expect(statusline.stdout.toString("utf-8")).toContain("Domain Design");
     expect(statusline.stdout.toString("utf-8")).not.toContain("Intent Capture");
 
     rmSync(

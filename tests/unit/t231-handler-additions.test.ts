@@ -153,13 +153,17 @@ describe("t231 config get/list/set handlers", () => {
 
     const human = utility(["config-list"], project);
     expect(human.status).toBe(0);
-    expect(human.stdout).toBe("depth: Standard\ntest-strategy: Standard\n");
+    // review is empty on a fixture with no per-run override set (2.5.40).
+    expect(human.stdout).toBe("depth: Standard\ntest-strategy: Standard\nreview: \n");
 
     const json = utility(["config-list", "--json"], project);
     expect(json.status).toBe(0);
-    expect(parseJson<{ depth: string; "test-strategy": string }>(json.stdout)).toEqual({
+    expect(
+      parseJson<{ depth: string; "test-strategy": string; review: string }>(json.stdout)
+    ).toEqual({
       depth: "Standard",
       "test-strategy": "Standard",
+      review: "",
     });
   });
 
@@ -233,7 +237,7 @@ describe("t231 plugin list and sync handlers", () => {
     expect(result.stdout).toBe("no installed plugins; nothing to sync\n");
   });
 
-  test("plugin sync runs a discovered compose.ts with AIDLC_HARNESS_DIR", () => {
+  test("plugin sync runs a discovered compose.ts with harness dir and name", () => {
     const project = emptyProject();
     const pluginRoot = tempDir("aidlc-t231-plugin-");
     mkdirSync(join(pluginRoot, "hooks"), { recursive: true });
@@ -243,7 +247,7 @@ describe("t231 plugin list and sync handlers", () => {
         "import { writeFileSync } from \"node:fs\";",
         "import { join } from \"node:path\";",
         "const project = process.env.AIDLC_PROJECT_DIR || process.cwd();",
-        "writeFileSync(join(project, \"plugin-sync-marker.txt\"), process.env.AIDLC_HARNESS_DIR || \"\");",
+        "writeFileSync(join(project, \"plugin-sync-marker.txt\"), (process.env.AIDLC_HARNESS_DIR || \"\") + \"|\" + (process.env.AIDLC_HARNESS_NAME || \"\"));",
       ].join("\n"),
       "utf-8",
     );
@@ -252,7 +256,7 @@ describe("t231 plugin list and sync handlers", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("plugin sync complete: 1 plugin(s)\n");
-    expect(readFileSync(join(project, "plugin-sync-marker.txt"), "utf-8")).toBe(".claude");
+    expect(readFileSync(join(project, "plugin-sync-marker.txt"), "utf-8")).toBe(".claude|claude");
   });
 });
 
@@ -347,8 +351,7 @@ describe("t231 emitted plugin hook command", () => {
     expect(aidlcIdx).toBeGreaterThanOrEqual(0);
     expect(bunIdx).toBeGreaterThan(aidlcIdx);
     expect(command).toContain("\"$AIDLC\" engine plugin sync; exit $?");
-    expect(command).toContain("\"$PLUGIN_TOOL\" sync; exit $?");
-    expect(command).toContain("tools/aidlc-plugin.ts");
+    expect(command).toContain("AIDLC_HARNESS_NAME=claude");
     expect(command).toContain(`"$BUN" "\${CLAUDE_PLUGIN_ROOT}/hooks/compose.ts"`);
     expect(command).toContain("aidlc and bun not found, skipping");
 

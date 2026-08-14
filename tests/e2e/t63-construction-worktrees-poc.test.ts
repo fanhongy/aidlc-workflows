@@ -75,7 +75,7 @@ beforeAll(() => {
   PROJ = setupIntegrationProject({ withGreenfieldStub: true });
   const r = spawnSync(
     BUN,
-    [UTILITY, "intent-birth", "--project-dir", PROJ, "--force", "--scope", "poc"],
+    [UTILITY, "intent-create", "--project-dir", PROJ, "--force", "--scope", "poc"],
     { encoding: "utf-8" },
   );
   if (r.status !== 0) {
@@ -198,6 +198,6 @@ describe("t63 construction-worktrees poc (migrated from t63-construction-worktre
     // (:2055) that makes these the v7 template's fields.
     expect(state).toContain("- **Worktree Path**:");
     expect(state).toContain("- **Bolt Refs**:");
-    expect(state).toContain("- **State Version**: 7");
+    expect(state).toContain("- **State Version**: 8");
   });
 });

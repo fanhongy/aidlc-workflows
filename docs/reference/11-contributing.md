@@ -27,12 +27,10 @@ bun install --frozen-lockfile
 
 ```
 core/                # Hand-authored, harness-neutral source (tools, stages, agents, rules, knowledge, hooks)
-harness/<name>/      # Per-harness authored surfaces; claude/, kiro/, kiro-ide/, codex/, opencode/
-scripts/package.ts   # The build: regenerates dist/ + dist-release/ from core/ + harness/ (`--check` guards both)
+harness/<name>/      # Per-harness authored surfaces; claude/, kiro/, kiro-ide/, codex/, opencode/, copilot/
+scripts/package.ts   # The build: regenerates dist/<harness>/ from core/ + harness/ (`--check` drift-guards it)
 scripts/build-binaries.ts # Release-only compiled CLI artifacts in ignored build/binaries/ after package --check
-scripts/package-release.ts # Release data archives, manifest, checksums, and installer
-dist/<harness>/      # GENERATED: dist/claude/, dist/kiro/, dist/kiro-ide/, dist/codex/, dist/opencode/ — never hand-edit
-dist-release/<harness>/ # GENERATED binary-invocation projections — never hand-edit
+dist/<harness>/      # GENERATED: dist/claude/, dist/kiro/, dist/kiro-ide/, dist/codex/, dist/opencode/, dist/copilot/ — never hand-edit
 tests/               # All-TypeScript test suite (t*.test.ts, run via bun)
 docs/                # Documentation
   guide/             # User guide (how to use AI-DLC)
@@ -180,7 +178,7 @@ For handlers that benefit from agent reasoning (filesystem scanning, decision-ma
 2. **Statusline update** -- If the active intent's `aidlc-state.md` exists, temporarily set `Current Stage` to describe the running utility (e.g., `running health check`), then restore the original value when done. The `aidlc-statusline.ts` hook reads this field for the terminal status bar.
 3. **Audit logging** -- Invoke the appropriate semantic native dispatcher route, whose backing handler calls `appendAuditEntry` internally. Never hand-write `**Event**:` markdown blocks from LLM prose — see [State Machine: Forbidden patterns](12-state-machine.md).
 
-The `intent-birth` handler is fully deterministic: all three init stages (workspace-scaffold, workspace-detection, state-init) run inside a single `aidlc-utility intent-birth` call. The welcome message is rendered at session start via `companyAnnouncements` in `settings.json` and is not a stage.
+The `intent-create` handler is fully deterministic: all three init stages (workspace-scaffold, workspace-detection, state-init) run inside a single `aidlc-utility intent-create` call. The welcome message is rendered at session start via `companyAnnouncements` in `settings.json` and is not a stage.
 
 ## Adding a Scope
 
@@ -194,6 +192,7 @@ A scope is authored as a file (its identity) plus a per-stage membership tag. Th
    - `keywords` (optional): NL triggers for `/aidlc <freeform text>` auto-detection. Word-boundary matched, alphabetical-scope tie-break. Empty list opts out of inference.
    - `description` (optional): one-line summary rendered in `/aidlc --help` and in SKILL.md's compiled scope-table.
    - `testStrategy` (optional): override test strategy independent of depth (e.g. `Minimal` for workshop). Defaults to matching depth.
+   - `review_cap` (optional): `adversarial` | `advisory` | `none`. Caps stage review classes for this scope; absence means no scope-level lowering. The cap can lower but never raise a stage declaration. Autonomous swarm reviews are exempt.
    - `runner` (optional): set `true` to include the scope in the default generated runner set.
    - `freeform_default` (optional): set `true` to nominate this scope when the preferred core default (`feature`/`poc`) is not enabled. At most one enabled scope may claim it; graph compilation rejects ambiguous selected plugin sets. Unknown explicit `AWS_AIDLC_DEFAULT_SCOPE` values still fail validation.
 
@@ -219,7 +218,7 @@ A scope is authored as a file (its identity) plus a per-stage membership tag. Th
 
 3. **Recompile + regenerate the scope-table** — `aidlc engine graph compile` transposes the `scopes:` tags into `tools/data/scope-grid.json`. Then `aidlc engine gen scope-table` prints the canonical Markdown region for SKILL.md's compiled scope table. Keep the region between the `<!-- BEGIN: compiled ... -->` / `<!-- END: compiled ... -->` markers generated, then run `aidlc engine graph compile --check` and `aidlc engine gen scope-table --check` to confirm exit 0 (no drift).
 
-4. **Verify the scope resolves** - `aidlc engine intent birth --scope hotfix --project-dir /tmp/scope-smoke` should succeed and produce a state file with `Scope: hotfix`.
+4. **Verify the scope resolves** - `bun core/tools/aidlc-utility.ts intent-create --scope hotfix --project-dir /tmp/scope-smoke` should succeed and produce a state file with `Scope: hotfix`.
 
 5. **Verify `doctor` accepts it as an env default** — `AWS_AIDLC_DEFAULT_SCOPE=hotfix aidlc doctor` should report the env var as valid.
 
@@ -301,7 +300,7 @@ Agent metadata (display name, example knowledge files) is read from each agent's
 
 2. **Verify the agent is discovered** — `bun -e "import { loadAgents } from 'core/tools/aidlc-lib.ts'; console.log(loadAgents().find(a => a.slug === '<slug>-agent'));"` should print the new agent's metadata.
 
-3. **Verify intent birth creates the space knowledge dir** — `aidlc engine intent birth --scope poc --project-dir /tmp/agent-smoke` should create the empty space-level `aidlc/knowledge/` directory (a sibling of the space's `intents/`). Birth does not seed per-agent subdirectories or READMEs — the team creates `aidlc/knowledge/<slug>-agent/` itself when it has content.
+3. **Verify intent birth creates the space knowledge dir** — `bun core/tools/aidlc-utility.ts intent-create --scope poc --project-dir /tmp/agent-smoke` should create the empty space-level `aidlc/knowledge/` directory (a sibling of the space's `intents/`). Birth does not seed per-agent subdirectories or READMEs — the team creates `aidlc/knowledge/<slug>-agent/` itself when it has content.
 
 4. **Verify the statusline renders** — seed a state file with `Active Agent: <slug>-agent` and invoke the statusline hook; the output should include the display name after the `--` separator.
 

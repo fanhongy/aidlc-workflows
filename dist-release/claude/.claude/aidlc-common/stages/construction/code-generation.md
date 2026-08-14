@@ -12,19 +12,23 @@ for_each: unit-of-work
 workspace_requires: true
 produces:
   - code-generation-plan
+  - unit-test-instructions
   - code-summary
+  - traceability
 consumes:
-  - artifact: business-logic-model
+  - artifact: functional-spec
     required: false
-  - artifact: business-rules
+  - artifact: rules
     required: false
-  - artifact: domain-entities
+  - artifact: entities
+    required: false
+  - artifact: contract-summary
     required: false
   - artifact: performance-design
     required: false
   - artifact: security-design
     required: false
-  - artifact: deployment-architecture
+  - artifact: infrastructure-specification
     required: false
   - artifact: unit-of-work
     required: true
@@ -37,8 +41,10 @@ requires_stage:
   - nfr-design
   - infrastructure-design
 sensors:
+  - required-sections
   - linter
   - type-check
+  - traceability
 scopes:
   - enterprise
   - feature
@@ -49,7 +55,7 @@ scopes:
   - security-patch
   - workshop
 inputs: ALL prior design artifacts for this unit
-outputs: application code + code-generation-plan.md, code-generation-questions.md, code-summary.md (under this stage's per-unit record dir, engine-resolved)
+outputs: application code + code-generation-plan.md, code-generation-questions.md, unit-test-instructions.md, code-summary.md, traceability.json (under this stage's per-unit record dir, engine-resolved)
 ---
 
 # Code Generation
@@ -71,12 +77,13 @@ Read all design artifacts for the current unit:
 - NFR requirements from `<record>/construction/{unit-name}/nfr-requirements/` (if exists)
 - NFR design from `<record>/construction/{unit-name}/nfr-design/` (if exists)
 - Infrastructure design from `<record>/construction/{unit-name}/infrastructure-design/` (if exists)
-- Application design from `<record>/inception/application-design/` (if exists)
+- Domain design (component catalogue) from `<record>/inception/domain-design/components.md` (if exists)
+- Contracts from `<record>/inception/contract-design/contract-summary.md` (if exists)
 - Unit definition from `<record>/inception/units-generation/unit-of-work.md` (if exists)
 - Story map from `<record>/inception/units-generation/unit-of-work-story-map.md` (if exists)
 - Requirements from `<record>/inception/requirements-analysis/requirements.md` (if exists)
 
-Incremental scopes (bugfix, poc, refactor, security-patch) skip units-generation and application-design by design; when those inputs are absent, scope the work from the requirements and, on brownfield, the reverse-engineered code knowledge base at `aidlc/spaces/<active-space>/codekb/<repo>/` — never invent the content of a missing artifact.
+Incremental scopes (bugfix, poc, refactor, security-patch) skip units-generation and domain-design by design; when those inputs are absent, scope the work from the requirements and, on brownfield, the reverse-engineered code knowledge base at `aidlc/spaces/<active-space>/codekb/<repo>/` — never invent the content of a missing artifact.
 
 ### Step 2: PART 1 — Planning
 
@@ -125,24 +132,51 @@ Step 12: Documentation (inline docs, API docs, README updates)
 
 This layer-by-layer approach ensures dependencies are built before dependents (data models before business logic, business logic before API). Deviate when the architecture requires it (e.g., event-driven systems, microservices with independent stacks).
 
-Present a summary of the plan to the user.
+Also create
+`<record>/construction/{unit-name}/code-generation/unit-test-instructions.md`
+before Plan Approval. Consult the active test strategy (stage-protocol.md §8
+"Test Strategy") and use the matching unit-test scope:
+
+- **Minimal strategy**: Requirement-driven unit tests (1 test per requirement,
+  happy-path floor per component), approximately 5-15 tests total
+- **Standard strategy**: 5-8 tests per component, with key behavior coverage
+- **Comprehensive strategy**: 10-15 tests per component, with thorough coverage
+
+Include:
+- Test framework setup and configuration
+- How to run THIS UNIT's tests
+- Expected coverage targets
+- Mocking/stubbing guidance
+- Test data management
+
+Every run command in this file MUST be scoped to this unit only, using exact
+test file paths or an exact unit filter. A bare project-wide command like
+`npm test` is not acceptable. Build and Test executes every unit's commands,
+so an unscoped command would rerun the whole suite once per unit.
+
+Present a summary of the unit test instructions together with the plan summary
+to the user.
 
 ### Step 3: Plan Approval
 
 Before presenting the approval, create or update
 `<record>/construction/{unit-name}/code-generation/code-generation-questions.md`
-with a **Plan Approval** question, both options below, and a blank `[Answer]:`
-tag:
+with a **Plan Approval** question that covers both
+`code-generation-plan.md` and `unit-test-instructions.md`, both options below,
+and a blank `[Answer]:` tag:
 
 - "Approve Plan" — proceed to code generation
 - "Request Changes" — revise the plan
 
 Then present that question as a structured question and STOP the turn. Fill the
 `[Answer]:` tag only after the human explicitly responds. On "Request Changes",
-record that answer, revise the plan, reset the Plan Approval `[Answer]:` to
-blank, and present the question again. Do not begin Step 4, dispatch the
-developer agent, or infer approval from a forwarding-loop continuation. Only an
-explicit "Approve Plan" response authorizes generation.
+record that answer, revise the plan and unit test instructions as needed, reset
+the Plan Approval `[Answer]:` to blank, and present the question again. Any
+post-approval change to `unit-test-instructions.md` reopens Plan Approval:
+reset the `[Answer]:` to blank and re-ask before generation. Do not begin Step
+4, dispatch the developer agent, or infer approval from a forwarding-loop
+continuation. Only an explicit "Approve Plan" response authorizes generation
+from the approved versions of both files.
 
 ### Step 4: PART 2 — Generation
 
@@ -161,6 +195,7 @@ Include in the delegation prompt:
 - Design artifacts for the CURRENT UNIT ONLY (not all units)
 - A 1-2 line summary of each inception-phase artifact with its file path (requirements summary, stories summary, app design summary) — the subagent can Read specific files if it needs full content
 - The approved code-generation-plan.md (full content)
+- The approved unit-test-instructions.md (full content)
 - Project workspace details (languages, frameworks, conventions from aidlc-state.md)
 - Instructions to execute each plan step sequentially and mark checkboxes as completed
 
@@ -174,11 +209,30 @@ After subagent completes, create `<record>/construction/{unit-name}/code-generat
 - Test coverage summary
 - Any deviations from the plan
 
+Create
+`<record>/construction/{unit-name}/code-generation/traceability.json`.
+Enumerate every assigned AC, detailed `NFRx.y`, and `BRx.y` (or direct `FR` /
+`NFR` IDs when incremental scope skipped the design chain). Every `OK` target
+must be one existing workspace-relative implementation or test file:
+
+```json
+{
+  "stage": "code-generation",
+  "unit": "u1-auth",
+  "upstream_ids": ["AC1.1.1", "NFR1.1", "BR1.1"],
+  "coverage": [
+    { "id": "AC1.1.1", "status": "OK", "target": "src/auth/login.ts" },
+    { "id": "NFR1.1", "status": "OK", "target": "src/cache/redis.ts" },
+    { "id": "BR1.1", "status": "OK", "target": "src/auth/policy.ts" }
+  ]
+}
+```
+
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
 `aidlc engine orchestrate report --stage code-generation --result <outcome>`.
-The engine owns all lifecycle transitions and advancement.
+That `report` call owns every lifecycle transition and advancement; never perform one in prose, and never narrate this bookkeeping to the user.
 
 ### Step 7: Completion
 
@@ -203,11 +257,15 @@ Approval gate: strictly 2-option (Approve / Request Changes).
 This stage produces TypeScript/JavaScript code in the active Bolt
 worktree. Generated code lives at the workspace root (NEVER under
 the record dir); the planning, plan-approval, and summary artefacts
-(`code-generation-plan.md`, `code-generation-questions.md`, `code-summary.md`)
-live under `<record>/construction/{unit-name}/code-generation/`.
+(`code-generation-plan.md`, `code-generation-questions.md`,
+`unit-test-instructions.md`, `code-summary.md`) live under
+`<record>/construction/{unit-name}/code-generation/`.
 
-The imported sensors check the code outputs:
+The imported sensors check the code outputs and per-unit markdown artefacts:
 
+- **`required-sections`** verifies each markdown artefact has the generic
+  document-shape floor (at least 2 H2 headings), including the per-unit unit
+  test instructions.
 - **`linter`** wraps the project's configured linter (eslint by default).
   Fires on every Write/Edit matching its `matches: "**/*.{ts,js}"` filter.
   Failure mode: lint violations land as `SENSOR_FAILED` audit rows with
@@ -215,11 +273,14 @@ The imported sensors check the code outputs:
 - **`type-check`** wraps the project's configured type-checker (tsc by
   default). Fires on `**/*.{ts,tsx}`. Failure mode: type errors emit
   `SENSOR_FAILED` with similar detail.
+- **`traceability`** validates the per-Unit coverage table and verifies every
+  `OK` target is an existing workspace-relative file.
 
-The two universal markdown-shape sensors (`required-sections`,
-`upstream-coverage`) are NOT imported here — code-generation produces
-code, not markdown artefacts. Future stages that produce both code and
-markdown would import all four.
+`upstream-coverage` is intentionally NOT imported here. The stage consumes a
+broad, scope-dependent design set, while its load-bearing validation is the
+shape of the planning artefacts plus the lint, type, and traceability checks
+on generated code. The `required-sections` floor does not apply to the
+structured `traceability.json` file, which the `traceability` sensor owns.
 
 ## Learn
 

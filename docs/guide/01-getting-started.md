@@ -147,8 +147,17 @@ Missing credentials are not blocking. A server you have no credentials for — n
 
 ## Installation
 
-The recommended path installs a checksum-verified native executable and every
-harness runtime, then `aidlc config` selects the project harness.
+AI-DLC installs by copying its distribution for your harness into your project.
+Step 1 below has the copy commands for every harness; the rest of this chapter
+continues on **Claude Code** (the `dist/claude/` tree, which ships as a
+`.claude/` directory). On another harness, finish the install in its chapter
+instead - [Running on Kiro CLI](harnesses/kiro-cli.md),
+[Running on Kiro IDE](harnesses/kiro-ide.md),
+[Running on Codex CLI](harnesses/codex-cli.md),
+[AI-DLC on Cursor](harnesses/cursor.md),
+[AI-DLC on opencode](harnesses/opencode.md), or
+[AI-DLC on GitHub Copilot](harnesses/copilot.md) - each covers the prerequisites
+and post-copy steps that differ.
 
 ### Step 1: Install the native runtime
 
@@ -292,6 +301,17 @@ Apply the copy channel's `.gitignore` and hook trust steps from
 </details>
 
 <details markdown="1">
+<summary><strong>Cursor</strong></summary>
+
+```bash
+bun dist/cursor/install.ts your-project
+```
+
+Then continue in [AI-DLC on Cursor](harnesses/cursor.md) for IDE and CLI usage, hook behavior, permissions, and installer refresh rules.
+
+</details>
+
+<details markdown="1">
 <summary><strong>opencode</strong></summary>
 
 ```bash
@@ -376,8 +396,8 @@ Run the health check to confirm everything is in place:
 
 ```
 ✓ bun installed (required for CLI tools and hooks)
-✓ aidlc-audit-logger.ts present
-✓ aidlc-sync-statusline.ts present
+✓ aidlc-write-audit-log.ts present
+✓ aidlc-sync-workflow-state.ts present
 ✓ aidlc-validate-state.ts present
 ✓ aidlc-log-subagent.ts present
 ✓ aidlc-session-start.ts present
@@ -389,9 +409,9 @@ Run the health check to confirm everything is in place:
 ✓ Hook heartbeats: not yet fired (first workflow stage will populate)
 ✓ State matches last audit event (no drift)
 ✓ Cycle detection: 0 cycles
-✓ Orphan stage files: 32 graph entries all have files
+✓ Orphan stage files: 33 graph entries all have files
 ✓ Scope validation: 9 scopes valid (29 advisories)
-✓ Schema validation: 32/32 stages valid
+✓ Schema validation: 33/33 stages valid
 ✓ Graph references: 122 artifacts + edges resolved
 ✓ Keyword overlap: no conflicts
 ```
@@ -405,7 +425,7 @@ Run the health check to confirm everything is in place:
 | `settings.json` missing | Native: run `aidlc config`. Copy: re-copy `dist/claude/.claude/settings.json`. |
 | Workspace shell missing | Native: run `aidlc config`. Copy: re-copy the workspace shell from `dist/claude/` into the project root. |
 | State file issues | Archive the active intent's record dir under `aidlc/spaces/<space>/intents/` and run `/aidlc` to start fresh |
-| Graph/scope/schema/keyword failures | The diagnostic reports the specific artifact, slug, or scope name at fault. These indicate authoring drift in `.claude/aidlc-common/stages/` or `.claude/scopes/`; regenerate the compiled graph + scope grid with `bun .claude/tools/aidlc-graph.ts compile` or inspect the named stage/scope directly. |
+| Graph/scope/schema/keyword failures | The diagnostic reports the specific artifact, slug, or scope name at fault. These indicate authoring drift in `.claude/aidlc-common/stages/` or `.claude/scopes/`; regenerate the compiled graph + scope grid with `{{INVOKE}} engine graph compile` or inspect the named stage/scope directly. |
 
 ---
 

@@ -20,7 +20,7 @@ never hand-edit it (the drift guard fails CI).
   `.codex/hooks.json` only inside one. The native installer and AI-DLC runtime
   themselves do not depend on Git.
 - **A model provider** — the shipped `config.toml` defaults to **Amazon
-  Bedrock** (`openai.gpt-5.5`; agents on `openai.gpt-5.4`). Set the AWS
+  Bedrock** (`openai.gpt-5.5`; agents on `openai.gpt-5.6-terra`). Set the AWS
   profile/region in `[model_providers.amazon-bedrock.aws]`. For OpenAI auth,
   comment out the provider lines. Note: `web_search` is unavailable on
   Bedrock; the market-research stage degrades gracefully.
@@ -166,7 +166,7 @@ config when Codex requests it.
 Invoke the orchestrator with `$aidlc` (or `/skills` → aidlc) followed by a
 scope or description — same commands as the Claude harness (`$aidlc --status`,
 `$aidlc --help`, …). Stage runners are explicit-only:
-`$aidlc-application-design`, `$aidlc-bugfix`, etc. (they are excluded from
+`$aidlc-domain-design`, `$aidlc-bugfix`, etc. (they are excluded from
 implicit skill matching so 37 runner descriptions don't pollute the index).
 
 ## Harness differences vs Claude Code
@@ -226,8 +226,8 @@ Installed and trusted? The methodology is the same on every harness — keep goi
 with the neutral chapters:
 
 - [Your First Workflow](../02-your-first-workflow.md) — an annotated end-to-end run.
-- [Phases and Stages](../04-phases-and-stages.md) — the 5 phases and 32 stages.
+- [Phases and Stages](../04-phases-and-stages.md) — the 5 phases and 33 stages.
 - [Scopes, Depth, and Test Strategy](../05-scopes-and-depth.md) — right-sizing a run.
 - [Glossary](../glossary.md) — every term defined.
 
-Other harnesses: [Running AI-DLC on Kiro IDE](kiro-ide.md) · [the harness family index](README.md).
+Other harnesses: [Running AI-DLC on Kiro IDE](kiro-ide.md) · [AI-DLC on Cursor](cursor.md) · [the harness family index](README.md).

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "distribution": "copilot",
+  "productName": "GitHub Copilot",
+  "configNextStep": "start Copilot CLI or VS Code agent mode, then run `/aidlc --doctor`",
+  "harnessDir": ".aidlc",
+  "managedDirectories": [
+    ".aidlc",
+    ".github",
+    "aidlc"
+  ],
+  "rootIntegrations": [
+    {
+      "path": ".gitignore",
+      "policy": "managed-block",
+      "marker": "gitignore",
+      "legacySignatures": {
+        "wholeFileHashes": [
+          "sha256:d1d6ab0958ca01f80350755d6482359b2ebb29b141797e85ee00f29f0afbb724"
+        ]
+      }
+    },
+    {
+      "path": "AGENTS.md",
+      "policy": "managed-block",
+      "marker": "agents",
+      "legacySignatures": {
+        "wholeFileHashes": [
+          "sha256:aaf390b0343301b0c72b6fe23814082d7a959596fe52321dcdddf90d92501da8"
+        ]
+      }
+    }
+  ]
+}

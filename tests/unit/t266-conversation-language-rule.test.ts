@@ -46,7 +46,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "../harness/fixtures.ts";
 import { HARNESS_MATRIX } from "../harness/harness-matrix.ts";
-import { augmentDispatchRules } from "../../dist/claude/.claude/hooks/aidlc-dispatch-rules.ts";
+import { augmentDispatchRules } from "../../dist/claude/.claude/hooks/aidlc-deliver-stage-rules.ts";
 
 const BUN = process.execPath;
 const UTILITY = join(REPO_ROOT, "dist", "claude", ".claude", "tools", "aidlc-utility.ts");
@@ -247,10 +247,10 @@ describe("t266 conversation-language rule layer", () => {
     tempDirs.push(proj);
     const birth = spawnSync(
       BUN,
-      [UTILITY, "intent-birth", "--scope", "poc", "--arguments", "x", "--project-dir", proj],
+      [UTILITY, "intent-create", "--scope", "poc", "--arguments", "x", "--project-dir", proj],
       { encoding: "utf-8" },
     );
-    expect(birth.status, `intent-birth failed: ${birth.stdout}\n${birth.stderr}`).toBe(0);
+    expect(birth.status, `intent-create failed: ${birth.stdout}\n${birth.stderr}`).toBe(0);
 
     const result = augmentDispatchRules(
       "task",
@@ -285,18 +285,18 @@ describe("t266 conversation-language rule layer", () => {
     // other path that merely has the word in it.
     const MEMORY_GLOB = "file://aidlc/spaces/default/memory/**/*.md";
     const authoredHook = readFileSync(
-      join(REPO_ROOT, "core", "hooks", "aidlc-dispatch-rules.ts"),
+      join(REPO_ROOT, "core", "hooks", "aidlc-deliver-stage-rules.ts"),
       "utf-8",
     );
 
     for (const harness of HARNESS_MATRIX) {
-      const hook = join(harness.engineRoot, "hooks", "aidlc-dispatch-rules.ts");
+      const hook = join(harness.engineRoot, "hooks", "aidlc-deliver-stage-rules.ts");
       expect(existsSync(hook), `${harness.name} ships the dispatch-rules hook`).toBe(true);
       // Byte parity with the authored hook is what carries (c)'s proof across
       // harnesses: the rewrite exercised there is literally this code.
       expect(
         readFileSync(hook, "utf-8"),
-        `${harness.name}'s hook matches core/hooks/aidlc-dispatch-rules.ts, so (c) covers it`,
+        `${harness.name}'s hook matches core/hooks/aidlc-deliver-stage-rules.ts, so (c) covers it`,
       ).toBe(authoredHook);
 
       if (!harness.capabilities.kiroAgentJson) continue;
@@ -371,6 +371,14 @@ describe("t266 conversation-language rule layer", () => {
           surface = join(harness.engineRoot, "config.toml");
           required = `AIDLC_RULES_DIR = "${MEMORY_DIR}"`;
           break;
+        case "copilot-agents-md":
+          surface = join(harness.distRoot, "AGENTS.md");
+          required = `@${MEMORY_DIR}/org.md`;
+          break;
+        case "cursor-rule":
+          surface = join(harness.engineRoot, "rules", "aidlc.mdc");
+          required = `- ${MEMORY_DIR}/org.md`;
+          break;
         case "kiro-steering":
           // The IDE's real surface: an always-included steering file whose
           // #[[file:...]] references pull the live memory tree in verbatim.
@@ -406,6 +414,12 @@ describe("t266 conversation-language rule layer", () => {
         expect(
           /^---\n(?:.*\n)*?inclusion:\s*always\n(?:.*\n)*?---/.test(body),
           `${harness.name}'s steering file declares inclusion: always`,
+        ).toBe(true);
+      }
+      if (include === "cursor-rule") {
+        expect(
+          /^---\n(?:.*\n)*?alwaysApply:\s*true\n(?:.*\n)*?---/.test(body),
+          `${harness.name}'s standing rule declares alwaysApply: true`,
         ).toBe(true);
       }
 
@@ -792,10 +806,10 @@ describe("t266 conversation-language rule layer", () => {
     tempDirs.push(proj);
     const birth = spawnSync(
       BUN,
-      [UTILITY, "intent-birth", "--scope", "poc", "--arguments", "x", "--project-dir", proj],
+      [UTILITY, "intent-create", "--scope", "poc", "--arguments", "x", "--project-dir", proj],
       { encoding: "utf-8" },
     );
-    expect(birth.status, `intent-birth failed: ${birth.stdout}\n${birth.stderr}`).toBe(0);
+    expect(birth.status, `intent-create failed: ${birth.stdout}\n${birth.stderr}`).toBe(0);
 
     // Persist BOTH rules the way the learnings ritual actually leaves them.
     // The write path appends and dedupes on the per-(stage, candidate_id) cid
@@ -903,10 +917,10 @@ describe("t266 conversation-language rule layer", () => {
     tempDirs.push(proj);
     const birth = spawnSync(
       BUN,
-      [UTILITY, "intent-birth", "--scope", "poc", "--arguments", "x", "--project-dir", proj],
+      [UTILITY, "intent-create", "--scope", "poc", "--arguments", "x", "--project-dir", proj],
       { encoding: "utf-8" },
     );
-    expect(birth.status, `intent-birth failed: ${birth.stdout}\n${birth.stderr}`).toBe(0);
+    expect(birth.status, `intent-create failed: ${birth.stdout}\n${birth.stderr}`).toBe(0);
 
     const memory = join(proj, "aidlc", "spaces", "default", "memory");
     const teamMd = join(memory, "team.md");

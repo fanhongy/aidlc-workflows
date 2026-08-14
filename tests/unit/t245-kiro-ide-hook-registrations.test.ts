@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const AUTHORED_HOOKS = join(REPO_ROOT, "harness", "kiro-ide", "hooks");
 const DIST_HOOKS = join(REPO_ROOT, "dist", "kiro-ide", ".kiro", "hooks");
+const KIRO_IDE_GUIDE = join(REPO_ROOT, "docs", "guide", "harnesses", "kiro-ide.md");
 
 interface HookEntry {
   name: string;
@@ -38,26 +39,35 @@ const EXPECTED_V2_REGISTRATIONS: Array<{
   adapterTarget: string;
 }> = [
   { file: "aidlc-session-start.json", trigger: "SessionStart", matcher: null, adapterTarget: "session-start" },
-  { file: "aidlc-mint.json", trigger: "UserPromptSubmit", matcher: null, adapterTarget: "mint" },
-  { file: "aidlc-block.json", trigger: "PreToolUse", matcher: null, adapterTarget: "block" },
-  { file: "aidlc-audit-logger.json", trigger: "PostToolUse", matcher: "fs_write|str_replace|fs_append", adapterTarget: "audit-and-sensors" },
-  { file: "aidlc-runtime-compile.json", trigger: "PostToolUse", matcher: "execute_bash", adapterTarget: "runtime-compile" },
-  { file: "aidlc-sync-statusline.json", trigger: "PostToolUse", matcher: "execute_bash", adapterTarget: "state-sync" },
+  { file: "aidlc-record-human-turn.json", trigger: "UserPromptSubmit", matcher: null, adapterTarget: "record-human-turn" },
+  { file: "aidlc-enforce-approval-gate.json", trigger: "PreToolUse", matcher: null, adapterTarget: "enforce-approval-gate" },
+  { file: "aidlc-write-audit-log.json", trigger: "PostToolUse", matcher: "fs_write|str_replace|fs_append", adapterTarget: "audit-and-sensors" },
+  { file: "aidlc-rebuild-stage-graph.json", trigger: "PostToolUse", matcher: "execute_bash", adapterTarget: "rebuild-stage-graph" },
+  { file: "aidlc-sync-workflow-state.json", trigger: "PostToolUse", matcher: "execute_bash", adapterTarget: "sync-workflow-state" },
   { file: "aidlc-log-subagent.json", trigger: "PostToolUse", matcher: "^(subagent_.+|invoke_sub_agent)$", adapterTarget: "log-subagent" },
-  { file: "aidlc-stop.json", trigger: "Stop", matcher: null, adapterTarget: "stop" },
+  { file: "aidlc-continue-workflow.json", trigger: "Stop", matcher: null, adapterTarget: "continue-workflow" },
 ];
 
 // Legacy .kiro.hook files that MUST be present (coexistence with pre-1.0 IDE).
 const EXPECTED_LEGACY_FILES = [
-  "aidlc-audit-logger.kiro.hook",
-  "aidlc-block.kiro.hook",
+  "aidlc-write-audit-log.kiro.hook",
+  "aidlc-enforce-approval-gate.kiro.hook",
   "aidlc-log-subagent.kiro.hook",
-  "aidlc-mint.kiro.hook",
-  "aidlc-runtime-compile.kiro.hook",
+  "aidlc-record-human-turn.kiro.hook",
+  "aidlc-rebuild-stage-graph.kiro.hook",
   "aidlc-session-end.kiro.hook",
   "aidlc-session-start.kiro.hook",
-  "aidlc-stop.kiro.hook",
-  "aidlc-sync-statusline.kiro.hook",
+  "aidlc-continue-workflow.kiro.hook",
+  "aidlc-sync-workflow-state.kiro.hook",
+];
+
+const RETIRED_HOOK_BASENAMES = [
+  "audit-logger",
+  "block",
+  "mint",
+  "runtime-compile",
+  "stop",
+  "sync-statusline",
 ];
 
 function parseHookJson(dir: string, file: string): HookFile {
@@ -87,7 +97,9 @@ describe("t245 Kiro IDE hook registrations (v2 schema contract)", () => {
             expect(hook.matcher).toBeUndefined();
           }
           expect(hook.action.type).toBe("command");
-          expect(hook.action.command).toContain(`aidlc-kiro-adapter.ts ${reg.adapterTarget}`);
+          expect(hook.action.command).toContain(
+            `engine adapter kiro-ide ${reg.adapterTarget}`,
+          );
         });
       }
 
@@ -117,7 +129,7 @@ describe("t245 Kiro IDE hook registrations (v2 schema contract)", () => {
       });
 
       test("dispatch-rules has NO IDE registration (always-included steering is the delivery channel)", () => {
-        expect(existsSync(join(tree.dir, "aidlc-dispatch-rules.json"))).toBe(
+        expect(existsSync(join(tree.dir, "aidlc-deliver-stage-rules.json"))).toBe(
           false,
         );
       });
@@ -141,5 +153,22 @@ describe("t245 Kiro IDE hook registrations (v2 schema contract)", () => {
         expect(existsSync(join(DIST_HOOKS, legacy))).toBe(true);
       });
     }
+  });
+
+  test("upgrade instructions remove retired hook registrations before overlaying the new tree", () => {
+    const guide = readFileSync(KIRO_IDE_GUIDE, "utf-8");
+    const cleanupStart = guide.indexOf("for retired_hook in");
+    const overlayCopy = guide.indexOf("cp -R dist/kiro-ide/.kiro/.");
+
+    expect(cleanupStart).toBeGreaterThanOrEqual(0);
+    expect(overlayCopy).toBeGreaterThan(cleanupStart);
+
+    const cleanup = guide.slice(cleanupStart, overlayCopy);
+    for (const basename of RETIRED_HOOK_BASENAMES) {
+      expect(cleanup).toContain(basename);
+    }
+    expect(cleanup).toMatch(
+      /rm -f \\\n\s+"your-project\/\.kiro\/hooks\/aidlc-\$\{retired_hook\}\.json" \\\n\s+"your-project\/\.kiro\/hooks\/aidlc-\$\{retired_hook\}\.kiro\.hook"/,
+    );
   });
 });

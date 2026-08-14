@@ -189,6 +189,13 @@ export interface GraphStage extends StageEntry {
   // reviewer_max_iterations — review cycle cap before escalating to human.
   // Defaults to 2 when reviewer is present.
   reviewer_max_iterations?: number;
+  // review_class — how the review runs: "adversarial" (refute + fix loop up
+  // to the cap, §12a classic) or "advisory" (single pass, findings quoted at
+  // the human gate, no fix loop). Defaults to "adversarial" when a reviewer
+  // is present (the pre-class behavior). Absent when no reviewer. The
+  // EFFECTIVE class at runtime may be lowered by the scope's review_cap or a
+  // run override — resolveReviewClass in aidlc-lib.ts owns that resolution.
+  review_class?: "adversarial" | "advisory";
   // Deterministic pre-generation consolidated-summary checkpoint policy.
   summary_confirmation?: "required" | "if-present";
 }
@@ -201,6 +208,13 @@ export interface ScopeValidation {
   // counts). The composer copies this into its proposal verbatim so the gate the
   // human sees leads with numbers the validator computed, not an LLM recount.
   summary?: ScopeCostSummary;
+  // Graph/plugin-authored stock scopes ranked by grid distance from the
+  // validated proposal; composer-authored entries are excluded. A front/report
+  // matched-vs-custom verdict routes on nearest_stock[0].diff (match when <= 2
+  // and depth is compatible), so the routing is the final validator's number,
+  // not an LLM recount or the earlier mechanical screen. In-flight treats the
+  // ranking as advisory and preserves the running plan.
+  nearest_stock?: Array<{ scope: string; diff: number; differs: string[] }>;
 }
 
 // --- Module-local state ---
@@ -455,6 +469,7 @@ const FIELD_ORDER = [
   "scopes",
   "reviewer",
   "reviewer_max_iterations",
+  "review_class",
   "summary_confirmation",
   "inputs",
   "outputs",
@@ -823,7 +838,7 @@ export function consumersOf(artifact: string): GraphStage[] {
  *  would yield spurious missing-section findings. The per-sensor
  *  required-sections script gets only --stage/--output-path and so cannot know
  *  the stage's artifact set — the dispatcher (aidlc-sensor.ts) and the
- *  PostToolUse fire hook (aidlc-sensor-fire.ts) both hold the GraphStage and
+ *  PostToolUse fire hook (aidlc-run-sensors.ts) both hold the GraphStage and
  *  thread this filtered set so a resolved template applies ONLY to a
  *  declared-prose artifact. Lives here so both invocation sites derive it
  *  identically without importing the dispatcher (whose top-level main() would
@@ -993,6 +1008,37 @@ export function subgraphForScope(scope: string): GraphStage[] {
     .sort((a, b) => numericStageOrder(a.number, b.number));
 }
 
+/** Rank every graph/plugin-authored stock scope by grid distance from the given
+ *  EXECUTE/SKIP grid: `{scope, diff, differs}` sorted by diff then name.
+ *  Composer-authored entries appended to scope-grid.json are deliberately
+ *  excluded. Distance covers the union of proposal and stock keys, so missing
+ *  proposal stages and unknown extras are differences rather than invisible
+ *  overlap. Shared by `ars` (against the complete mechanical screen grid) and
+ *  `validate-grid` (against the composer's proposal); only the latter is a
+ *  front/report stock-match authority. */
+export function nearestStockScopes(
+  grid: Record<string, "EXECUTE" | "SKIP">
+): Array<{ scope: string; diff: number; differs: string[] }> {
+  const stockScopeNames = stageDeclaredScopeNames(loadGraph());
+  return Object.entries(loadScopeGrid())
+    // Composer-authored scopes are appended only to scope-grid.json; no stage
+    // declares them. They remain runnable but must never become stock-match
+    // candidates for an unrelated later composition.
+    .filter(([scope]) => stockScopeNames.has(scope))
+    .map(([scope, def]) => {
+      const differs: string[] = [];
+      const slugs = new Set([
+        ...Object.keys(def.stages),
+        ...Object.keys(grid),
+      ]);
+      for (const slug of slugs) {
+        if (grid[slug] !== def.stages[slug]) differs.push(slug);
+      }
+      return { scope, diff: differs.length, differs };
+    })
+    .sort((a, b) => a.diff - b.diff || a.scope.localeCompare(b.scope));
+}
+
 /** Resolve a scope's plan: the EXECUTE/SKIP slice over the full graph in
  *  numeric order, shaped `{slug, phase, action}` — byte-identical to
  *  lib.ts's stagesInScope() / the legacy scope-mapping-derived plan. The
@@ -1098,6 +1144,15 @@ export function validateGrid(
       );
     }
   }
+  const missingSlugs = graph
+    .map((stage) => stage.slug)
+    .filter((slug) => !(slug in grid));
+  if (missingSlugs.length > 0) {
+    errors.push(
+      `Grid is missing ${missingSlugs.length} compiled stage entr${missingSlugs.length === 1 ? "y" : "ies"}: ` +
+        `${missingSlugs.join(", ")}. Every compiled stage must be explicitly EXECUTE or SKIP.`,
+    );
+  }
 
   const onPath = new Set(
     Object.entries(grid)
@@ -1152,7 +1207,14 @@ export function validateGrid(
   const summary = gridCostSummary(
     grid as Record<string, "EXECUTE" | "SKIP">,
   );
-  return { valid: errors.length === 0, errors, advisories, summary };
+  // Distance to each stock scope travels with the validation for the same
+  // reason as summary: the match decision must ride the validator's numbers.
+  // Unknown and missing slugs already errored above; the ranking still counts
+  // them so an invalid partial grid can never look like an exact stock match.
+  const nearest_stock = nearestStockScopes(
+    grid as Record<string, "EXECUTE" | "SKIP">,
+  );
+  return { valid: errors.length === 0, errors, advisories, summary, nearest_stock };
 }
 
 /** Check proposed (granted-at-the-gate) keywords against the keywords the
@@ -1982,6 +2044,12 @@ function buildGraphStage(
       cap >= 1
         ? cap
         : 2;
+    // Default the class to "adversarial" (the pre-class behavior) when a
+    // reviewer is declared without one. Schema (V2) rejects any value other
+    // than adversarial/advisory upstream; keep the coercion defensive so a
+    // bad value degrades to the strict default rather than leaking through.
+    stage.review_class =
+      parsed.review_class === "advisory" ? "advisory" : "adversarial";
   }
   if (parsed.summary_confirmation !== undefined) {
     stage.summary_confirmation = parsed.summary_confirmation;
@@ -2435,16 +2503,7 @@ export function computeArs(
   // Nearest stock scopes by grid diff count against the mechanical screen
   // grid. The composer's folded grid may differ - this is the deterministic
   // starting signal, not the proposal.
-  const nearestScopes = Object.entries(loadScopeGrid())
-    .map(([scope, def]) => {
-      const differs: string[] = [];
-      for (const [slug, action] of Object.entries(def.stages)) {
-        const mine = screenGrid[slug];
-        if (mine !== undefined && mine !== action) differs.push(slug);
-      }
-      return { scope, diff: differs.length, differs };
-    })
-    .sort((a, b) => a.diff - b.diff || a.scope.localeCompare(b.scope));
+  const nearestScopes = nearestStockScopes(screenGrid);
 
   const arsScores = [
     "| Component | Symbol | Score | Band |",

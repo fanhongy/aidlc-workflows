@@ -16,7 +16,7 @@
       "marker": "gitignore",
       "legacySignatures": {
         "wholeFileHashes": [
-          "sha256:99c444e898600d9d845f22156e806c79e12c6ac59c37c5d42e3f7cf3bd44291f"
+          "sha256:0c7b65e6639cbe3c907ce12b8c07a1afaf5d687838c359e820ba1a64c6fded65"
         ]
       }
     },
@@ -26,7 +26,7 @@
       "marker": "agents",
       "legacySignatures": {
         "wholeFileHashes": [
-          "sha256:d488fe9906bd81079aeb1e4c32ff0c8d1827844609f86f7906a325950502a91e"
+          "sha256:b3703c1cbfaf193a6cf2eaec4e018b4df18f899b229542b594f89e21ef7b14ce"
         ]
       }
     },

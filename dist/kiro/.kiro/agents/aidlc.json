@@ -79,7 +79,7 @@
       },
       {
         "matcher": "execute_bash",
-        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro pretool-block",
+        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro guard-tool-call",
         "timeout_ms": 15000
       },
       {
@@ -94,7 +94,7 @@
       },
       {
         "matcher": "subagent",
-        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro dispatch-rules",
+        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro deliver-stage-rules",
         "timeout_ms": 15000
       },
       {
@@ -111,12 +111,12 @@
       },
       {
         "matcher": "execute_bash",
-        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro runtime-compile",
+        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro rebuild-stage-graph",
         "timeout_ms": 45000
       },
       {
         "matcher": "todo_list",
-        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro state-sync"
+        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro sync-workflow-state"
       },
       {
         "matcher": "subagent",
@@ -125,7 +125,7 @@
     ],
     "stop": [
       {
-        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro stop",
+        "command": "bun .kiro/tools/aidlc.ts engine adapter kiro continue-workflow",
         "timeout_ms": 30000
       }
     ]

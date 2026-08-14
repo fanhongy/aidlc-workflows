@@ -29,13 +29,15 @@ On Windows, download `install.ps1` and invoke it as
 
 Pick your harness:
 
-| Harness | Invoke | Next step and trust | Chapter |
-|---------|--------|---------------------|---------|
-| **Claude Code** | `/aidlc` | Open Claude Code, then `/aidlc --doctor`; the native projection allows `aidlc engine *`. | Covered throughout the [User Guide](../00-introduction.md); install details are in [Getting Started](../01-getting-started.md). |
-| **Kiro IDE** | `/aidlc` | Open the project, then `/aidlc --doctor`; config merges `aidlc engine *` into IDE trusted commands. | [Running AI-DLC on Kiro IDE](kiro-ide.md) |
-| **Kiro CLI** (≥ 2.6) | `/aidlc` | Run `kiro-cli chat`, then `/aidlc --doctor`; the projected default agent permits `aidlc engine *`. | [Running AI-DLC on Kiro CLI](kiro-cli.md) |
-| **Codex CLI** (≥ 0.145.0) | `$aidlc` | In a Git repository, run `codex`, approve project hook trust (or apply the generated trust seed), then `$aidlc --doctor`. | [AI-DLC on Codex CLI](codex-cli.md) |
-| **opencode** (≥ 1.17) | `/aidlc` | Run `opencode`, then `/aidlc --doctor`; the projected config allows direct `aidlc engine *` calls. | [AI-DLC on opencode](opencode.md) |
+| Harness | Invoke | Chapter |
+|---------|--------|---------|
+| **Claude Code** | `/aidlc` | Covered throughout the [User Guide](../00-introduction.md) (its examples run on Claude Code); install in [Getting Started](../01-getting-started.md). |
+| **Kiro IDE** | `/aidlc` | [Running AI-DLC on Kiro IDE](kiro-ide.md) — prerequisites (Opus 4.8), install, hooks, what's different on Kiro. |
+| **Kiro CLI** (≥ 2.6) | `/aidlc` | [Running AI-DLC on Kiro CLI](kiro-cli.md) — prerequisites, install, what's different on Kiro. |
+| **Codex CLI** (≥ 0.145.0) | `$aidlc` | [AI-DLC on Codex CLI](codex-cli.md) — prerequisites, trust pre-seed, Bedrock config, the git-repo requirement. |
+| **Cursor** | `/aidlc` | [AI-DLC on Cursor](cursor.md) — one tree for the Cursor IDE and CLI, native subagents and skills, the hooks.json adapter, what's different on Cursor. |
+| **opencode** (≥ 1.17) | `/aidlc` | [AI-DLC on opencode](opencode.md) — the split `.aidlc/` + `.opencode/` layout, the adapter plugin, what's different on opencode. |
+| **GitHub Copilot** (CLI ≥ 1.0.74 / VS Code ≥ 1.130) | `/aidlc` | [AI-DLC on GitHub Copilot](copilot.md) — one install for both surfaces, the `.github/` merge, folder trust, what's different on Copilot. |
 
 AI-DLC on Kiro (IDE or CLI) works best with **Claude Opus 4.8**, which requires a **paid Kiro plan**.
 

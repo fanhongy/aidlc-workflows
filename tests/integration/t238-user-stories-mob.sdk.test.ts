@@ -78,7 +78,7 @@ function userStoriesState(projectDir: string): string {
 - **Project Type**: Greenfield
 - **Scope**: feature
 - **Start Date**: 2026-07-17T00:00:00Z
-- **State Version**: 7
+- **State Version**: 8
 - **Active Agent**: aidlc-product-agent
 - **Worktree Path**:
 - **Bolt Refs**:
@@ -135,7 +135,7 @@ function userStoriesState(projectDir: string): string {
 - [x] requirements-analysis — EXECUTE
 - [-] user-stories — EXECUTE
 - [S] refined-mockups — SKIP (live SDK fixture terminal boundary)
-- [S] application-design — SKIP (live SDK fixture terminal boundary)
+- [S] domain-design — SKIP (live SDK fixture terminal boundary)
 - [S] units-generation — SKIP (live SDK fixture terminal boundary)
 - [S] delivery-planning — SKIP (live SDK fixture terminal boundary)
 
@@ -298,6 +298,17 @@ function inputMentions(result: CapturedToolResult, value: string): boolean {
   return JSON.stringify(result.input).includes(value);
 }
 
+function readIndex(
+  results: CapturedToolResult[],
+  value: string,
+): number {
+  return results.findIndex(
+    (result) =>
+      result.toolName === "Read" &&
+      inputMentions(result, value),
+  );
+}
+
 function shellCommand(result: CapturedToolResult): string | undefined {
   if (result.toolName !== "Bash" && result.toolName !== "Shell") return undefined;
   return typeof result.input.command === "string"
@@ -348,6 +359,19 @@ describe("t238 user-stories mob topology (Claude SDK live)", () => {
 
         expect(result.timedOut).toBe(false);
         expect(result.stoppedAfterToolResult).toBe(true);
+        const leadPersonaPath = ".claude/agents/aidlc-product-agent.md";
+        const leadReadIndex = readIndex(result.toolResults, leadPersonaPath);
+        const projectKnowledgeReadIndex = readIndex(
+          result.toolResults,
+          LIVE_KNOWLEDGE_REL,
+        );
+        expect(leadReadIndex, "the inline mob lead persona was not read").toBeGreaterThanOrEqual(0);
+        expect(
+          projectKnowledgeReadIndex,
+          "the inline mob lead's project knowledge was not read",
+        ).toBeGreaterThan(
+          leadReadIndex,
+        );
         expect(
           result.toolResults.some(
             (toolResult) =>
@@ -474,17 +498,23 @@ describe("t238 user-stories mob topology (Claude SDK live)", () => {
             `.claude/agents/${support}.md`,
           );
         }
-        expect(
-          result.toolResults.some(
-            (toolResult) =>
-              toolResult.toolName === "Read" &&
-              inputMentions(
-                toolResult,
-                ".claude/agents/aidlc-product-agent.md",
-              ),
-          ),
-          "the inline mob lead persona was not read",
-        ).toBe(true);
+        // inline_context_paths is only the manifest. The conductor contract
+        // requires it to read each inline persona before any stage/consume read.
+        const leadPersonaPath = ".claude/agents/aidlc-product-agent.md";
+        const leadReadIndex = readIndex(result.toolResults, leadPersonaPath);
+        const stageReadIndex = readIndex(
+          result.toolResults,
+          ".claude/aidlc-common/stages/inception/user-stories.md",
+        );
+        const consumeReadIndex = readIndex(result.toolResults, "requirements.md");
+        expect(leadReadIndex, "the conductor did not read the inline mob lead persona")
+          .toBeGreaterThanOrEqual(0);
+        expect(stageReadIndex, "stage_file read preceded the lead persona read").toBeGreaterThan(
+          leadReadIndex,
+        );
+        expect(consumeReadIndex, "consume read preceded the lead persona read").toBeGreaterThan(
+          leadReadIndex,
+        );
 
         // Round 1 dispatched every declared support. Each brief names the
         // shared draft/input, carries the active-space rules delivered by the
@@ -573,12 +603,12 @@ describe("t238 user-stories mob topology (Claude SDK live)", () => {
         }
 
         // The human approval menu appeared only after all evidence existed;
-        // report then committed the gate and completed this terminal fixture.
+        // report then committed the gate and advanced to v2's Contract Design.
         expect(approvalMenuSeen).toBe(true);
         expect(evidenceCompleteAtApproval).toBe(true);
         expect(result.auditEvents).toContain("GATE_APPROVED");
         expect(result.auditEvents).toContain("STAGE_COMPLETED");
-        expect(result.auditEvents).toContain("WORKFLOW_COMPLETED");
+        expect(result.auditEvents).not.toContain("WORKFLOW_COMPLETED");
         expect(eventCount(projectDir, "GATE_APPROVED")).toBe(approvedBefore + 1);
         expect(
           result.toolResults.some((toolResult) =>
@@ -588,7 +618,10 @@ describe("t238 user-stories mob topology (Claude SDK live)", () => {
         ).toBe(false);
 
         expect(result.stateFile).toBeDefined();
-        expect(readStateField(result.stateFile as string, "Status")).toBe("Completed");
+        expect(readStateField(result.stateFile as string, "Status")).toBe("Running");
+        expect(readStateField(result.stateFile as string, "Current Stage")).toBe(
+          "contract-design",
+        );
         expect(result.stateFile).toMatch(/- \[x\] user-stories — EXECUTE/);
       } finally {
         cleanupTestProject(projectDir);

@@ -92,6 +92,8 @@ const harnessNames = readdirSync(harnessRoot)
 const harnessLabels: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex CLI",
+  copilot: "GitHub Copilot",
+  cursor: "Cursor",
   kiro: "Kiro CLI",
   "kiro-ide": "Kiro IDE",
   opencode: "opencode",
@@ -125,7 +127,7 @@ const engineCommands = [...engineMain.matchAll(/case "([^"]+)":/g)].map((match) 
 
 describe("documentation parity derives current behavior from authored implementation", () => {
   test("event count and user-guide taxonomy match VALID_EVENT_TYPES", () => {
-    expect(eventTypes.length).toBe(77);
+    expect(eventTypes.length).toBe(82);
 
     const guide = read("docs", "guide", "10-state-and-audit.md");
     const guideTaxonomy = sliceBetween(
@@ -168,7 +170,15 @@ describe("documentation parity derives current behavior from authored implementa
   });
 
   test("documented harness roster matches every implementation manifest", () => {
-    expect(harnessNames).toEqual(["claude", "codex", "kiro", "kiro-ide", "opencode"]);
+    expect(harnessNames).toEqual([
+      "claude",
+      "codex",
+      "copilot",
+      "cursor",
+      "kiro",
+      "kiro-ide",
+      "opencode",
+    ]);
     expect(Object.keys(harnessLabels).sort()).toEqual(harnessNames);
 
     const readmeRoster = sliceBetween(

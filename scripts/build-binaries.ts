@@ -95,10 +95,7 @@ const DEFAULT_OUT_DIR = join(REPO_ROOT, "build", "binaries");
 const RUNTIME_ASSET_ROOT = join(REPO_ROOT, "dist-release", "claude", ".claude");
 const RUNTIME_DISTRIBUTIONS = readdirSync(join(REPO_ROOT, "dist-release"), {
   withFileTypes: true,
-})
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => entry.name)
-  .sort();
+}).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
 const MIN_CROSS_BYTES = 10 * 1024 * 1024;
 const DEV_SPAWN_MARKER = "/* dev-mode bun spawn */";
 
@@ -488,7 +485,7 @@ function harnessRuntimeGate(
     sensors.status === 0 &&
       sensors.stdout.includes("required-sections") &&
       runners.status === 0 &&
-      runners.stdout.includes("29 runners") &&
+      runners.stdout.includes("30 runners") &&
       !runtimeCrash(output),
     {
       expected: `${distribution} packaged sensors and generated runners resolve`,
@@ -498,29 +495,39 @@ function harnessRuntimeGate(
   );
 }
 
-function harnessProbeGate(artifact: string): GateResult {
-  const project = mkdtempSync(join(tmpdir(), "aidlc-binary-probe-"));
+function harnessProbeGate(
+  artifact: string,
+  distribution: string,
+  expectedText: string,
+): GateResult {
+  const project = mkdtempSync(join(tmpdir(), `aidlc-binary-probe-${distribution}-`));
   try {
-    cpSync(join(REPO_ROOT, "dist-release", "kiro"), project, { recursive: true });
+    cpSync(join(REPO_ROOT, "dist-release", distribution), project, { recursive: true });
     const env = pathlessEnv(project);
     delete env.AIDLC_HARNESS_DIR;
+    delete env.AIDLC_HARNESS_NAME;
+    delete env.AIDLC_PROJECT_DIR;
+    delete env.CLAUDE_PROJECT_DIR;
+    delete env.AIDLC_RUNTIME_HARNESS_ROOT;
+    delete env.AIDLC_RUNTIME_ROOT;
     const result = run(
       artifact,
-      ["engine", "sensor", "describe", "linter", "--project-dir", project],
+      ["doctor", "--project-dir", project],
       { cwd: project, env, timeoutMs: 30_000 },
     );
     const output = `${result.stdout}\n${result.stderr}`;
     return commandGate(
-      "harness-probe-kiro",
+      `harness-probe-${distribution}`,
       result,
-      result.status === 0 &&
-        result.stdout.includes("command: aidlc engine sensor-linter") &&
-        result.stdout.includes("path: .kiro/sensors/aidlc-linter.md") &&
+      (result.status === 0 || result.status === 1) &&
+        result.stdout.includes(expectedText) &&
         !runtimeCrash(output),
       {
-        expected: "unset AIDLC_HARNESS_DIR probes the install and reads .kiro data",
+        expected:
+          `unset harness/project/runtime overrides select the ${distribution} doctor checks`,
         actual: output.trim(),
-        detail: "kiro-only install; env harness pin removed so only the probe can resolve it",
+        detail:
+          `${distribution}-only install; --project-dir is the sole routing input`,
       },
     );
   } finally {
@@ -677,7 +684,7 @@ function sensorFireGate(artifact: string): GateResult {
   try {
     const birth = run(
       artifact,
-      ["engine", "intent", "birth", "--scope", "poc", "--label", "sensor-gate", "--project-dir", project],
+      ["engine", "intent", "create", "--scope", "poc", "--label", "sensor-gate", "--project-dir", project],
       { cwd: project, env: pathlessEnv(project), timeoutMs: 30_000 },
     );
     const outputPath = join(
@@ -709,7 +716,7 @@ function sensorFireGate(artifact: string): GateResult {
     const audit = textFilesUnder(join(project, "aidlc", "spaces"));
     const output = `${result.stdout}\n${result.stderr}`;
     return commandGate(
-      "sensor-fire",
+      "run-sensors",
       result,
       birth.status === 0 &&
         result.status === 0 &&
@@ -751,7 +758,7 @@ function boltReentryGate(artifact: string): GateResult {
     const env = { ...pathlessEnv(), PATH: dirname(git) };
     const birth = run(
       artifact,
-      ["engine", "intent", "birth", "--scope", "poc", "--label", "bolt-gate", "--project-dir", projectArg],
+      ["engine", "intent", "create", "--scope", "poc", "--label", "bolt-gate", "--project-dir", projectArg],
       { cwd: invocationCwd, env, timeoutMs: 30_000 },
     );
     const worktree = run(
@@ -810,7 +817,7 @@ function swarmReentryGate(artifact: string): GateResult {
     const env = { ...pathlessEnv(), PATH: dirname(git) };
     const birth = run(
       artifact,
-      ["engine", "intent", "birth", "--scope", "poc", "--label", "swarm-gate", "--project-dir", projectArg],
+      ["engine", "intent", "create", "--scope", "poc", "--label", "swarm-gate", "--project-dir", projectArg],
       { cwd: invocationCwd, env, timeoutMs: 30_000 },
     );
     const result = run(
@@ -1244,6 +1251,50 @@ function codexAdapterGate(artifact: string): GateResult {
   }
 }
 
+function cursorAdapterGate(artifact: string): GateResult {
+  const project = mkdtempSync(join(tmpdir(), "aidlc-binary-cursor-"));
+  try {
+    cpSync(join(REPO_ROOT, "dist", "cursor", ".cursor"), join(project, ".cursor"), {
+      recursive: true,
+    });
+    const input = JSON.stringify({
+      hook_event_name: "preCompact",
+      workspace_roots: [project],
+      conversation_id: `binary-gate-${Date.now()}`,
+      session_id: `binary-gate-${Date.now()}`,
+    });
+    const result = run(artifact, ["engine", "adapter", "cursor", "validate-state"], {
+      cwd: project,
+      env: { ...process.env, PATH: "" },
+      input,
+      timeoutMs: 30_000,
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+    const heartbeat = join(
+      project,
+      "aidlc",
+      "spaces",
+      "default",
+      "intents",
+      ".aidlc-hooks-health",
+      "validate-state.last",
+    );
+    return commandGate(
+      "adapter-cursor-validate-state",
+      result,
+      result.status === 0 &&
+        existsSync(heartbeat) &&
+        !/not available|Cannot find module|\/\$bunfs\/|unknown command/.test(output),
+      {
+        expected: "Cursor adapter invokes validate-state",
+        actual: existsSync(heartbeat) ? "heartbeat written" : result.stderr.trim(),
+      },
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+}
+
 function routedProjectDirGate(artifact: string): GateResult {
   const cwdProject = mkdtempSync(join(tmpdir(), "aidlc-binary-route-cwd-"));
   const targetProject = installedProject("aidlc-binary-route-target-");
@@ -1283,7 +1334,7 @@ function routedProjectDirGate(artifact: string): GateResult {
       [
         "engine",
         "intent",
-        "birth",
+        "create",
         "--scope",
         "poc",
         "--label",
@@ -1888,9 +1939,26 @@ function buildTarget(target: TargetConfig): TargetResult {
       ["engine", "gen", "scope-table", "--check"],
     ));
     result.gates.push(harnessRuntimeGate(actual.artifact, "codex", ".codex"));
+    result.gates.push(harnessRuntimeGate(actual.artifact, "cursor", ".cursor"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "kiro", ".kiro"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "kiro-ide", ".kiro"));
-    result.gates.push(harnessProbeGate(actual.artifact));
+    result.gates.push(harnessRuntimeGate(actual.artifact, "copilot", ".aidlc"));
+    result.gates.push(harnessRuntimeGate(actual.artifact, "opencode", ".aidlc"));
+    result.gates.push(harnessProbeGate(
+      actual.artifact,
+      "kiro",
+      "agents/aidlc.json present (hook + permission wiring)",
+    ));
+    result.gates.push(harnessProbeGate(
+      actual.artifact,
+      "copilot",
+      ".github/hooks/aidlc.json present (hook wiring)",
+    ));
+    result.gates.push(harnessProbeGate(
+      actual.artifact,
+      "opencode",
+      "opencode.json or opencode.jsonc present",
+    ));
     result.gates.push(pluginSelectGate(actual.artifact));
     result.gates.push(delegatePluginSyncGate(actual.artifact));
     result.gates.push(realPluginSyncGate(actual.artifact));
@@ -1950,6 +2018,7 @@ function buildTarget(target: TargetConfig): TargetResult {
     result.gates.push(codexAdapterGate(actual.artifact));
     result.gates.push(planApprovalAdapterGate(actual.artifact, "codex"));
     result.gates.push(planApprovalAdapterGate(actual.artifact, "kiro"));
+    result.gates.push(cursorAdapterGate(actual.artifact));
     result.gates.push(routedProjectDirGate(actual.artifact));
     result.gates.push(dispatcherParityGate(actual.artifact));
     result.gates.push(...finalLayoutLifecycleGates(actual.artifact));

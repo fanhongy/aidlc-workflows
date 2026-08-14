@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "distribution": "cursor",
+  "productName": "Cursor",
+  "configNextStep": "open this project in Cursor, then run `/aidlc --doctor`",
+  "harnessDir": ".cursor",
+  "managedDirectories": [
+    ".cursor",
+    "aidlc"
+  ],
+  "rootIntegrations": [
+    {
+      "path": ".gitignore",
+      "policy": "managed-block",
+      "marker": "gitignore",
+      "legacySignatures": {
+        "wholeFileHashes": [
+          "sha256:5c7e83577035fbcb3768c5d9c51f26ca844fd91824710cecad932c84625bc807"
+        ]
+      }
+    },
+    {
+      "path": "AGENTS.md",
+      "policy": "managed-block",
+      "marker": "agents",
+      "legacySignatures": {
+        "wholeFileHashes": [
+          "sha256:f28bb6ce95784f6714323210410739c8afaae6b63e1c3c482ac95e1b265d8b69"
+        ]
+      }
+    },
+    {
+      "path": "install.ts",
+      "policy": "whole-file"
+    }
+  ]
+}

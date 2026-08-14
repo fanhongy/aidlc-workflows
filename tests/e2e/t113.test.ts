@@ -115,6 +115,16 @@ function walkStage(slug: string, proj: string): void {
     "code-generation": "aidlc-architecture-reviewer-agent",
   };
   if (reviewerFor[slug]) {
+    const requested = run(LOG, [
+      "review",
+      "--stage",
+      slug,
+      "--reviewer",
+      reviewerFor[slug],
+      "--iteration",
+      "1",
+    ], proj);
+    expect(requested.status).toBe(0);
     const rv = run(LOG, [
       "review",
       "--stage",
@@ -167,7 +177,7 @@ function driveBugfixToCompletion(): { proj: string } {
   const proj = createTestProject();
   const init = run(
     UTIL,
-    ["intent-birth", "--scope", "bugfix"],
+    ["intent-create", "--scope", "bugfix"],
     proj,
     { AIDLC_WORKFLOW_INTENT: "t113 terminal-ordering test" },
   );

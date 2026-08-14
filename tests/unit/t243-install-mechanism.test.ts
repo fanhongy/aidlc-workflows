@@ -2223,7 +2223,7 @@ describe("t243 projection channel", () => {
           "sha256:3da36b2d01551aeae2e366caa08be8cce0dbc9110e252445dcaa4e758e24a0b6",
           "sha256:4f1cd2e930bd37d2f5d715a06ea3fa1e2d39479fc662f0f0562116376132114b",
           "sha256:f2affb8b34499f057284852456cb8a24ae586b8e816595bf98346141f3516281",
-          "sha256:7716a5aced223e43b88ad8b29752fc0f6a022678ec2d8b91492c4a3ef478fcaa",
+          "sha256:fc31b2b92c357c58d4d4f7916101ddeb410759d2ab03f2b7bc6f84e6d0ec7320",
         ],
       },
       codex: {
@@ -2237,7 +2237,7 @@ describe("t243 projection channel", () => {
           "sha256:d8afae6a0813f5298cf873a047664cf485308c6e0dad41dde53d8dcb27dd7769",
           "sha256:f1deb7dc72a78fe7d39c71ad2fe6c0f41248c03cde7fb36b7a478f5b9233881c",
           "sha256:f7c55e9917d3801f676fba066fdd78d8df2c36311e8d6e78068965fc7b4371fa",
-          "sha256:456f7a1555d8bf85b82c51f0a59aaf7c909a522d3e8ed13c7e8d90cf376b1242",
+          "sha256:457ff3626bf6ff4a0f6f1f7a44a1d2cbcd91490600e2332742dcf655da25b7f3",
         ],
       },
       kiro: {
@@ -2250,7 +2250,7 @@ describe("t243 projection channel", () => {
           "sha256:e01ac1caf52a59d25faf859a03cfb65b803853c99298bbcbc80ef565e7628de6",
           "sha256:e3de4a295f9b9404b40678c28c0773ae432ac8d4aeacc07613ecfcdfbb4c866b",
           "sha256:e85a5d7ce13b676282dc99572f89c81256f2dada50b1881f4c9641e61339f5a4",
-          "sha256:0388fb1eefe1927c202f79c6949662d1564470c4844fdc5400c2fd25800a1f0a",
+          "sha256:d6e5a6e359e56af104dea70c842f860aafcdd2b7a37900e1eb9c9004a42078d3",
         ],
       },
       "kiro-ide": {
@@ -2263,7 +2263,7 @@ describe("t243 projection channel", () => {
           "sha256:c5d2188b046cd75d8cb7214f32faa85cbc1539cddda4a0fae9bfe8fad90c237c",
           "sha256:dead4d5ea47849f489e05baeae418d5d26efc6cd14dd2201351a474376f8efde",
           "sha256:e01ac1caf52a59d25faf859a03cfb65b803853c99298bbcbc80ef565e7628de6",
-          "sha256:ee9aab4a7b3817be3b54e9f43a0f45a84559d323648ca4d824728acd925b2f38",
+          "sha256:9a9f1f71ad9e3bcbac8a5b36778af2af4cc532bca613f9b3de987997554f5cfe",
         ],
       },
     };

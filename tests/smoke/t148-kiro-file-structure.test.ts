@@ -96,6 +96,7 @@ describe("t148 dist/kiro file structure", () => {
       "agents/aidlc-developer-agent.json",
       "agents/aidlc-architect-agent.json",
       "settings/cli.json",
+      "settings/mcp.json",
     ]) {
       expect(existsSync(join(K, f))).toBe(true);
     }
@@ -186,7 +187,7 @@ describe("t148 dist/kiro file structure", () => {
     }
   });
 
-  test("shared Kiro CLI and IDE agent JSON sources differ only by CLI hooks", () => {
+  test("Kiro CLI and IDE agent JSON stay equivalent outside host hooks and CLI-only MCP fields", () => {
     const cliDir = join(REPO_ROOT, "harness", "kiro", "agents");
     const ideDir = join(REPO_ROOT, "harness", "kiro-ide", "agents");
     const shared = readdirSync(cliDir)
@@ -202,7 +203,29 @@ describe("t148 dist/kiro file structure", () => {
       const ide = readJson(join(ideDir, name));
       delete cli.hooks;
       delete ide.hooks;
-      expect(cli).toEqual(ide);
+      delete cli.includeMcpJson;
+      delete cli.$schema;
+      delete ide.$schema;
+      cli.tools = ((cli.tools as string[]) ?? []).filter(
+        (tool) => !tool.startsWith("@"),
+      );
+      expect(ide, name).toEqual(cli);
+    }
+  });
+
+  test("worker lifecycle hooks ship only where Kiro exposes command arguments", () => {
+    const cliDir = join(REPO_ROOT, "harness", "kiro", "agents");
+    const ideDir = join(REPO_ROOT, "harness", "kiro-ide", "agents");
+    const names = readdirSync(cliDir)
+      .filter((name) => name.endsWith("-agent.json"))
+      .sort();
+    for (const name of names) {
+      const cli = readJson(join(cliDir, name));
+      const ide = readJson(join(ideDir, name));
+      const cliHooks = JSON.stringify(cli.hooks ?? {});
+      const ideHooks = JSON.stringify(ide.hooks ?? {});
+      expect(cliHooks, name).toContain("state-transition-guard");
+      expect(ideHooks, name).not.toContain("state-transition-guard");
     }
   });
 
@@ -293,7 +316,7 @@ describe("t148 dist/kiro file structure", () => {
       .map((h) => h.command)
       .sort();
     expect(subagentCommands).toEqual([
-      "bun .kiro/tools/aidlc.ts engine adapter kiro dispatch-rules",
+      "bun .kiro/tools/aidlc.ts engine adapter kiro deliver-stage-rules",
       "bun .kiro/tools/aidlc.ts engine adapter kiro plan-approval-guard",
     ]);
     const matchers = (hooks.postToolUse ?? []).map((h) => h.matcher).sort();

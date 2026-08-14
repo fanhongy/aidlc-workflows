@@ -53,6 +53,7 @@ import type { HarnessManifest } from "./manifest-types.ts";
 import { absorbReviewerKnowledge, agentNameFromPath } from "./agent-knowledge.ts";
 import { renderOnboarding } from "./onboarding.ts";
 import {
+  type Harness,
   kiroModelDefaults,
   projectTier,
   readEnvCap,
@@ -187,7 +188,7 @@ function agentTierFromMd(s: string, srcPath: string): string {
 function projectTierFrontmatter(
   s: string,
   srcPath: string,
-  harness: "claude" | "codex" | "kiro" | "opencode",
+  harness: Harness,
 ): string {
   // Only apply to files under agents/. Guard on the POSIX-normalized path
   // (srcPath carries the platform separator on Windows) because a stage .md
@@ -216,6 +217,19 @@ function projectTierFrontmatter(
   // Function replacement: a literal `$&`/`$'` in frontmatter must not be
   // interpreted as a replacement pattern.
   return s.replace(m[0], () => `---\n${newFm}\n---\n`);
+}
+
+function projectCursorPluginAgent(s: string, srcPath: string): string {
+  const m = s.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!m) throw new Error(`${srcPath}: plugin agent has no closed frontmatter block.`);
+  const fm = m[1]
+    .split(/\r?\n/)
+    .filter((line) => !/^(?:model|tier|effort|variant):/.test(line))
+    .join("\n");
+  return substituteToken(
+    s.replace(m[0], () => `---\n${fm}\n---\n`),
+    ".cursor",
+  );
 }
 
 // Project the `"model"` field of an authored Kiro agent .json from the tier
@@ -268,7 +282,7 @@ function transform(
   content: Buffer,
   harnessDir: string,
   rulesRename: string | null,
-  harness?: "claude" | "codex" | "kiro" | "opencode",
+  harness?: Harness,
   invoke = `bun ${harnessDir}/tools/aidlc.ts`,
 ): Buffer {
   if (srcPath.endsWith(".md")) {
@@ -279,8 +293,18 @@ function transform(
     if (agentName) s = absorbReviewerKnowledge(s, agentName, CORE_ROOT);
     s = substituteToken(s, harnessDir, invoke);
     s = applyRulesRename(s, harnessDir, rulesRename);
-    if (harness) {
-      s = projectTierFrontmatter(s, srcPath, harness);
+    if (harness) s = projectTierFrontmatter(s, srcPath, harness);
+    // Cursor persona bodies are mutable active-space pointers. Ship their
+    // memory references on the default seed so the first startup's
+    // repointHarnessIncludes(project, "default") is byte-identical; later
+    // space switches still rewrite the same concrete segment in place.
+    const posixPath = srcPath.split(sep).join("/");
+    if (
+      harness === "cursor" &&
+      posixPath.includes("/agents/") &&
+      posixPath.endsWith("-agent.md")
+    ) {
+      s = s.replaceAll("aidlc/spaces/<active-space>/memory/", "aidlc/spaces/default/memory/");
     }
     return Buffer.from(s, "utf-8");
   }
@@ -426,18 +450,22 @@ const MEMORY_SEED_DST = join("tools", "data", "memory-seed");
 const ACTIVE_SPACE_REL = join("aidlc", "active-space");
 const ACTIVE_SPACE_VALUE = "default\n";
 
-// Write tools/data/harness.json from manifest data. Today it carries just the
-// rules-subdir (the one rename the runtime must know per-tree); the object shape
-// leaves room for future per-harness runtime facts. Pretty-printed + trailing
-// newline so the committed file is diff-friendly and stable under --check.
+// Write tools/data/harness.json from manifest data. The runtime reads the
+// rules-subdir and any host-native generated-runner frontmatter from this
+// open-set descriptor. Pretty-printed + trailing newline keeps committed
+// output diff-friendly and stable under --check.
 function writeHarnessData(treeRoot: string, m: HarnessManifest): void {
   const data = {
     schemaVersion: 1,
     distribution: m.name,
     productName: m.productName,
     configNextStep: m.configNextStep,
+    name: m.name,
     harnessDir: m.harnessDir,
     rulesSubdir: m.rulesRename ?? "rules",
+    ...(m.runnerFrontmatterAdditions?.length
+      ? { runnerFrontmatterAdditions: m.runnerFrontmatterAdditions }
+      : {}),
   };
   const dst = join(treeRoot, HARNESS_DATA);
   mkdirSync(dirname(dst), { recursive: true });
@@ -519,7 +547,7 @@ function emitMemory(
   outRoot: string,
   harnessDir: string,
   rulesRename: string | null,
-  harness: "claude" | "codex" | "kiro" | "opencode",
+  harness: Harness,
   invoke: string,
 ): void {
   const srcDir = join(CORE_ROOT, MEMORY_SRC);
@@ -543,7 +571,7 @@ function emitMemorySeed(
   treeRoot: string,
   harnessDir: string,
   rulesRename: string | null,
-  harness: "claude" | "codex" | "kiro" | "opencode",
+  harness: Harness,
   invoke: string,
 ): void {
   const srcDir = join(CORE_ROOT, MEMORY_SRC);
@@ -605,7 +633,7 @@ function buildTree(
 ): string[] {
   const harnessDir = m.harnessDir;
   const treeRoot = join(outRoot, harnessDir);
-  // Every harness projects onto ONE of the three flavors the tier module
+  // Every harness projects onto ONE of the five flavors the tier module
   // knows (Kiro CLI and Kiro IDE share the "kiro" flavor - identical model
   // dial). Declared per manifest, never inferred from the harness name.
   const harnessKind = m.tierFlavor;
@@ -745,7 +773,7 @@ function buildTree(
   // override the robust choice. The renameRulesInCompiledData backstop still
   // runs for renamed-rules harnesses to normalize any residual <dir>/rules/
   // prose-path that a future code path might emit (guarded no-op today).
-  runTool(treeRoot, harnessDir, ["tools/aidlc-graph.ts", "compile"], memoryDir);
+  runTool(treeRoot, harnessDir, m.name, ["tools/aidlc-graph.ts", "compile"], memoryDir);
   if (m.rulesRename) renameRulesInCompiledData(treeRoot, harnessDir, m.rulesRename);
 
   // 3b. Emit tools/data/harness.json — the runtime's open-set source of truth
@@ -763,8 +791,8 @@ function buildTree(
   //    Codex skips this — it ships no <harnessDir>/skills/; emit() composes the
   //    whole skill set into .agents/skills/ instead.
   if (!m.skipRunnerGen) {
-    runTool(treeRoot, harnessDir, ["tools/aidlc-runner-gen.ts", "write"]);
-    runTool(treeRoot, harnessDir, ["tools/aidlc-runner-gen.ts", "scopes"]);
+    runTool(treeRoot, harnessDir, m.name, ["tools/aidlc-runner-gen.ts", "write"]);
+    runTool(treeRoot, harnessDir, m.name, ["tools/aidlc-runner-gen.ts", "scopes"]);
   }
 
   // 5. Per-shell emissions (codex only today). These may live outside
@@ -1089,6 +1117,7 @@ function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
 function runTool(
   treeRoot: string,
   harnessDir: string,
+  harnessName: string,
   args: string[],
   rulesDirAbs?: string | null,
 ): void {
@@ -1098,6 +1127,7 @@ function runTool(
     ...process.env,
     AIDLC_SRC: treeRoot,
     AIDLC_HARNESS_DIR: harnessDir,
+    AIDLC_HARNESS_NAME: harnessName,
   };
   if (rulesDirAbs) env.AIDLC_RULES_DIR = rulesDirAbs;
   const res = spawnSync("bun", [toolPath, ...rest], {
@@ -1320,14 +1350,19 @@ function discoverPluginNames(): string[] {
 // of being silently skipped (the omission class that lost kiro-ide in round 1).
 // harnessLeaf = manifest.harnessDir; manifestDir + kind come from the manifest's
 // optional `plugin` block, defaulting to "<harnessDir>-plugin" + "store".
-type PluginTarget = { manifestDir: string; harnessLeaf: string; kind: "store" | "kiro" };
+type PluginTarget = {
+  harnessName: string;
+  manifestDir: string;
+  harnessLeaf: string;
+  kind: "store" | "kiro" | "cursor";
+};
 function pluginTargetFor(harnessName: string): PluginTarget | null {
   if (!existsSync(join(HARNESS_ROOT, harnessName, "manifest.ts"))) return null;
   const m = loadManifest(harnessName);
   const harnessLeaf = m.harnessDir;
   const manifestDir = m.plugin?.manifestDir ?? `${harnessLeaf}-plugin`;
   const kind = m.plugin?.kind ?? "store";
-  return { manifestDir, harnessLeaf, kind };
+  return { harnessName: m.name, manifestDir, harnessLeaf, kind };
 }
 
 // Render ONE plugin's projection for ONE harness into `outDir`. Pure builder —
@@ -1351,7 +1386,7 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
   const description = manifest.description || "";
   const target = pluginTargetFor(harnessName);
   if (!target) throw new Error(`no plugin target for harness "${harnessName}" (missing manifest)`);
-  const { manifestDir, harnessLeaf, kind } = target;
+  const { harnessName: targetHarnessName, manifestDir, harnessLeaf, kind } = target;
   const templateHooks = join(REPO_ROOT, "scripts", "plugin-hooks-template");
   // Primitive content copied verbatim into the host plugin projection. Core
   // scope files keep the `aidlc-` prefix; plugin scope files use
@@ -1363,7 +1398,7 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
   if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
-  // 1. Host-native manifest (.claude-plugin / .codex-plugin / .kiro-plugin).
+  // 1. Host-native manifest (for example .claude-plugin / .plugin / .kiro-plugin).
   const hostManifestDir = join(outDir, manifestDir);
   mkdirSync(hostManifestDir, { recursive: true });
   writeFileSync(
@@ -1384,29 +1419,41 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
 
   // 3. The compose hook + per-harness wiring. Prefer an installed aidlc binary
   //    so the host hook can front the fold through `aidlc engine plugin sync`; fall back
-  //    only when that entrypoint is absent, never when a transaction fails. Claude
-  //    populates CLAUDE_PLUGIN_ROOT, Codex PLUGIN_ROOT; AIDLC_HARNESS_DIR targets
-  //    the right harness tree.
+  //    to the direct bun compose.ts path for source/tree installs. Claude
+  //    populates CLAUDE_PLUGIN_ROOT, Codex PLUGIN_ROOT, and Cursor resolves
+  //    relative commands from the plugin root; AIDLC_HARNESS_DIR targets the
+  //    right harness tree.
   const hooksDir = join(outDir, "hooks");
   mkdirSync(hooksDir, { recursive: true });
-  for (const f of readdirSync(templateHooks)) cpSync(join(templateHooks, f), join(hooksDir, f));
+  for (const f of readdirSync(templateHooks)) {
+    if (f === "aidlc-plugin-compose.ts" && kind !== "cursor") continue;
+    cpSync(join(templateHooks, f), join(hooksDir, f));
+  }
   // biome-ignore lint/suspicious/noTemplateCurlyInString: literal shell parameter expansions
   const rootExpr = harnessName === "claude" ? "${CLAUDE_PLUGIN_ROOT}" : "${PLUGIN_ROOT}";
-  // Probe aidlc on PATH first, then bun on PATH / ~/.bun/bin. If neither is
-  // executable, exit 0 with a note rather than running a non-existent binary.
-  const aidlcExpr =
-    'AIDLC=$(command -v aidlc 2>/dev/null || true); ' +
-    `[ -n "$AIDLC" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} "$AIDLC" ${TRUSTED_ROUTE_NAMESPACE} plugin sync; exit $?; }; `;
-  const bunExpr =
-    'BUN=$(command -v bun 2>/dev/null || true); ' +
-    '[ -z "$BUN" ] && [ -x "$HOME/.bun/bin/bun" ] && BUN="$HOME/.bun/bin/bun"; ' +
-    `[ -z "$BUN" ] && { echo "${trustedCommand("plugin compose")}: aidlc and bun not found, skipping" >&2; exit 0; }`;
-  const sharedToolExpr =
-    `PROJECT_ROOT="\${CLAUDE_PROJECT_DIR:-\${AIDLC_PROJECT_DIR:-$PWD}}"; ` +
-    `PLUGIN_TOOL="$PROJECT_ROOT/${harnessLeaf}/tools/aidlc-plugin.ts"; ` +
-    `[ -f "$PLUGIN_TOOL" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} "$BUN" "$PLUGIN_TOOL" sync; exit $?; }; `;
-  const command =
-    `sh -c '${aidlcExpr}${bunExpr}; ${sharedToolExpr}AIDLC_HARNESS_DIR=${harnessLeaf} "$BUN" "${rootExpr}/hooks/compose.ts"'`;
+  let command: string;
+  if (kind === "cursor") {
+    // Cursor runs on native Windows too. Its hook command invokes a Bun script
+    // directly; the launcher probes aidlc and falls back to sibling compose.ts
+    // without relying on sh, command -v, or POSIX parameter expansion.
+    command = `bun ./hooks/aidlc-plugin-compose.ts ${harnessLeaf}`;
+  } else {
+    const composePath = `${rootExpr}/hooks/compose.ts`;
+    // Probe aidlc on PATH first, then bun on PATH / ~/.bun/bin. If neither is
+    // executable, exit 0 with a note rather than running a non-existent binary.
+    const aidlcExpr =
+      'AIDLC=$(command -v aidlc 2>/dev/null || true); ' +
+      `[ -n "$AIDLC" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} AIDLC_HARNESS_NAME=${targetHarnessName} "$AIDLC" ${TRUSTED_ROUTE_NAMESPACE} plugin sync; exit $?; }; `;
+    const bunExpr =
+      'BUN=$(command -v bun 2>/dev/null || true); ' +
+      '[ -z "$BUN" ] && [ -x "$HOME/.bun/bin/bun" ] && BUN="$HOME/.bun/bin/bun"; ' +
+      `[ -z "$BUN" ] && { echo "${trustedCommand("plugin compose")}: aidlc and bun not found, skipping" >&2; exit 0; }`;
+    const sharedToolExpr =
+      `PROJECT_ROOT="\${CLAUDE_PROJECT_DIR:-\${AIDLC_PROJECT_DIR:-$PWD}}"; ` +
+      `PLUGIN_TOOL="$PROJECT_ROOT/${harnessLeaf}/tools/aidlc-plugin.ts"; ` +
+      `[ -f "$PLUGIN_TOOL" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} AIDLC_HARNESS_NAME=${targetHarnessName} "$BUN" "$PLUGIN_TOOL" sync; exit $?; }; `;
+    command = `sh -c '${aidlcExpr}${bunExpr}; ${sharedToolExpr}AIDLC_HARNESS_DIR=${harnessLeaf} AIDLC_HARNESS_NAME=${targetHarnessName} "$BUN" "${composePath}"'`;
+  }
 
   if (kind === "kiro") {
     writeFileSync(
@@ -1419,6 +1466,20 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
         when: { type: "promptSubmit" },
         // biome-ignore lint/suspicious/noThenProperty: required Kiro hook schema field
         then: { type: "runCommand", command },
+      }, null, 2) + "\n"
+    );
+  } else if (kind === "cursor") {
+    // `version` is load-bearing, not decoration: Cursor's hook loader silently
+    // delivers ZERO events for a hooks.json without it (probe-verified against
+    // cursor-agent 2026.07.23 - no error, no diagnostic, rc 0), so omitting it
+    // would leave every plugin hook inert and the breakage invisible.
+    writeFileSync(
+      join(hooksDir, "hooks.json"),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          sessionStart: [{ command }],
+        },
       }, null, 2) + "\n"
     );
   } else {
@@ -1436,24 +1497,29 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
 
   // 4. Copy plugin content verbatim (stages keep number/name/plugin/when).
   // walk() is recursive, so nested phase dirs and knowledge/<agent-slug>/ trees
-  // are preserved without special cases.
+  // are preserved without special cases. Cursor's plugin-agent source lives
+  // under aidlc/agents/ so Cursor does not auto-discover it alongside the
+  // authoritative project .cursor/agents/ copy produced by compose.
   for (const dir of contentDirs) {
     const srcDir = join(pluginSrc, dir);
     if (!existsSync(srcDir)) continue;
     for (const file of walk(srcDir)) {
-      const outPath = join(outDir, dir, relative(srcDir, file));
+      const outputDir =
+        kind === "cursor" && dir === "agents"
+          ? join(outDir, "aidlc", "agents")
+          : join(outDir, dir);
+      const outPath = join(outputDir, relative(srcDir, file));
       mkdirSync(dirname(outPath), { recursive: true });
       let content = readFileSync(file);
       if (dir === "agents" && file.endsWith("-agent.md")) {
-        content = Buffer.from(
-          absorbReviewerKnowledge(
-            content.toString("utf-8"),
-            basename(file, ".md"),
-            CORE_ROOT,
-            pluginSrc,
-          ),
-          "utf-8",
+        let projected = absorbReviewerKnowledge(
+          content.toString("utf-8"),
+          basename(file, ".md"),
+          CORE_ROOT,
+          pluginSrc,
         );
+        if (kind === "cursor") projected = projectCursorPluginAgent(projected, file);
+        content = Buffer.from(projected, "utf-8");
       }
       writeFileSync(outPath, content);
     }

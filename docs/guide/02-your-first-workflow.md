@@ -39,20 +39,25 @@ while keeping you in control at every decision point.
 
 ## Initialization Phase (Automatic)
 
-The three initialization stages run deterministically inside `aidlc-utility intent-birth`, a single tool call that completes in well under a second. You do not interact with initialization; it auto-births the first intent into the active space and bootstraps its record dir for the workflow.
+The three initialization stages run deterministically inside `aidlc-utility intent-create`, a single tool call that completes in well under a second. You do not interact with initialization; it auto-births the first intent into the active space and bootstraps its record dir for the workflow.
 
 ### Stage 0.1: Workspace Scaffold
 
-The framework births the first intent and creates its record dir at `aidlc/spaces/<space>/intents/<YYMMDD>-<label>/` (the `<space>` is `default` unless you use a named space):
+The framework creates the first intent and its record dir at `aidlc/spaces/<space>/intents/<YYMMDD>-<label>/` (the `<space>` is `default` unless you use a named space). It creates one folder per phase your scope actually runs, so the record shows the plan rather than every phase that exists. A `feature` scope runs all five; a `bugfix` scope skips Ideation and Operation, so those folders never appear:
 
 ```
-Intent born — record dir scaffolded:
-  aidlc/spaces/default/intents/<YYMMDD>-<label>/initialization/   (3 stage artifact dirs)
-  aidlc/spaces/default/intents/<YYMMDD>-<label>/ideation/         (7 stage artifact dirs)
-  ...
+Intent created, record dir at aidlc/spaces/default/intents/<YYMMDD>-<label>/
+  initialization/
+  inception/
+  construction/
+  verification/
 Space-level dirs ensured:
-  aidlc/spaces/default/knowledge/                             (team knowledge — empty; you add files)
+  aidlc/spaces/default/knowledge/    (team knowledge, empty; you add files)
 ```
+
+Per-stage folders are not created up front. A stage's folder (for example
+`inception/requirements-analysis/`) appears the first time that stage writes an
+artifact, so the record only ever lists work that produced something.
 
 ### Stage 0.2: Workspace Detection
 
@@ -64,7 +69,7 @@ The orchestrator writes the intent's `aidlc-state.md` (under its record dir) wit
 
 ```
 ─── Scope Detection ───────────────────────────────────────────────────────────
-Detected scope: feature (Standard depth, Standard test strategy, all 32 stages)
+Detected scope: feature (Standard depth, Standard test strategy, all 33 stages)
 ▸ Approve scope? [Yes / Change scope / Change depth / Change test strategy]
 > Yes
 ```
@@ -85,7 +90,7 @@ On Claude Code, the custom AI-DLC status line at the bottom of your terminal upd
 [AIDLC] IDEATION > Intent Capture [▓▓▓▓▓░░░░░] 4/7 -- product
 ```
 
-This shows: current phase, stage display name, phase progress bar, phase progress ratio, and lead agent. The bar and the ratio share the same scope — both count `[x]` stages within the current phase, so the bar advances every time the ratio does. Remaining context (`ctx:N%`) is always shown on the right, color-coded as it drops. On Claude Code, `↑<in> ↓<out> $<usd>` also appears after the first usage fold and covers only the active workflow and current transcript/session, not earlier workspace activity.
+This shows: current phase, stage display name, phase progress bar, phase progress ratio, and lead agent. The bar and the ratio share the same scope — both count `[x]` stages within the current phase, so the bar advances every time the ratio does. Remaining context (`ctx:N%`) is always shown on the right, color-coded as it drops. On Claude Code, `↑<in> ↓<out> $<usd>` also appears after the first usage fold and covers only the active workflow and current transcript/session, not earlier workspace activity. Set `AIDLC_DISABLE_USAGE_TRACKING=1` to turn usage tracking (and this segment) off.
 
 The aidlc-product-agent asks you to choose an interaction mode:
 
@@ -126,7 +131,7 @@ Choose **Approve** to continue, or **Request Changes** to provide feedback. See 
 After approval, a progress line appears:
 
 ```
-Progress: 4/32 overall | 1/7 IDEATION stages complete. Next: Market Research
+Progress: 4/33 overall | 1/7 IDEATION stages complete. Next: Market Research
 ```
 
 ### Remaining Ideation Stages
@@ -157,7 +162,7 @@ Remaining Inception stages (Requirements Analysis through Delivery Planning) run
 
 ## Construction Phase
 
-Construction builds the solution **Bolt by Bolt**. A [Bolt](glossary.md) is one pass through stages 3.1–3.5 for a Unit (or small group of dependency-linked Units). Each Bolt ships a reviewable slice; the 2.8 plan decides the sequence and marks the first Bolt as the **walking skeleton** — the smallest end-to-end slice that proves the architecture.
+Construction builds the solution **Bolt by Bolt**. A [Bolt](glossary.md) is one pass through stages 3.1–3.5 for a Unit (or small group of dependency-linked Units). Each Bolt ships a reviewable slice; the 2.9 plan decides the sequence and marks the first Bolt as the **walking skeleton** — the smallest end-to-end slice that proves the architecture.
 
 ```
 ─── Construction: Bolt 1 — notification-core (walking skeleton) ───────────
@@ -218,7 +223,7 @@ sequenceDiagram
 
 ### Subagent Delegation
 
-Four stages dispatch to background subagents — 2.1 Reverse Engineering (pipeline: developer scan, then architect synthesis-and-write), 2.2 Practices Discovery (subagent hub-and-spoke: lead draft, three mutually blind support reviews, human interview, lead integration), 2.4 User Stories (mob: collaborators contribute in parallel, and judgment-call disagreements may surface to you mid-stage), and 3.5 Code Generation (subagent). Practices Discovery deliberately brings you into the room between the spokes and final integration; the User Stories mob may also surface judgment calls mid-stage. Workspace detection (0.2) runs deterministically inside `aidlc-utility intent-birth` rather than as a subagent.
+Four stages dispatch to background subagents — 2.1 Reverse Engineering (pipeline: developer scan, then architect synthesis-and-write), 2.2 Practices Discovery (subagent hub-and-spoke: lead draft, three mutually blind support reviews, human interview, lead integration), 2.4 User Stories (mob: collaborators contribute in parallel, and judgment-call disagreements may surface to you mid-stage), and 3.5 Code Generation (subagent). Practices Discovery deliberately brings you into the room between the spokes and final integration; the User Stories mob may also surface judgment calls mid-stage. Workspace detection (0.2) runs deterministically inside `aidlc-utility intent-create` rather than as a subagent.
 
 ```mermaid
 sequenceDiagram
@@ -275,14 +280,14 @@ Throughout the workflow on Claude Code, the custom AI-DLC status line shows your
 | `4/7` | Stage progress within the phase |
 | `-- product` | Lead agent for this stage |
 | `ctx:N%` | Remaining context (always shown, color-coded as it drops) |
-| `↑<in> ↓<out> $<usd>` | Token usage and priceable cost for the active workflow and current transcript/session (Claude Code only; omitted before usage is available) |
+| `↑<in> ↓<out> $<usd>` | Token usage and priceable cost for the active workflow and current transcript/session (Claude Code only; omitted before usage is available; disabled by `AIDLC_DISABLE_USAGE_TRACKING=1`) |
 
 ---
 
 ## Next Steps
 
 - [Spaces and Intents](03-spaces-and-intents.md) — how the workspace holds many runs, and how to start and switch between them
-- [Phases and Stages](04-phases-and-stages.md) — detailed breakdown of all 5 phases and 32 stages
+- [Phases and Stages](04-phases-and-stages.md) — detailed breakdown of all 5 phases and 33 stages
 - [Interaction Modes](07-interaction-modes.md) — Guide Me, Edit File, and Chat explained
 - [Session Management](11-session-management.md) — resuming, redoing, and jumping between stages
 - [Glossary](glossary.md) — terminology reference

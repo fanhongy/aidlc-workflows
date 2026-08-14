@@ -94,7 +94,7 @@ Runs individual stages in isolation with known workspace + state fixtures. Verif
 
 **What it tests:**
 - Preflight health gate: Claude CLI on PATH, AWS credentials valid, Claude responds (exit 0), response non-empty (preflight)
-- CLI tool utility handlers: intent-birth, --doctor, --status, --stage, --phase (integration)
+- CLI tool utility handlers: intent-create, --doctor, --status, --stage, --phase (integration)
 - Individual stages with greenfield/brownfield stubs, artifact verification (integration)
 
 **Run:** `bun tests/run-tests.ts --ci`
@@ -187,6 +187,12 @@ The stack defaults to **`c5.4xlarge`** — the proven size for the full `--all -
 
 Before running unfiltered live-capable levels (integration or e2e), the runner executes `tests/integration/t19.test.ts` as a gate. It drives a tiny real turn through the **Claude Agent SDK** (the same live path the integration tier uses) and asserts only on deterministic surfaces. If the preflight fails, deterministic files still run and Claude-dependent files are skipped with per-file `SKIP` entries.
 
+The SDK driver gives each `driveAidlc()` call an ephemeral `CLAUDE_CONFIG_DIR`
+and disables session persistence. Live tests therefore leave the user's
+`~/.claude.json` and Claude transcripts untouched, including when the home
+directory is read-only inside a command sandbox. A per-call
+`env.CLAUDE_CONFIG_DIR` remains available for focused calibration.
+
 | Assertion | Surface | On fail |
 |-----------|---------|---------|
 | AWS credentials valid | `aws sts get-caller-identity` exits 0 (PASS-by-skip when the `aws` CLI is absent) | bail — Bedrock needs IAM auth |
@@ -266,9 +272,9 @@ Contents: 4 minimal .md files (architecture-overview, technology-stack, codebase
 
 ### Inception Artifacts Fixture: `tests/fixtures/inception-artifacts/`
 
-Pre-seeded inception phase output for tests that jump into construction. Copied into `$PROJ/aidlc/spaces/default/intents/<record>/inception/{requirements-analysis,application-design,units-generation}/` during setup.
+Pre-seeded inception phase output for tests that jump into construction. Copied into `$PROJ/aidlc/spaces/default/intents/<record>/inception/{requirements-analysis,domain-design,units-generation}/` during setup.
 
-Contents: 7 minimal .md files (requirements, components, component-methods, services, component-dependency, unit-of-work, unit-of-work-story-map) describing the Todo app. Unit name: `todo-core`.
+Contents: minimal .md files (requirements, the consolidated `components.md` catalogue, unit-of-work, unit-of-work-story-map) describing the Todo app. Unit name: `todo-core`.
 
 ### Construction Artifacts Fixture: `tests/fixtures/construction-artifacts/`
 

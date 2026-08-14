@@ -31,8 +31,8 @@ import { projectTier } from "../../core/tools/aidlc-tiers.ts";
 // ---------------------------------------------------------------------------
 const HOOK_WIRING: Array<{ event: string; matcher?: string; target: string }> = [
   { event: "SessionStart", target: "session-start" },
-  { event: "UserPromptSubmit", target: "mint" },
-  { event: "PreToolUse", matcher: "spawn_agent", target: "dispatch-rules" },
+  { event: "UserPromptSubmit", target: "record-human-turn" },
+  { event: "PreToolUse", matcher: "spawn_agent", target: "deliver-stage-rules" },
   { event: "PreToolUse", target: "state-transition-guard" },
   // No matcher: the reviewer-scope target self-filters (Bash + apply_patch;
   // everything else exits 0 instantly), and Codex read access rides the shell
@@ -46,11 +46,11 @@ const HOOK_WIRING: Array<{ event: string; matcher?: string; target: string }> = 
   // naming the developer agent; everything else exits 0 instantly).
   { event: "PreToolUse", target: "plan-approval-guard" },
   { event: "PostToolUse", matcher: "apply_patch", target: "audit-and-sensors" },
-  { event: "PostToolUse", matcher: "update_plan", target: "state-sync" },
-  { event: "PostToolUse", matcher: "Bash", target: "runtime-compile" },
+  { event: "PostToolUse", matcher: "update_plan", target: "sync-workflow-state" },
+  { event: "PostToolUse", matcher: "Bash", target: "rebuild-stage-graph" },
   { event: "PreCompact", target: "validate-state" },
   { event: "SubagentStop", target: "log-subagent" },
-  { event: "Stop", target: "stop" },
+  { event: "Stop", target: "continue-workflow" },
 ];
 
 const adapterCmd = (
@@ -85,7 +85,7 @@ function emitConfigToml(): string {
 #
 # Model: these session defaults are what judgment-tier agent roles inherit
 # (their TOMLs omit model/model_reasoning_effort by design - see the tier
-# projection); balanced/templated roles pin gpt-5.4 per the tier table.
+# projection); balanced/templated roles pin gpt-5.6-terra per the tier table.
 # D-9: Amazon Bedrock is the shipped default provider (web_search is
 # unavailable there; the market-research stage degrades gracefully). For
 # OpenAI-auth setups, comment out model_provider and the [model_providers]
@@ -397,6 +397,7 @@ export default function emit(ctx: EmitContext): void {
   // carries no compiled JSON, so requiring it from coreRoot would fail.)
   const IMPLICIT_GUARD = "policy:\n  allow_implicit_invocation: false\n";
   process.env.AIDLC_HARNESS_DIR = harnessDir;
+  process.env.AIDLC_HARNESS_NAME = "codex";
   const gen = require(join(CODEX_ROOT, "tools", "aidlc-runner-gen.ts")) as {
     runnableStages: () => Array<{ slug: string }>;
     renderStageRunner: (node: { slug: string }) => string;

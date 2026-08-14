@@ -65,7 +65,7 @@ export type InvalidInstalledPlugin = {
 
 export type PluginInventory = {
   capability: InventoryCapability;
-  harness: "claude" | "codex" | "kiro";
+  harness: "claude" | "codex" | "kiro" | "cursor" | "copilot" | "opencode";
   source?: string;
   installed: InstalledPlugin[];
   invalid: InvalidInstalledPlugin[];
@@ -187,7 +187,10 @@ export function pluginSourceHash(root: string): string {
 function hostManifestDirectory(harness: PluginInventory["harness"]): string {
   if (harness === "claude") return ".claude-plugin";
   if (harness === "codex") return ".codex-plugin";
-  return ".kiro-plugin";
+  if (harness === "kiro") return ".kiro-plugin";
+  if (harness === "cursor") return ".cursor-plugin";
+  if (harness === "copilot") return ".plugin";
+  return ".opencode-plugin";
 }
 
 export function normalizeInstalledPlugin(
@@ -248,8 +251,21 @@ function currentRoots(): string[] {
 }
 
 function harnessKind(harnessDir = runtimeHarnessDir()): PluginInventory["harness"] {
+  const declared = process.env.AIDLC_HARNESS_NAME?.trim();
+  if (
+    declared === "claude" ||
+    declared === "codex" ||
+    declared === "kiro" ||
+    declared === "kiro-ide" ||
+    declared === "cursor" ||
+    declared === "copilot" ||
+    declared === "opencode"
+  ) {
+    return declared === "kiro-ide" ? "kiro" : declared;
+  }
   if (harnessDir === ".codex") return "codex";
   if (harnessDir === ".kiro") return "kiro";
+  if (harnessDir === ".cursor") return "cursor";
   return "claude";
 }
 
@@ -512,7 +528,7 @@ export function discoverPluginInventory(harnessDir = runtimeHarnessDir()): Plugi
   const harness = harnessKind(harnessDir);
   if (harness === "claude") return claudeInventory();
   if (harness === "codex") return codexInventory();
-  return currentRootInventory("kiro");
+  return currentRootInventory(harness);
 }
 
 function harnessDataDir(projectDir: string, harnessDir: string): string {
@@ -865,7 +881,7 @@ export function copyProjectSurfaces(
   harnessDir: string,
 ): void {
   mkdirSync(stagedProject, { recursive: true });
-  for (const entry of [harnessDir, ".agents", "aidlc"]) {
+  for (const entry of [harnessDir, ".agents", ".github", ".opencode", "aidlc"]) {
     const source = join(projectDir, entry);
     if (existsSync(source)) cpSync(source, join(stagedProject, entry), { recursive: true });
   }
@@ -1204,7 +1220,7 @@ function refreshGeneratedTable(
 
 function allSurfaceFiles(projectDir: string, harnessDir: string): Map<string, string> {
   const files = new Map<string, string>();
-  for (const entry of [harnessDir, ".agents", "aidlc"]) {
+  for (const entry of [harnessDir, ".agents", ".github", ".opencode", "aidlc"]) {
     const root = join(projectDir, entry);
     for (const path of surfaceFiles(root)) {
       files.set(relative(projectDir, path).split(sep).join("/"), path);

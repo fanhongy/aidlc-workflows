@@ -21,7 +21,7 @@ consumes:
     required: true
   - artifact: security-design
     required: true
-  - artifact: deployment-architecture
+  - artifact: infrastructure-specification
     required: true
 requires_stage:
   - observability-setup
@@ -71,7 +71,7 @@ Create SSM Automation runbook library, incident response plan (integrated with A
 
 Hand completion to `stage-protocol.md` via
 `{{INVOKE}} engine orchestrate report --stage incident-response --result <outcome>`.
-The engine owns all lifecycle transitions and advancement.
+That `report` call owns every lifecycle transition and advancement; never perform one in prose, and never narrate this bookkeeping to the user.
 
 ### Step 6: Present Completion & Request Approval
 
@@ -86,7 +86,7 @@ This stage's outputs are markdown artefacts under `<record>/operation/incident-r
 The imported sensors check those outputs:
 
 - **`required-sections`** verifies the output contains the registry default (≥2 H2 headings). Failure mode: missing headings emit `SENSOR_FAILED` with detail at `<record>/.aidlc-sensors/<stage-slug>/required-sections-<iso>.md`.
-- **`upstream-coverage`** verifies the output prose references each artefact declared in this stage's `consumes:` frontmatter. Failure mode: missing upstream references emit `SENSOR_FAILED` listing each unreferenced artefact (this stage consumes `dashboards`, `alarms`, `reliability-design`, `security-design`, `deployment-architecture`).
+- **`upstream-coverage`** verifies the output prose references each artefact declared in this stage's `consumes:` frontmatter. Failure mode: missing upstream references emit `SENSOR_FAILED` listing each unreferenced artefact (this stage consumes `dashboards`, `alarms`, `reliability-design`, `security-design`, `infrastructure-specification`).
 
 ## Learn
 

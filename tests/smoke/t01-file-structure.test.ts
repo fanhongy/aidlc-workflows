@@ -1,4 +1,4 @@
-// covers: file:skills/aidlc/SKILL.md, file:aidlc-common/protocols/stage-protocol.md, file:aidlc-common/protocols/stage-protocol-recovery.md, file:aidlc-common/protocols/stage-protocol-governance.md, file:hooks/aidlc-audit-logger.ts, file:hooks/aidlc-sensor-fire.ts, file:hooks/aidlc-runtime-compile.ts, file:hooks/aidlc-sync-statusline.ts, file:hooks/aidlc-validate-state.ts, file:hooks/aidlc-log-subagent.ts, file:hooks/aidlc-mint-presence.ts, file:hooks/aidlc-review-freeze.ts, file:hooks/aidlc-session-start.ts, file:hooks/aidlc-session-end.ts, file:hooks/aidlc-statusline.ts, file:hooks/aidlc-stop.ts, file:agents/aidlc-product-agent.md, file:agents/aidlc-design-agent.md, file:agents/aidlc-delivery-agent.md, file:agents/aidlc-architect-agent.md, file:agents/aidlc-aws-platform-agent.md, file:agents/aidlc-compliance-agent.md, file:agents/aidlc-devsecops-agent.md, file:agents/aidlc-developer-agent.md, file:agents/aidlc-quality-agent.md, file:agents/aidlc-pipeline-deploy-agent.md, file:agents/aidlc-operations-agent.md, file:aidlc-common/stages/initialization/workspace-scaffold.md, file:aidlc-common/stages/initialization/workspace-detection.md, file:aidlc-common/stages/initialization/state-init.md, file:aidlc-common/stages/ideation/intent-capture.md, file:aidlc-common/stages/ideation/market-research.md, file:aidlc-common/stages/ideation/feasibility.md, file:aidlc-common/stages/ideation/scope-definition.md, file:aidlc-common/stages/ideation/team-formation.md, file:aidlc-common/stages/ideation/rough-mockups.md, file:aidlc-common/stages/ideation/approval-handoff.md, file:aidlc-common/stages/inception/reverse-engineering.md, file:aidlc-common/stages/inception/practices-discovery.md, file:aidlc-common/stages/inception/requirements-analysis.md, file:aidlc-common/stages/inception/user-stories.md, file:aidlc-common/stages/inception/refined-mockups.md, file:aidlc-common/stages/inception/application-design.md, file:aidlc-common/stages/inception/units-generation.md, file:aidlc-common/stages/inception/delivery-planning.md, file:aidlc-common/stages/construction/functional-design.md, file:aidlc-common/stages/construction/nfr-requirements.md, file:aidlc-common/stages/construction/nfr-design.md, file:aidlc-common/stages/construction/infrastructure-design.md, file:aidlc-common/stages/construction/code-generation.md, file:aidlc-common/stages/construction/build-and-test.md, file:aidlc-common/stages/construction/ci-pipeline.md, file:aidlc-common/stages/operation/deployment-pipeline.md, file:aidlc-common/stages/operation/environment-provisioning.md, file:aidlc-common/stages/operation/deployment-execution.md, file:aidlc-common/stages/operation/observability-setup.md, file:aidlc-common/stages/operation/incident-response.md, file:aidlc-common/stages/operation/performance-validation.md, file:aidlc-common/stages/operation/feedback-optimization.md, file:settings.json, file:settings.local.json.example, file:knowledge/aidlc-shared/state-template.md, file:rules/aidlc-org.md, file:rules/aidlc-project.md, file:CLAUDE.md
+// covers: file:skills/aidlc/SKILL.md, file:aidlc-common/protocols/stage-protocol.md, file:aidlc-common/protocols/stage-protocol-recovery.md, file:aidlc-common/protocols/stage-protocol-governance.md, file:hooks/aidlc-write-audit-log.ts, file:hooks/aidlc-run-sensors.ts, file:hooks/aidlc-rebuild-stage-graph.ts, file:hooks/aidlc-sync-workflow-state.ts, file:hooks/aidlc-validate-state.ts, file:hooks/aidlc-log-subagent.ts, file:hooks/aidlc-record-human-turn.ts, file:hooks/aidlc-review-freeze.ts, file:hooks/aidlc-session-start.ts, file:hooks/aidlc-session-end.ts, file:hooks/aidlc-statusline.ts, file:hooks/aidlc-continue-workflow.ts, file:agents/aidlc-product-agent.md, file:agents/aidlc-design-agent.md, file:agents/aidlc-delivery-agent.md, file:agents/aidlc-architect-agent.md, file:agents/aidlc-aws-platform-agent.md, file:agents/aidlc-compliance-agent.md, file:agents/aidlc-devsecops-agent.md, file:agents/aidlc-developer-agent.md, file:agents/aidlc-quality-agent.md, file:agents/aidlc-pipeline-deploy-agent.md, file:agents/aidlc-operations-agent.md, file:aidlc-common/stages/initialization/workspace-scaffold.md, file:aidlc-common/stages/initialization/workspace-detection.md, file:aidlc-common/stages/initialization/state-init.md, file:aidlc-common/stages/ideation/intent-capture.md, file:aidlc-common/stages/ideation/market-research.md, file:aidlc-common/stages/ideation/feasibility.md, file:aidlc-common/stages/ideation/scope-definition.md, file:aidlc-common/stages/ideation/team-formation.md, file:aidlc-common/stages/ideation/rough-mockups.md, file:aidlc-common/stages/ideation/approval-handoff.md, file:aidlc-common/stages/inception/reverse-engineering.md, file:aidlc-common/stages/inception/practices-discovery.md, file:aidlc-common/stages/inception/requirements-analysis.md, file:aidlc-common/stages/inception/user-stories.md, file:aidlc-common/stages/inception/refined-mockups.md, file:aidlc-common/stages/inception/domain-design.md, file:aidlc-common/stages/inception/contract-design.md, file:aidlc-common/stages/inception/units-generation.md, file:aidlc-common/stages/inception/delivery-planning.md, file:aidlc-common/stages/construction/functional-design.md, file:aidlc-common/stages/construction/nfr-requirements.md, file:aidlc-common/stages/construction/nfr-design.md, file:aidlc-common/stages/construction/infrastructure-design.md, file:aidlc-common/stages/construction/code-generation.md, file:aidlc-common/stages/construction/build-and-test.md, file:aidlc-common/stages/construction/ci-pipeline.md, file:aidlc-common/stages/operation/deployment-pipeline.md, file:aidlc-common/stages/operation/environment-provisioning.md, file:aidlc-common/stages/operation/deployment-execution.md, file:aidlc-common/stages/operation/observability-setup.md, file:aidlc-common/stages/operation/incident-response.md, file:aidlc-common/stages/operation/performance-validation.md, file:aidlc-common/stages/operation/feedback-optimization.md, file:settings.json, file:settings.local.json.example, file:knowledge/aidlc-shared/state-template.md, file:rules/aidlc-org.md, file:rules/aidlc-project.md, file:CLAUDE.md
 //
 // t01 — shipped-tree file-structure invariant. Migrated from
 // tests/smoke/t01-file-structure.sh (TAP plan 63, 63 distinct file-existence
@@ -20,19 +20,19 @@
 // STRONGER than the .sh, which only existence-checked each path individually):
 //   .sh L12  SKILL.md exists                          -> "ships skills/aidlc/SKILL.md"
 //   .sh L15-17  3 stage-protocol files                -> "ships the 3 stage-protocol spine files" (each asserted)
-//   .sh L20-29  11 hooks (each)                        -> "ships each of the 16 framework hooks" + exact-set strengthening
+//   .sh L20-29  11 hooks (each)                        -> "ships each of the 17 framework hooks" + exact-set strengthening
 //   .sh L32-34  11 agents (loop)                       -> "ships each of the 14 agent personas" + "ships EXACTLY 14 aidlc-*-agent.md files" (count strengthening; roster grew to 13 with the two reviewer personas, then 14 with the composer)
 //   .sh L38-40  3 initialization stages (loop)         -> "ships the 3 initialization stages"
 //   .sh L43-45  7 ideation stages (loop)               -> "ships the 7 ideation stages"
 //   .sh L48-50  8 inception stages (loop)              -> "ships the 8 inception stages"
 //   .sh L53-55  7 construction stages (loop)           -> "ships the 7 construction stages"
 //   .sh L58-60  7 operation stages (loop)              -> "ships the 7 operation stages"
-//   .sh (all stages)                                   -> "ships EXACTLY 32 stage files across the 5 phases" (count strengthening)
+//   .sh (all stages)                                   -> "ships EXACTLY 33 stage files across the 5 phases" (count strengthening)
 //   .sh L63-64  settings.json + settings.local.json.example -> "ships settings.json and settings.local.json.example"
 //   .sh L67  state-template.md                          -> "ships knowledge/aidlc-shared/state-template.md"
 //   .sh L70-71  org + project rules                     -> "ships the org and project rule layers"
 //   .sh L74  CLAUDE.md                                  -> "ships the user-facing CLAUDE.md"
-//   .sh L9   plan 63                                    -> "asserts EXACTLY 63 shipped paths (TAP plan parity)" (re-counts the path list and pins 63)
+//   .sh L9   plan 63                                    -> "asserts EXACTLY 73 shipped paths" after the roster and hook additions
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
@@ -72,14 +72,14 @@ const AGENTS = [
 
 // The framework hooks, including additions made after the shell migration.
 const HOOKS = [
-  "aidlc-audit-logger.ts",
-  "aidlc-sensor-fire.ts",
-  "aidlc-runtime-compile.ts",
-  "aidlc-sync-statusline.ts",
+  "aidlc-write-audit-log.ts",
+  "aidlc-run-sensors.ts",
+  "aidlc-rebuild-stage-graph.ts",
+  "aidlc-sync-workflow-state.ts",
   "aidlc-validate-state.ts",
   "aidlc-log-subagent.ts",
-  "aidlc-mint-presence.ts",
-  "aidlc-dispatch-rules.ts",
+  "aidlc-record-human-turn.ts",
+  "aidlc-deliver-stage-rules.ts",
   "aidlc-plan-approval-guard.ts",
   "aidlc-state-transition-guard.ts",
   "aidlc-reviewer-scope.ts",
@@ -87,7 +87,7 @@ const HOOKS = [
   "aidlc-session-start.ts",
   "aidlc-session-end.ts",
   "aidlc-statusline.ts",
-  "aidlc-stop.ts",
+  "aidlc-continue-workflow.ts",
   "aidlc-fold-usage.ts",
 ] as const;
 
@@ -110,7 +110,8 @@ const STAGES: Record<string, readonly string[]> = {
     "requirements-analysis",
     "user-stories",
     "refined-mockups",
-    "application-design",
+    "domain-design",
+    "contract-design",
     "units-generation",
     "delivery-planning",
   ],
@@ -219,7 +220,7 @@ describe("t01 — shipped-tree file-structure invariant (mechanism: none)", () =
   // STRONGER: the 5 phase dirs together hold EXACTLY 32 .md stage files, and
   // each phase dir holds exactly its expected count. The .sh's per-phase loops
   // asserted membership; this also pins that no extra stage file ships.
-  test("ships EXACTLY 32 stage files across the 5 phases [.sh all stages — count strengthening]", () => {
+  test("ships EXACTLY 33 stage files across the 5 phases [.sh all stages — count strengthening]", () => {
     let total = 0;
     for (const [phase, stages] of Object.entries(STAGES)) {
       const dir = at("aidlc-common", "stages", phase);
@@ -229,7 +230,7 @@ describe("t01 — shipped-tree file-structure invariant (mechanism: none)", () =
       expect(shipped).toEqual([...stages].map((s) => `${s}.md`).sort());
       total += shipped.length;
     }
-    expect(total).toBe(32);
+    expect(total).toBe(33);
   });
 
   test("ships settings.json and settings.local.json.example [.sh L63-64]", () => {
@@ -260,11 +261,11 @@ describe("t01 — shipped-tree file-structure invariant (mechanism: none)", () =
   // personas (product-lead, architecture-reviewer) to 65, then by the
   // human-turn mint hook to 66, then by the composer persona to 67, then by
   // the reviewer-scope hook to 68, the state-transition guard to 69, the
-  // dispatch-rules hook to 70, the review-freeze hook to 71, the fold-usage
+  // deliver-stage-rules hook to 70, the review-freeze hook to 71, the fold-usage
   // producer to 72, then the plan-approval guard to 73. Re-drive the
   // data the loops drove and pin its length, so the migrated suite cannot
   // silently shrink the structural surface the .sh enforced.
-  test("asserts EXACTLY 73 shipped paths (TAP plan 63 + 2 reviewer agents + 7 hooks + the composer) [.sh L9]", () => {
+  test("asserts EXACTLY 74 shipped paths (TAP plan 63 + 2 reviewer agents + 7 hooks + the composer + contract-design) [.sh L9]", () => {
     const paths: string[] = [
       at("skills", "aidlc", "SKILL.md"), // 1
       at("aidlc-common", "protocols", "stage-protocol.md"), // 2
@@ -274,16 +275,16 @@ describe("t01 — shipped-tree file-structure invariant (mechanism: none)", () =
       ...AGENTS.map((a) => at("agents", `aidlc-${a}-agent.md`)), // 22-35 (14)
       ...Object.entries(STAGES).flatMap(([phase, stages]) =>
         stages.map((s) => at("aidlc-common", "stages", phase, `${s}.md`)),
-      ), // 36-67 (32)
-      at("settings.json"), // 68
-      at("settings.local.json.example"), // 69
-      at("knowledge", "aidlc-shared", "state-template.md"), // 70
-      mem("org.md"), // 71 — method relocated to aidlc/spaces/default/memory/
-      mem("project.md"), // 72
-      at("CLAUDE.md"), // 73
+      ), // 36-68 (33)
+      at("settings.json"), // 69
+      at("settings.local.json.example"), // 70
+      at("knowledge", "aidlc-shared", "state-template.md"), // 71
+      mem("org.md"), // 72 — method relocated to aidlc/spaces/default/memory/
+      mem("project.md"), // 73
+      at("CLAUDE.md"), // 74
     ];
-    expect(paths.length).toBe(73);
-    // Every one of the 73 must exist — the .sh's full TAP plan, re-proven as a
+    expect(paths.length).toBe(74);
+    // Every one of the 74 must exist — the .sh's full TAP plan, re-proven as a
     // single set so the count and the existence checks cannot drift apart.
     for (const p of paths) {
       expect(existsSync(p)).toBe(true);

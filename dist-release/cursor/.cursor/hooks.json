@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "aidlc engine hook cursor-adapter session-start" }
+    ],
+    "sessionEnd": [
+      { "command": "aidlc engine hook cursor-adapter session-end" }
+    ],
+    "beforeSubmitPrompt": [
+      { "command": "aidlc engine hook cursor-adapter mint" }
+    ],
+    "preToolUse": [
+      {
+        "command": "aidlc engine hook cursor-adapter guards",
+        "failClosed": true
+      }
+    ],
+    "postToolUse": [
+      { "command": "aidlc engine hook cursor-adapter audit-and-sensors" },
+      { "command": "aidlc engine hook cursor-adapter runtime-compile" }
+    ],
+    "postToolUseFailure": [
+      { "command": "aidlc engine hook cursor-adapter task-failure" }
+    ],
+    "preCompact": [
+      { "command": "aidlc engine hook cursor-adapter validate-state" }
+    ],
+    "stop": [
+      {
+        "command": "aidlc engine hook cursor-adapter stop",
+        "loop_limit": 10
+      }
+    ]
+  }
+}

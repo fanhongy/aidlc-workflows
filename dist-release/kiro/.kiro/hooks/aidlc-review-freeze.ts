@@ -1,5 +1,5 @@
 // PreToolUse hook: deterministic enforcement of the §12a terminal-receipt
-// ordering - the write-freeze between a READY review receipt and the gate.
+// ordering - the write-freeze between a terminal review receipt and the gate.
 //
 // The engine's completion precondition (aidlc-state.ts, via the shared
 // freshReviewReceipts scan in aidlc-lib.ts) invalidates a REVIEW_COMPLETED
@@ -11,7 +11,7 @@
 // session wedged at the gate. Per the framework layering (determinism belongs
 // in tools and hooks, knowledge in agents, judgement with humans), this hook
 // is the ordering's deterministic twin: it refuses the produces[] write that
-// would void a fresh READY receipt, BEFORE the invalidation happens, with a
+// would void a fresh terminal receipt, BEFORE the invalidation happens, with a
 // reason that names the sanctioned paths (quote suggestions at the gate; or
 // reject at the gate, which lifts the freeze for a revision).
 //
@@ -23,13 +23,15 @@
 //     artifacts are its permanent record; later stages may legitimately
 //     append - e.g. a reviewer's `## Review` on a redo is a fresh attempt
 //     whose floor already reset), AND
-//   - a FRESH READY receipt covers the write target (stage receipt for
+//   - a FRESH TERMINAL receipt covers the write target (stage receipt for
 //     stage-level artifacts; that unit's receipt for a per-unit write).
 // Everything the freeze must release on releases it automatically because
 // the scan is shared with the engine: GATE_REJECTED, STAGE_JUMPED, and
 // WORKFLOW_STARTED reset the floor (so post-rejection revisions are never
-// frozen), a NOT-READY verdict never freezes (the repair loop must edit),
-// and non-produces writes (diary, questions, contributions) never match.
+// frozen), a below-cap adversarial NOT-READY remains nonterminal so its repair
+// loop can edit, and non-produces writes (diary, questions, contributions)
+// never match. Terminal NOT-READY under the effective class freezes just like
+// READY because no further review pass follows it.
 //
 // The block contract is the harness-native PreToolUse refuse: print a reason
 // to stderr and exit 2; exit 0 allows. Fail-open everywhere: malformed stdin,
@@ -41,8 +43,8 @@
 // REVIEW_FREEZE_BLOCKED audit event; audit failures never change the decision.
 //
 // Bash is inspected before execution too. Shell writes do not pass through the
-// Write/Edit PostToolUse audit feed, so allowing one after READY would leave the
-// old receipt fresh over different bytes. The matcher extracts output
+// Write/Edit PostToolUse audit feed, so allowing one after a terminal receipt
+// would leave it fresh over different bytes. The matcher extracts output
 // redirections and operands of common mutation commands; read-only shell calls
 // do not produce targets and remain untouched.
 
@@ -55,6 +57,7 @@ import {
   type ClaudeCodeHookInput,
   errorMessage,
   freshReviewReceipts,
+  getField,
   hooksHealthDir,
   intentRepos,
   isClaudeCodeHookInput,
@@ -66,6 +69,7 @@ import {
   readStateFile,
   recordHookDrop,
   releaseAuditLock,
+  resolveReviewClass,
   resolveProjectDirFromHook,
   type StageEntry,
 } from "../tools/aidlc-lib.ts";
@@ -145,6 +149,202 @@ function shellCommandSegments(command: string): string[] {
   }
   segments.push(command.slice(start));
   return segments;
+}
+
+export interface ShellInvocation {
+  name: string;
+  args: string[];
+}
+
+function consumeWrapperOptions(
+  words: string[],
+  index: number,
+  shortValueOptions = new Set<string>(),
+  longValueOptions = new Set<string>(),
+): number {
+  while (index < words.length) {
+    const option = words[index];
+    if (option === "--") return index + 1;
+    if (option === "-" || !option.startsWith("-")) return index;
+    if (option.startsWith("--")) {
+      const equals = option.indexOf("=");
+      const name = equals === -1 ? option : option.slice(0, equals);
+      index++;
+      if (equals === -1 && longValueOptions.has(name)) index++;
+      continue;
+    }
+    const name = option.slice(0, 2);
+    index++;
+    if (shortValueOptions.has(name) && option.length === 2) index++;
+  }
+  return index;
+}
+
+function shellInvocation(words: string[], depth = 0): ShellInvocation | null {
+  if (depth > 8) return null;
+  let index = 0;
+  const skipAssignments = () => {
+    while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index] ?? "")) index++;
+  };
+  skipAssignments();
+
+  while (index < words.length) {
+    const wrapper = basename(words[index]);
+    if (["}", "fi", "done", "esac"].includes(wrapper)) return null;
+    if (["{", "then", "else", "do", "!"].includes(wrapper)) {
+      index++;
+      skipAssignments();
+      continue;
+    }
+    if (["for", "select", "case"].includes(wrapper)) return null;
+    if (["if", "elif", "while", "until"].includes(wrapper)) {
+      index++;
+      skipAssignments();
+      continue;
+    }
+    if (wrapper === "command") {
+      index++;
+      while (index < words.length && words[index].startsWith("-")) {
+        const option = words[index++];
+        if (option === "--") break;
+        // `command -v/-V` queries a name; it does not execute the following word.
+        if (option.includes("v") || option.includes("V")) return null;
+      }
+      skipAssignments();
+      continue;
+    }
+    if (wrapper === "env") {
+      index++;
+      let splitCommand: string[] = [];
+      while (index < words.length) {
+        const option = words[index];
+        if (option === "--") {
+          index++;
+          break;
+        }
+        if (option === "-S" || option === "--split-string") {
+          const value = words[index + 1];
+          if (!value) return null;
+          splitCommand = shellWords(value);
+          index += 2;
+          continue;
+        }
+        if (option.startsWith("--split-string=")) {
+          splitCommand = shellWords(option.slice("--split-string=".length));
+          index++;
+          continue;
+        }
+        if (/^(?:-u|--unset|-C|--chdir)$/.test(option)) {
+          index += 2;
+          continue;
+        }
+        if (/^(?:--unset|--chdir)=/.test(option) || option === "-i") {
+          index++;
+          continue;
+        }
+        if (option.startsWith("-")) {
+          index++;
+          continue;
+        }
+        break;
+      }
+      skipAssignments();
+      if (splitCommand.length > 0) {
+        return shellInvocation([...splitCommand, ...words.slice(index)], depth + 1);
+      }
+      continue;
+    }
+
+    const simpleWrappers: Record<
+      string,
+      { shortValues?: string[]; longValues?: string[] }
+    > = {
+      exec: {},
+      nohup: {},
+      nice: { shortValues: ["-n"], longValues: ["--adjustment"] },
+      ionice: {
+        shortValues: ["-c", "-n", "-p", "-P", "-u"],
+        longValues: ["--class", "--classdata", "--pid", "--pgid", "--uid"],
+      },
+      stdbuf: {
+        shortValues: ["-i", "-o", "-e"],
+        longValues: ["--input", "--output", "--error"],
+      },
+      setsid: {},
+      sudo: {
+        shortValues: ["-C", "-D", "-g", "-h", "-p", "-r", "-t", "-T", "-u"],
+        longValues: [
+          "--chdir",
+          "--close-from",
+          "--group",
+          "--host",
+          "--prompt",
+          "--role",
+          "--type",
+          "--user",
+        ],
+      },
+      doas: { shortValues: ["-C", "-u"] },
+      xargs: {
+        shortValues: ["-a", "-E", "-I", "-L", "-n", "-P", "-s"],
+        longValues: [
+          "--arg-file",
+          "--eof",
+          "--replace",
+          "--max-lines",
+          "--max-args",
+          "--max-procs",
+          "--max-chars",
+        ],
+      },
+      time: {
+        shortValues: ["-f", "-o"],
+        longValues: ["--format", "--output"],
+      },
+      unbuffer: {},
+    };
+    const spec = simpleWrappers[wrapper];
+    if (spec) {
+      index = consumeWrapperOptions(
+        words,
+        index + 1,
+        new Set(spec.shortValues ?? []),
+        new Set(spec.longValues ?? []),
+      );
+      skipAssignments();
+      continue;
+    }
+
+    if (wrapper === "timeout") {
+      index = consumeWrapperOptions(
+        words,
+        index + 1,
+        new Set(["-k", "-s"]),
+        new Set(["--kill-after", "--signal"]),
+      );
+      if (index < words.length) index++; // duration
+      skipAssignments();
+      continue;
+    }
+
+    break;
+  }
+
+  const executable = words[index];
+  if (!executable) return null;
+  return {
+    name: basename(executable),
+    args: words.slice(index + 1),
+  };
+}
+
+export function shellCommandInvocations(command: string): ShellInvocation[] {
+  const invocations: ShellInvocation[] = [];
+  for (const segment of shellCommandSegments(command)) {
+    const invocation = shellInvocation(shellWords(segment));
+    if (invocation) invocations.push(invocation);
+  }
+  return invocations;
 }
 
 function shellWordAt(command: string, start: number): { word: string; end: number } | null {
@@ -331,15 +531,7 @@ export function shellWriteTargets(command: string, cwd = process.cwd()): string[
   // Parse each command segment independently so a mutator never claims a
   // later read-only command's operands. Only destination/in-place operands are
   // candidates for commands that also have read-only source operands.
-  for (const segment of shellCommandSegments(command)) {
-    const words = shellWords(segment);
-    if (words.length === 0) continue;
-    let commandIndex = 0;
-    while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[commandIndex] ?? "")) {
-      commandIndex++;
-    }
-    const commandName = (words[commandIndex] ?? "").split("/").pop() ?? "";
-    const args = words.slice(commandIndex + 1);
+  for (const { name: commandName, args } of shellCommandInvocations(command)) {
     if (commandName === "dd") {
       for (const arg of args) if (arg.startsWith("of=")) add(arg);
       continue;
@@ -500,21 +692,21 @@ export function judgeFreeze(
   if (stage.for_each === "unit-of-work") {
     if (targetUnit !== null) {
       // A unit-scoped write voids that unit's receipt only.
-      if (receipts.unitVerdicts.get(targetUnit) === "READY") {
+      if (receipts.unitVerdicts.has(targetUnit)) {
         return { block: true, target: file, stage: stage.slug, unit: targetUnit };
       }
       return { block: false };
     }
     // Ambiguous per-unit path: the engine fails closed by clearing EVERY unit
-    // receipt, so freeze if any unit currently holds a READY receipt.
+    // receipt, so freeze if any unit currently holds a terminal receipt.
     for (const [unit, verdict] of receipts.unitVerdicts) {
-      if (verdict === "READY") {
+      if (verdict === "READY" || verdict === "NOT-READY") {
         return { block: true, target: file, stage: stage.slug, unit };
       }
     }
     return { block: false };
   }
-  if (receipts.stageVerdict === "READY") {
+  if (receipts.stageVerdict !== null) {
     return { block: true, target: file, stage: stage.slug };
   }
   return { block: false };
@@ -528,7 +720,7 @@ export function blockReason(v: FreezeVerdict): string {
   const scope = v.unit ? `stage "${v.stage}" unit "${v.unit}"` : `stage "${v.stage}"`;
   return (
     `review-freeze: "${v.target}" is a declared produces[] artifact of ${scope}, ` +
-    `which holds a fresh READY review receipt. Writing it now would invalidate ` +
+    `which holds a fresh terminal review receipt. Writing it now would invalidate ` +
     `that receipt and the engine would refuse the gate (stage-protocol §12a: the ` +
     `terminal receipt ends artifact work). Present the gate instead - quote any ` +
     `reviewer suggestions there verbatim for the human to weigh. If the artifact ` +
@@ -599,7 +791,14 @@ export async function run(input: string): Promise<number> {
       for (const file of targets) {
         const probe = producesArtifactUnit(stage, file, recordedRepos);
         if (probe === undefined) continue;
-        receipts ??= freshReviewReceipts(projectDir, content, stage);
+        const reviewClass = resolveReviewClass(
+          stage.review_class ?? "adversarial",
+          getField(content, "Scope") ?? "",
+          content,
+        );
+        receipts ??= freshReviewReceipts(projectDir, content, stage, {
+          reviewClass,
+        });
         verdict = judgeFreeze(stage, file, recordedRepos, receipts);
         if (verdict.block) break;
       }

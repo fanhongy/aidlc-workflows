@@ -277,14 +277,11 @@ projection remains deferred (doc 18 §9 Status).
 
 ## 5. Distribution + install
 
-The packager emits your plugin as **a real host plugin** for every discovered
-harness (`.claude-plugin`, `.codex-plugin`, `.opencode-plugin`, and Kiro
-folder-drop projections for CLI/IDE). These live under
-`dist/plugins/<name>/<harness>/`; there is no separate `dist-release/plugins`
-tree because composition happens in the target project and the emitted hook
-chooses `aidlc` first with a Bun compatibility fallback. You publish the output
-to a git repo with semver tags and a `marketplace.json`, and teams install
-through the host's native mechanism.
+The packager emits your plugin as **a real host plugin** (one projection target
+per harness, including `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`,
+Copilot's `.plugin/plugin.json`, and Kiro's folder projection). You publish the
+output to a git repo with semver tags and a `marketplace.json`, and teams install
+through the host's native commands.
 
 ### Claude / Codex (host store)
 

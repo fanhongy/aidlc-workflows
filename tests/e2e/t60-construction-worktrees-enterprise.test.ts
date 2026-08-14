@@ -109,7 +109,7 @@ function setupConstructionProject(scope: string): string {
   mkdirSync(join(proj, "aidlc-docs"), { recursive: true });
   const r = spawnSync(
     BUN,
-    [UTIL, "intent-birth", "--project-dir", proj, "--force", "--scope", scope],
+    [UTIL, "intent-create", "--project-dir", proj, "--force", "--scope", scope],
     { encoding: "utf-8" },
   );
   if (r.status !== 0) {
@@ -284,7 +284,7 @@ describe("t60 Construction worktrees per scope — enterprise (cli)", () => {
     const proj = setupConstructionProject(SCOPE);
     const state = readFileSync(statePath(proj), "utf-8");
     // STRONGER: pin State Version 7 in addition to the three field labels.
-    expect(state).toContain("**State Version**: 7");
+    expect(state).toContain("**State Version**: 8");
     expect(state).toContain("**Worktree Path**:");
     expect(state).toContain("**Bolt Refs**:");
     expect(state).toContain("**Practices Affirmed Timestamp**:");

@@ -23,15 +23,15 @@
 //     lines (SKILL.md:1-14). Fields asserted: name, description, user-invocable;
 //     the absence of a top-level `hooks:` key in that block.
 //   settings.json          — the project-wide hook registration. PostToolUse
-//     Write|Edit matcher carries `aidlc hook audit-logger`; PreCompact carries
-//     `aidlc hook validate-state`; SubagentStop carries `aidlc hook log-subagent`.
+//     Write|Edit matcher carries aidlc-write-audit-log.ts; PreCompact carries
+//     aidlc-validate-state.ts; SubagentStop carries aidlc-log-subagent.ts.
 //
 // Old TAP -> new test parity (1:1, every .sh assertion -> a named test()):
 //   .sh 1  assert_grep SKILL  "^name: aidlc"                  -> "frontmatter declares name: aidlc"
 //   .sh 2  assert_grep SKILL  "^description:"                 -> "frontmatter carries a description field"
 //   .sh 3  assert_grep SKILL  "^user-invocable: true"         -> "frontmatter is user-invocable: true"
 //   .sh 4  assert_not_grep SKILL "^hooks:"                    -> "frontmatter carries NO hooks: block (moved to settings.json)"
-//   .sh 5  assert_grep SETTINGS "aidlc-audit-logger.ts"       -> "settings.json registers aidlc-audit-logger.ts"
+//   .sh 5  assert_grep SETTINGS "aidlc-write-audit-log.ts"       -> "settings.json registers aidlc-write-audit-log.ts"
 //   .sh 6  assert_grep SETTINGS "\"PostToolUse\""             -> "settings.json registers a PostToolUse hook block"
 //   .sh 7  assert_grep SETTINGS "\"PreCompact\""              -> "settings.json registers a PreCompact hook block"
 //   .sh 8  assert_grep SETTINGS "aidlc-validate-state.ts"     -> "settings.json references aidlc-validate-state.ts"
@@ -124,13 +124,15 @@ describe("t06 SKILL.md frontmatter (migrated from t06-skill-frontmatter.sh, plan
   });
 
   // --- settings.json hook registration (.sh tests 5-9) ---------------------
-  test("settings.json registers the audit-logger hook on PostToolUse [.sh 5 + 6]", () => {
-    // .sh 5: the audit logger appears; .sh 6: a PostToolUse block exists.
+  test("settings.json registers aidlc-write-audit-log.ts on PostToolUse [.sh 5 + 6]", () => {
+    // .sh 5: aidlc-write-audit-log.ts appears; .sh 6: a PostToolUse block exists.
     // STRONGER: the audit-logger command is bound to the PostToolUse event
     // (the .sh only proved each appears SOMEWHERE in the file independently).
     const postCmds = commandsForEvent("PostToolUse");
     expect(postCmds.length).toBeGreaterThan(0); // PostToolUse block present (.sh 6)
-    expect(postCmds).toContain("bun .claude/tools/aidlc.ts engine hook audit-logger");
+    expect(
+      postCmds.some((c) => c.includes("engine hook write-audit-log")),
+    ).toBe(true); // audit-logger registered there (.sh 5)
   });
 
   test("settings.json registers the validate-state hook on PreCompact [.sh 7 + 8]", () => {

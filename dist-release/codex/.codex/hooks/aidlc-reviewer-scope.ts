@@ -685,15 +685,16 @@ export function parseDispatchRecord(raw: string): ReviewerDispatch | null {
 // reviewer self-corrects without retrying the same call.
 export function blockReason(target: string, dispatch: ReviewerDispatch): string {
   return (
-    `reviewer read-scope: "${target}" reaches into sibling units' construction/ paths. ` +
-    `This review is scoped to unit ${dispatch.unit} plus the contract paths you were passed ` +
-    `(the stage file, the Q&A file, and the resolved consumes paths - the shared inception ` +
-    `contracts). Verify cross-unit claims against those passed contracts instead of reading ` +
-    `sibling units. If this unit's design explicitly names an integration point in a sibling ` +
-    `file, report that in your findings rather than opening it; only a file the conductor ` +
-    `put on the dispatch exempt list is readable here. (If you meant to access the CURRENT ` +
-    `unit, write the literal unit name - shell variables in the path cannot be verified and ` +
-    `are refused; search commands must be scoped to the current unit path.)`
+    `[aidlc] reviewer read-scope: "${target}" reads another unit's files under construction/. ` +
+    `This review covers unit ${dispatch.unit} only, plus the specific files you were handed ` +
+    `(the stage file, the questions file, and the shared design documents this unit builds ` +
+    `on). Check cross-unit claims against those handed files instead of opening another ` +
+    `unit's work. If this unit's design names an integration point in another unit's file, ` +
+    `say so in your findings rather than reading it; the only files readable outside this ` +
+    `unit are the ones the conductor listed as exceptions when it started the review. (If ` +
+    `you meant a file in the CURRENT unit, write the unit name out in full - a shell ` +
+    `variable in the path cannot be checked, so it is refused; searches must stay inside ` +
+    `the current unit's path.)`
   );
 }
 
@@ -704,6 +705,12 @@ export function blockReason(target: string, dispatch: ReviewerDispatch): string 
 // identity during enforcement.
 const REVIEW_AGENT_RE = /^aidlc-(architecture-reviewer|product-lead)-agent$/;
 
+// --- Main ---------------------------------------------------------------------
+
+/** The dispatchable body (`aidlc hook reviewer-scope` requires an exported
+ *  run(input)). Returns the exit code (0 allow, 2 block with the reason on
+ *  stderr) instead of process.exit so the compiled-binary route can relay the
+ *  block; the CLI entry below preserves the direct-run contract unchanged. */
 export async function run(input: string): Promise<number> {
   // Deterministic off-switch: enforcement disabled entirely.
   if (process.env.AIDLC_DISABLE_REVIEWER_SCOPE_HOOK === "1") return 0;
@@ -717,9 +724,6 @@ export async function run(input: string): Promise<number> {
   } catch {
     // Heartbeat failure is non-fatal - never let it affect the decision.
   }
-
-  // A TTY means no harness JSON is coming (test / debug contexts) - allow.
-  if (process.stdin.isTTY) return 0;
 
   let parsed: ClaudeCodeHookInput;
   try {
@@ -863,5 +867,7 @@ export async function run(input: string): Promise<number> {
 }
 
 if (import.meta.main) {
+  // A TTY means no harness JSON is coming (test / debug contexts) - allow.
+  if (process.stdin.isTTY) process.exit(0);
   process.exit(await run(await Bun.stdin.text()));
 }

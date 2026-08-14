@@ -26,7 +26,7 @@
 //               byte-identical (the OFF-path gate).
 //
 // Mechanism: cli - spawns the shipped tools against temp projects born via
-// intent-birth (the real state-file shape, not a fixture).
+// intent-create (the real state-file shape, not a fixture).
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -85,7 +85,7 @@ afterAll(() => {
 function bornProject(scope = "feature"): string {
   const proj = setupIntegrationProject({ noAidlcDocs: true, stripEnvScope: true });
   tempDirs.push(proj);
-  const r = run(proj, "aidlc-utility.ts", ["intent-birth", "--scope", scope]);
+  const r = run(proj, "aidlc-utility.ts", ["intent-create", "--scope", scope]);
   expect(r.status).toBe(0);
   return proj;
 }
@@ -179,10 +179,10 @@ describe("t194 recompose - flips land as suffix edits and the router honours the
 describe("t194 recompose - rejections", () => {
   test("starved SKIP rejected by the strict validator with the producer named", () => {
     const proj = bornProject();
-    const r = run(proj, "aidlc-utility.ts", ["recompose", "--skip", "application-design"]);
+    const r = run(proj, "aidlc-utility.ts", ["recompose", "--skip", "domain-design"]);
     expect(r.status).not.toBe(0);
     expect(r.out).toContain("Strict (recompose) mode");
-    expect(r.out).toContain("application-design");
+    expect(r.out).toContain("domain-design");
   });
 
   test("frozen-stage flips rejected: [x] completed and behind-cursor", () => {

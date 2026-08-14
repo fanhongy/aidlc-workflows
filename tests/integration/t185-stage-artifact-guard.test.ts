@@ -58,7 +58,7 @@ const LOG = join(AIDLC_SRC, "tools", "aidlc-log.ts");
 const MID_IDEATION = "state-mid-ideation.md"; // Current Stage: feasibility
 
 function reviewCodeGen(proj: string, unit: string): void {
-  spawnSync(BUN, [
+  const args = [
     LOG,
     "review",
     "--stage",
@@ -69,11 +69,12 @@ function reviewCodeGen(proj: string, unit: string): void {
     "aidlc-architecture-reviewer-agent",
     "--iteration",
     "1",
-    "--verdict",
-    "READY",
     "--project-dir",
     proj,
-  ], { encoding: "utf-8" });
+  ];
+  for (const suffix of [[], ["--verdict", "READY"]]) {
+    spawnSync(BUN, [...args, ...suffix], { encoding: "utf-8" });
+  }
 }
 
 // Drive a state subcommand with the artifact guard ENABLED (clear the suite's
@@ -379,13 +380,14 @@ describe("t185: stage-completion artifact guard (#366)", () => {
   describe("workspace_requires (code-generation)", () => {
     const UNIT = "user-auth";
 
-    // Move the pointer to code-generation, in-progress, and write its two
+    // Move the pointer to code-generation, in-progress, and write its three
     // per-unit produces[] docs under the record's construction/<unit>/ subtree
     // (satisfies layer 1) but NO source code.
     function stageCodeGenDocsOnly(): void {
       guarded(proj, ["set", "Current Stage=code-generation"]);
       guarded(proj, ["checkbox", "code-generation=in-progress"]);
       writeRecordDoc(proj, `construction/${UNIT}/code-generation/code-generation-plan.md`);
+      writeRecordDoc(proj, `construction/${UNIT}/code-generation/unit-test-instructions.md`);
       writeRecordDoc(proj, `construction/${UNIT}/code-generation/code-summary.md`);
     }
 
@@ -575,7 +577,8 @@ describe("t185: stage-completion artifact guard (#366)", () => {
       );
       // Referee convergence rows for the converged subset, carrying the
       // attempt-identity stamp (Stage + Run floor) the consumers require; the
-      // fixture has no STAGE_STARTED row, so the matching floor is "".
+      // fixture has no STAGE_STARTED row, so the matching floor is the exact
+      // no-boundary sentinel.
       const shard = seededAuditShard(proj);
       mkdirSync(join(shard, ".."), { recursive: true });
       const rows = converged
@@ -586,7 +589,7 @@ describe("t185: stage-completion artifact guard (#366)", () => {
             "**Event**: SWARM_UNIT_CONVERGED",
             `**Unit name**: ${unit}`,
             "**Stage**: code-generation",
-            "**Run floor**: ",
+            "**Run floor**: unstarted#0",
             "",
             "---",
             "",

@@ -15,7 +15,7 @@ For design philosophy and rationale, see the
 | 1 | [aidlc-product-agent](product-agent.md) | Requirements, scope, user stories, market research |
 | 2 | [aidlc-design-agent](design-agent.md) | UX/UI, wireframes, interaction design, accessibility |
 | 3 | [aidlc-delivery-agent](delivery-agent.md) | Team formation, capacity planning, delivery sequencing |
-| 4 | [aidlc-architect-agent](architect-agent.md) | Application design, domain modelling, NFRs, decomposition |
+| 4 | [aidlc-architect-agent](architect-agent.md) | Domain design, domain modelling, NFRs, decomposition |
 | 5 | [aidlc-aws-platform-agent](aws-platform-agent.md) | AWS infrastructure, IaC, FinOps, environment provisioning |
 | 6 | [aidlc-compliance-agent](compliance-agent.md) | GRC, regulatory mapping, data classification, risk |
 | 7 | [aidlc-devsecops-agent](devsecops-agent.md) | Threat modelling, security pipeline, secure design review |
@@ -86,8 +86,8 @@ under dense context, risk-based test strategy, threat prioritisation,
 regulatory edge-cases, and cloud architecture trade-offs all fall in this
 category. The two balanced reviewers evaluate novel input against explicit
 criteria — the checklist encodes the method, so a mid-size model at session
-effort suffices (on Claude Code, Codex, and opencode; on Kiro all tiers
-inherit the session model and effort). See the projection table and the
+effort suffices (on Claude Code, Codex, and opencode; on Kiro, Cursor, and
+Copilot all tiers inherit the session model and effort). See the projection table and the
 `tier_cap` override in [Agent System](../05-agent-system.md).
 
 ---
@@ -97,10 +97,10 @@ inherit the session model and effort). See the projection table and the
 | Agent | Lead Stages | Support Stages | Tier | Tools Expected to Exercise |
 |-------|-------------|----------------|-------|------------------------------|
 | [aidlc-product-agent](product-agent.md) | intent-capture, market-research, scope-definition, requirements-analysis, user-stories | rough-mockups, approval-handoff, refined-mockups | judgment | WebSearch |
-| [aidlc-design-agent](design-agent.md) | rough-mockups, refined-mockups | user-stories, application-design | judgment | WebSearch |
+| [aidlc-design-agent](design-agent.md) | rough-mockups, refined-mockups | user-stories, domain-design | judgment | WebSearch |
 | [aidlc-delivery-agent](delivery-agent.md) | team-formation, approval-handoff, delivery-planning | scope-definition, units-generation | templated | -- |
-| [aidlc-architect-agent](architect-agent.md) | feasibility, application-design, units-generation, functional-design, nfr-requirements, nfr-design | intent-capture, reverse-engineering (synthesis), delivery-planning | judgment | -- |
-| [aidlc-aws-platform-agent](aws-platform-agent.md) | infrastructure-design, environment-provisioning | feasibility, application-design, nfr-design, feedback-optimization | judgment | Bash |
+| [aidlc-architect-agent](architect-agent.md) | feasibility, domain-design, units-generation, functional-design, nfr-requirements, nfr-design | intent-capture, reverse-engineering (synthesis), delivery-planning | judgment | -- |
+| [aidlc-aws-platform-agent](aws-platform-agent.md) | infrastructure-design, environment-provisioning | feasibility, domain-design, nfr-design, feedback-optimization | judgment | Bash |
 | [aidlc-compliance-agent](compliance-agent.md) | (none) | feasibility, nfr-requirements, infrastructure-design, environment-provisioning | judgment | WebSearch |
 | [aidlc-devsecops-agent](devsecops-agent.md) | (none) | practices-discovery, nfr-requirements, infrastructure-design, build-and-test, environment-provisioning | judgment | Bash |
 | [aidlc-developer-agent](developer-agent.md) | reverse-engineering (code scan), code-generation | practices-discovery, user-stories, functional-design, deployment-execution | judgment | Bash |
@@ -131,7 +131,7 @@ that inherited tool; it does not grant or withhold access.
 
 **Observations:**
 - The aidlc-architect-agent has the broadest stage involvement (9 stages across 3 phases), reflecting its role as the central design authority.
-- Across the full 14-agent roster, nine agents carry the `judgment` tier and five step down on Claude Code, Codex, and opencode (the two `balanced` reviewers plus the three `templated` planners; on Kiro all tiers inherit the session model and effort, so no agent steps down there); the stepped-down agents produce reviews against explicit checklists or dominantly templated planning, CI/CD, and runbook work. The matrix above covers the 11 domain-expert agents.
+- Across the full 14-agent roster, nine agents carry the `judgment` tier and five step down on Claude Code, Codex, and opencode (the two `balanced` reviewers plus the three `templated` planners; on Kiro, Cursor, and Copilot all tiers inherit the session model and effort, so no agent steps down there); the stepped-down agents produce reviews against explicit checklists or dominantly templated planning, CI/CD, and runbook work. The matrix above covers the 11 domain-expert agents.
 - The aidlc-compliance-agent operates purely in an advisory capacity (4 support stages across Ideation, Construction, and Operation; no lead stages).
 - Six of 11 agents are expected to use Bash for CLI interaction (infrastructure, security, development, testing, deployment, operations).
 - Three agents are expected to use WebSearch for research tasks (product, design, compliance).
@@ -146,10 +146,10 @@ serve as lead (L) or support (S) in that phase.
 | Agent | Initialization (Phase 0) | Ideation (Phase 1) | Inception (Phase 2) | Construction (Phase 3) | Operation (Phase 4) |
 |-------|--------------------------|---------------------|---------------------|------------------------|---------------------|
 | aidlc-product-agent | -- | L (intent-capture, market-research, scope-definition), S (rough-mockups, approval-handoff) | L (requirements-analysis, user-stories), S (refined-mockups) | -- | -- |
-| aidlc-design-agent | -- | L (rough-mockups) | L (refined-mockups), S (user-stories, application-design) | -- | -- |
+| aidlc-design-agent | -- | L (rough-mockups) | L (refined-mockups), S (user-stories, domain-design) | -- | -- |
 | aidlc-delivery-agent | -- | L (team-formation, approval-handoff), S (scope-definition) | L (delivery-planning), S (units-generation) | -- | -- |
-| aidlc-architect-agent | -- | L (feasibility), S (intent-capture) | L (application-design, units-generation), S (reverse-engineering, delivery-planning) | L (functional-design, nfr-requirements, nfr-design) | -- |
-| aidlc-aws-platform-agent | -- | S (feasibility) | S (application-design) | L (infrastructure-design), S (nfr-design) | L (environment-provisioning), S (feedback-optimization) |
+| aidlc-architect-agent | -- | L (feasibility), S (intent-capture) | L (domain-design, units-generation), S (reverse-engineering, delivery-planning) | L (functional-design, nfr-requirements, nfr-design) | -- |
+| aidlc-aws-platform-agent | -- | S (feasibility) | S (domain-design) | L (infrastructure-design), S (nfr-design) | L (environment-provisioning), S (feedback-optimization) |
 | aidlc-compliance-agent | -- | S (feasibility) | -- | S (nfr-requirements, infrastructure-design) | S (environment-provisioning) |
 | aidlc-devsecops-agent | -- | -- | S (practices-discovery) | S (nfr-requirements, infrastructure-design, build-and-test) | S (environment-provisioning) |
 | aidlc-developer-agent | -- | -- | L (reverse-engineering), S (practices-discovery, user-stories) | L (code-generation), S (functional-design) | S (deployment-execution) |

@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   errorMessage,
+  parsePluginCommand,
   parseWorkspaceCommand,
   workspaceCommandUtilityArgv,
 } from "./aidlc-lib.ts";
@@ -33,6 +34,7 @@ import {
 import claimSourcesSensorSource from "../sensors/aidlc-claim-sources.md" with { type: "text" };
 import linterSensorSource from "../sensors/aidlc-linter.md" with { type: "text" };
 import requiredSectionsSensorSource from "../sensors/aidlc-required-sections.md" with { type: "text" };
+import traceabilitySensorSource from "../sensors/aidlc-traceability.md" with { type: "text" };
 import typeCheckSensorSource from "../sensors/aidlc-type-check.md" with { type: "text" };
 import upstreamCoverageSensorSource from "../sensors/aidlc-upstream-coverage.md" with { type: "text" };
 
@@ -138,6 +140,7 @@ export const TOOLS = {
   sensorClaimSources: "aidlc-sensor-claim-sources.ts",
   sensorLinter: "aidlc-sensor-linter.ts",
   sensorRequiredSections: "aidlc-sensor-required-sections.ts",
+  sensorTraceability: "aidlc-sensor-traceability.ts",
   sensorTypeCheck: "aidlc-sensor-type-check.ts",
   sensorUpstreamCoverage: "aidlc-sensor-upstream-coverage.ts",
   state: "aidlc-state.ts",
@@ -152,6 +155,7 @@ const SENSOR_WORKERS = [
   [claimSourcesSensorSource, TOOLS.sensorClaimSources],
   [linterSensorSource, TOOLS.sensorLinter],
   [requiredSectionsSensorSource, TOOLS.sensorRequiredSections],
+  [traceabilitySensorSource, TOOLS.sensorTraceability],
   [typeCheckSensorSource, TOOLS.sensorTypeCheck],
   [upstreamCoverageSensorSource, TOOLS.sensorUpstreamCoverage],
 ] as const;
@@ -510,6 +514,7 @@ export const ROUTES: readonly Route[] = [
       "merge",
       "park",
       "unpark",
+      "unit",
     ],
     helpSections: [
       {
@@ -693,11 +698,11 @@ export const ROUTES: readonly Route[] = [
     group: "intent",
     kind: "custom",
     classification: "translation",
-    verbs: ["list", "switch", "<name>", "birth"],
+    verbs: ["list", "switch", "<name>", "create"],
     custom: "workspace",
     ...PUBLIC_ENGINE,
-    human: [{ command: "intent [list|switch|birth]", summary: "list, switch, or create intent context" }],
-    all: ["list [--json]", "switch <name>", "<name>", "birth [args]"],
+    human: [{ command: "intent [list|switch|create]", summary: "list, switch, or create intent context" }],
+    all: ["list [--json]", "switch <name>", "<name>", "create [args]"],
   },
   {
     id: "space",
@@ -745,13 +750,14 @@ export const ROUTES: readonly Route[] = [
     group: "config",
     kind: "custom",
     classification: "translation",
-    verbs: ["set depth", "set test-strategy", "get", "list"],
+    verbs: ["set depth", "set test-strategy", "set review", "get", "list"],
     custom: "config",
     ...PUBLIC_ENGINE,
     visibility: "hidden",
     targets: {
       "set depth": "config-change",
       "set test-strategy": "config-change",
+      "set review": "config-change",
       get: "config-get",
       list: "config-list",
     },
@@ -760,7 +766,7 @@ export const ROUTES: readonly Route[] = [
       { command: "config set <key> <value>", summary: "change supported project configuration" },
       { command: "config list", summary: "list supported project configuration" },
     ],
-    all: ["set depth <value>", "set test-strategy <value>", "get <key>", "list"],
+    all: ["set depth <value>", "set test-strategy <value>", "set review <value>", "get <key>", "list"],
   },
   {
     id: "plugin",
@@ -948,16 +954,23 @@ function toolsDir(): string {
   return dispatcherDir();
 }
 
-type AdapterHarness = "codex" | "kiro" | "kiro-ide";
+type AdapterHarness = "codex" | "cursor" | "kiro" | "kiro-ide";
 
 const ADAPTER_HARNESS_LEAF: Record<AdapterHarness, string> = {
   codex: ".codex",
+  cursor: ".cursor",
   kiro: ".kiro",
   "kiro-ide": ".kiro",
 };
 
 function isAdapterHarness(value: string): value is AdapterHarness {
   return Object.hasOwn(ADAPTER_HARNESS_LEAF, value);
+}
+
+function adapterFile(harness: AdapterHarness): string {
+  if (harness === "codex") return "aidlc-codex-adapter.ts";
+  if (harness === "cursor") return "aidlc-cursor-adapter.ts";
+  return "aidlc-kiro-adapter.ts";
 }
 
 function resolveHookPath(
@@ -974,6 +987,10 @@ function resolveHookPath(
     : [
         runtimeLeaf,
         ...discoverProjectHarnesses(projectDir).map((candidate) => candidate.harnessDir),
+        ".claude",
+        ".kiro",
+        ".codex",
+        ".cursor",
       ].filter((value, index, values): value is string =>
         typeof value === "string" && value.length > 0 && values.indexOf(value) === index
       );
@@ -1123,20 +1140,29 @@ function handleConfig(route: Route, argv: string[]): Action {
     if (missing) return missing;
     return { type: "delegate", tool: TOOLS.utility, args: ["config-change", "--test-strategy", value, ...argv.slice(4)] };
   }
+  if (key === "review") {
+    const missing = requireValue("config", "set review", value);
+    if (missing) return missing;
+    return { type: "delegate", tool: TOOLS.utility, args: ["config-change", "--review", value, ...argv.slice(4)] };
+  }
   return nounError("config", key ? `set ${key}` : "set");
 }
 
-function handlePlugin(route: Route, argv: string[]): Action {
-  const verb = argv[1];
-  if (verb === "select") {
-    const target = route.targets?.select ?? "select-plugins";
-    return { type: "delegate", tool: TOOLS.utility, args: [target, ...argv.slice(2)] };
+function handlePlugin(argv: string[]): Action {
+  const command = parsePluginCommand(argv);
+  if (command.kind === "help") {
+    return { type: "help", scope: "engine" };
   }
-  if (verb === "sync" || verb === "list") {
-    const target = route.targets?.[verb];
-    if (target) return { type: "delegate", tool: TOOLS.plugin, args: [target, ...argv.slice(2)] };
+  if (command.kind === "error") {
+    return { type: "error", code: 1, message: `${command.message}\n` };
   }
-  return nounError("plugin", verb);
+  if (command.kind === "run") {
+    if (argv[1] === "list" || argv[1] === "sync") {
+      return { type: "delegate", tool: TOOLS.plugin, args: [argv[1], ...argv.slice(2)] };
+    }
+    return { type: "delegate", tool: TOOLS.utility, args: command.argv };
+  }
+  return nounError("plugin", argv[1]);
 }
 
 function handleGen(argv: string[]): Action {
@@ -1164,7 +1190,7 @@ function handleGen(argv: string[]): Action {
 function handleCustom(route: Route, argv: string[]): Action {
   if (route.custom === "workspace") return handleWorkspace(argv);
   if (route.custom === "config") return handleConfig(route, argv);
-  if (route.custom === "plugin") return handlePlugin(route, argv);
+  if (route.custom === "plugin") return handlePlugin(argv);
   if (route.custom === "gen") return handleGen(argv);
   return nounError(argv[0], argv[1]);
 }
@@ -1190,7 +1216,7 @@ function handleRouteOnly(route: Route, argv: string[]): Action {
     if (!isAdapterHarness(harness)) return nounError("adapter", harness);
     if (!target) return nounError("adapter", undefined);
     if (!isSafeName(target)) return nounError("adapter", target);
-    const file = harness === "codex" ? "aidlc-codex-adapter.ts" : "aidlc-kiro-adapter.ts";
+    const file = adapterFile(harness);
     return {
       type: "adapter",
       harness,
@@ -1220,6 +1246,7 @@ function resolveAlias(argv: string[], engineNamespace = false): Action | undefin
       "claim-sources": TOOLS.sensorClaimSources,
       linter: TOOLS.sensorLinter,
       "required-sections": TOOLS.sensorRequiredSections,
+      traceability: TOOLS.sensorTraceability,
       "type-check": TOOLS.sensorTypeCheck,
       "upstream-coverage": TOOLS.sensorUpstreamCoverage,
     };
@@ -1414,9 +1441,7 @@ export function resolveAction(argv: string[]): Action {
       action.path = resolveHookPath("aidlc-statusline.ts", undefined, absoluteProjectDir);
     } else if (action.type === "adapter") {
       action.projectDir = absoluteProjectDir;
-      const file = action.harness === "codex"
-        ? "aidlc-codex-adapter.ts"
-        : "aidlc-kiro-adapter.ts";
+      const file = adapterFile(action.harness);
       action.path = resolveHookPath(file, action.harness, absoluteProjectDir);
     } else if (action.type === "sensor-script-file") {
       action.projectDir = absoluteProjectDir;
@@ -1504,6 +1529,8 @@ async function loadDelegate(tool: string): Promise<DelegateModule | null> {
       return import("./aidlc-sensor-linter.ts");
     case TOOLS.sensorRequiredSections:
       return import("./aidlc-sensor-required-sections.ts");
+    case TOOLS.sensorTraceability:
+      return import("./aidlc-sensor-traceability.ts");
     case TOOLS.sensorTypeCheck:
       return import("./aidlc-sensor-type-check.ts");
     case TOOLS.sensorUpstreamCoverage:
@@ -1653,7 +1680,13 @@ async function runAdapter(action: Extract<Action, { type: "adapter" }>): Promise
     let input = "";
     if (action.harness !== "kiro-ide") {
       input = await readStdin();
-    } else if (action.target === "audit-and-sensors" || action.target === "log-subagent") {
+    } else if (
+      action.target === "audit-and-sensors" ||
+      action.target === "log-subagent" ||
+      action.target === "rebuild-stage-graph" ||
+      action.target === "session-start" ||
+      action.target === "continue-workflow"
+    ) {
       // Mirror the adapter entry point's dual-generation channel contract.
       // IDE 0.12 provides USER_PROMPT and leaves stdin open forever, so consume
       // a non-empty env payload immediately. IDE 1.x leaves USER_PROMPT empty
