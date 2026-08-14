@@ -17,7 +17,7 @@
   "toolsSettings": {
     "execute_bash": {
       "allowedCommands": [
-        "aidlc .*",
+        "aidlc engine .*",
         "date -u( .*)?"
       ],
       "deniedCommands": [
@@ -40,34 +40,34 @@
     "preToolUse": [
       {
         "matcher": "fs_read",
-        "command": "aidlc adapter kiro reviewer-scope aidlc-product-lead-agent",
+        "command": "aidlc engine adapter kiro reviewer-scope aidlc-product-lead-agent",
         "timeout_ms": 15000
       },
       {
         "matcher": "fs_write",
-        "command": "aidlc adapter kiro reviewer-scope aidlc-product-lead-agent",
+        "command": "aidlc engine adapter kiro reviewer-scope aidlc-product-lead-agent",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "aidlc adapter kiro reviewer-scope aidlc-product-lead-agent",
+        "command": "aidlc engine adapter kiro reviewer-scope aidlc-product-lead-agent",
         "timeout_ms": 15000
       },
       {
         "matcher": "fs_write",
-        "command": "aidlc adapter kiro review-freeze",
+        "command": "aidlc engine adapter kiro review-freeze",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "aidlc adapter kiro review-freeze",
+        "command": "aidlc engine adapter kiro review-freeze",
         "timeout_ms": 15000
       }
     ],
     "postToolUse": [
       {
         "matcher": "fs_write",
-        "command": "aidlc adapter kiro audit-and-sensors",
+        "command": "aidlc engine adapter kiro audit-and-sensors",
         "timeout_ms": 120000
       }
     ]

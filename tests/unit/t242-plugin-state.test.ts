@@ -465,7 +465,7 @@ describe("t242 pure status comparator", () => {
     );
     const rendered = renderPluginStatuses(rows);
     expect(rendered).toContain("current");
-    expect(rendered).toContain("run: aidlc plugin sync");
+    expect(rendered).toContain("run: aidlc config");
     expect(rendered).toContain("needs attention: invalid manifest");
     expect(rendered).not.toContain("[source-changed]");
     expect(renderPluginStatuses(rows, true)).toContain("[source-changed]");
@@ -535,6 +535,7 @@ describe("t242 transactional sync and ownership-safe prune", () => {
     withClaudeFixture(TEST_PRO);
     const list = spawnSync(process.execPath, [
       join(REPO_ROOT, "core", "tools", "aidlc.ts"),
+      "engine",
       "plugin",
       "list",
       "--json",
@@ -566,7 +567,7 @@ describe("t242 transactional sync and ownership-safe prune", () => {
       pass: false,
       severity: "warn",
       label: "Plugins: 1 require sync",
-      fix: "run `aidlc plugin sync`",
+      fix: "run `aidlc config`",
     }));
   }, 60_000);
 

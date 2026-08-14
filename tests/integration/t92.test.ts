@@ -1095,7 +1095,7 @@ function assertManifestCommandResolves(id: string): void {
   const text = readFileSync(manifest, "utf-8");
   const cmdLine = text.split("\n").find((l) => l.startsWith("command:")) ?? "";
   const cmd = cmdLine.replace(/^command:\s*/, "");
-  expect(cmd).toBe(`bun .claude/tools/aidlc.ts __delegate sensor-${id}`);
+  expect(cmd).toBe(`bun .claude/tools/aidlc.ts engine sensor-${id}`);
   const scriptPath = resolveSensorScriptPath(id);
   expect(basename(scriptPath)).toBe(`aidlc-sensor-${id}.ts`);
   expect(existsSync(scriptPath)).toBe(true);

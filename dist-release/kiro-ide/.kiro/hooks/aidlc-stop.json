@@ -5,7 +5,7 @@
       "name": "aidlc-stop",
       "trigger": "Stop",
       "description": "Forwarding-loop audit on agent stop (advisory-only: the IDE's Stop trigger cannot block; enforcement relies on the conductor's own Stop protocol).",
-      "action": { "type": "command", "command": "aidlc adapter kiro-ide stop" }
+      "action": { "type": "command", "command": "aidlc engine adapter kiro-ide stop" }
     }
   ]
 }

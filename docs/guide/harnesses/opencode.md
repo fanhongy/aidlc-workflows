@@ -42,29 +42,25 @@ script (top-level dispatch, `process.exit`) crashes the session
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness opencode
+  | bash
 cd your-project
-aidlc init
+aidlc config
 aidlc doctor
 opencode
 ```
 
-The installer verifies the release metadata, executable, and opencode data
-against the published SHA-256 checksums. The installed runtime does not require
-Bun, Node.js, or Git. This scripted example uses the literal `--harness` flag
-because automation requires it. An interactive run without the flag opens a
-controlling-terminal picker, including when the Unix script is piped.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`.
 
 On Windows, download `install.ps1` and run
-`& $installer --harness opencode`. An interactive run may omit the flag;
+`& $installer`. An interactive run may omit the flag;
 redirected input, `pwsh -NonInteractive`, `--yes`, `--json`, and `--quiet`
 require it. For an air-gapped package, use
-`install.sh --from <release-directory> --offline --harness opencode` on Unix or
-`& $installer -From <release-directory> -Offline --harness opencode` on Windows.
+`install.sh --from <release-directory> --offline` on Unix or
+`& $installer -From <release-directory> -Offline` on Windows.
 
-`aidlc init` projects `.aidlc/`, `.opencode/`, the workspace shell,
+`aidlc config` projects `.aidlc/`, `.opencode/`, the workspace shell,
 `AGENTS.md`, the managed `.gitignore` block, and `opencode.json`. The generated
-config discovers the skill and method files and allows direct `aidlc *`
+config discovers the skill and method files and allows direct `aidlc engine *`
 commands; other shell commands still prompt. Start opencode in the project and
 run `/aidlc --doctor`, then `/aidlc` followed by what you want to build.
 
@@ -108,23 +104,23 @@ git checkout v2
    followed by what you want to build.
 
 This source/development channel requires Git and Bun. It does not use
-`aidlc init`; the copied tree already contains the workspace shell.
+`aidlc config`; the copied tree already contains the workspace shell.
 
 ## Refresh and version skew
 
-`aidlc upgrade` updates the machine runtime without rewriting projects.
+`aidlc update` updates the machine runtime without rewriting projects.
 `aidlc doctor` reports a project stamp that differs from the selected engine.
 Between workflows, preview and apply a refresh:
 
 ```bash
-aidlc init --dry-run
-aidlc init
+aidlc config --dry-run
+aidlc config
 ```
 
-Init preserves managed root blocks and user-owned files, and reports local
+Config preserves managed root blocks and user-owned files, and reports local
 framework edits as conflicts. Because `opencode.json` is a whole-file
 integration, a local edit is preserved as a conflict rather than overwritten.
-Init refuses refresh while any workflow is active; complete the workflow first.
+Config refuses refresh while any workflow is active; complete the workflow first.
 Upgrade and rollback remain safe during a workflow because they do not touch
 the project.
 

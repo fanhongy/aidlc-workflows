@@ -8,7 +8,7 @@
 // WHY THIS GUARD EXISTS. The deterministic engine emits `print` directives whose
 // `message` tells the conductor to run a tool. aidlcToolInvocation() selects the
 // projected command: a harness-local Bun tool in copy installs, or an `aidlc
-// __delegate` route in native release installs. A directive that hardcodes a
+// engine` route in native release installs. A directive that hardcodes a
 // harness path would fail in other harnesses and bypass the release channel.
 //
 // This is the exact CRIT-class seam bug the dist-unified review found for the

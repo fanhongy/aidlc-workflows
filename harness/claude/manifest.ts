@@ -18,7 +18,7 @@ import onboardingFills from "./onboarding.fills.ts";
 const manifest: HarnessManifest = {
   name: "claude",
   productName: "Claude Code",
-  initNextStep: "open Claude Code in this project and run `/aidlc --doctor`",
+  configNextStep: "open Claude Code in this project and run `/aidlc --doctor`",
   harnessDir: ".claude",
   tierFlavor: "claude",
   rootIntegrations: [

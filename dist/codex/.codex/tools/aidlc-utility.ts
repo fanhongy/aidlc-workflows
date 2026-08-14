@@ -261,7 +261,7 @@ Examples:
   /aidlc Fix the login timeout bug              Auto-detected as bugfix scope
   /aidlc compose "harden the deploy pipeline"   Composer proposes a tailored plan
   /aidlc config list                         Show depth and test strategy
-  /aidlc plugin list                         Compare installed and composed plugin state
+  /aidlc --doctor                         Compare installed and composed plugin state
   /aidlc                                        Resume or begin
   /aidlc --stage code-generation                Jump to code-generation stage
   /aidlc --phase construction --scope bugfix    Jump to construction with bugfix scope
@@ -398,11 +398,11 @@ function writePluginSelection(projectDir: string, names: string[]): void {
 function runBunTool(projectDir: string, rel: string, args: string[], label: string): void {
   let dispatcherArgs: string[];
   if (rel === "aidlc-graph.ts") {
-    dispatcherArgs = ["graph", ...args];
+    dispatcherArgs = ["engine", "graph", ...args];
   } else if (rel === "aidlc-runner-gen.ts" && args[0] === "write") {
-    dispatcherArgs = ["gen", "runners", ...args.slice(1)];
+    dispatcherArgs = ["engine", "gen", "runners", ...args.slice(1)];
   } else if (rel === "aidlc-runner-gen.ts" && args[0] === "scopes") {
-    dispatcherArgs = ["gen", "runner-scopes", ...args.slice(1)];
+    dispatcherArgs = ["engine", "gen", "runner-scopes", ...args.slice(1)];
   } else {
     throw new Error(`No dispatcher route for ${rel} ${args.join(" ")}`);
   }
@@ -1185,7 +1185,7 @@ function codexNativeTrustHashes(hooksPath: string): string[] {
       for (const hook of group.hooks ?? []) {
         if (
           typeof hook.command !== "string" ||
-          !hook.command.startsWith("aidlc adapter codex ")
+          !hook.command.startsWith("aidlc engine adapter codex ")
         ) continue;
         const identity = {
           event_name: eventName,
@@ -1259,8 +1259,8 @@ export async function collectDoctorReport(
         ? `Installed runtime ${installedVersion} is incomplete: ${installedState.reason ?? "unknown reason"}`
         : "Installed runtime: active version marker unavailable",
       fix: installedState.complete
-        ? "run `aidlc harness add <name>`"
-        : "re-run the installer with --harness <name>",
+        ? "run `aidlc config --harness <name>`"
+        : "run `aidlc config --harness <name>`",
     });
     const command = commandPath();
     const expectedExecutable = installedVersion
@@ -1281,7 +1281,7 @@ export async function collectDoctorReport(
       label: pointerValid
         ? `Command pointer: ${command} -> ${installedVersion}`
         : `Command pointer is missing or does not select active version ${installedVersion ?? "unknown"}`,
-      fix: "re-run `aidlc upgrade --version <version> --from <release-directory>`",
+      fix: "re-run `aidlc update --version <version> --from <release-directory>`",
     });
 
     const rollbackPath = rollbackVersionPath();
@@ -1303,7 +1303,7 @@ export async function collectDoctorReport(
         label: eligible
           ? `Rollback target: ${rollback} is complete and eligible`
           : `Rollback target is not eligible: ${JSON.stringify(rollback)}`,
-        fix: "run `aidlc rollback --list` and select a complete retained version",
+        fix: "run `aidlc use <version>` with a complete retained version",
       });
     } else {
       results.push({ pass: true, label: "Rollback target: none recorded" });
@@ -1390,14 +1390,15 @@ export async function collectDoctorReport(
         /\bbun\s+[^\n]*(?:\/(?:tools|hooks)\/aidlc|\\?\.kiro\/tools\/)/.test(command)
       );
       const nativeHooks = commands.some((command) =>
-        /\baidlc\s+(?:hook|adapter|statusline)\b/.test(command)
+        /\baidlc\s+engine\s+(?:hook|adapter|statusline)\b/.test(command)
       );
       let nativePermission = false;
       if (harnessDir() === ".claude") {
-        nativePermission = commands.includes("Bash(aidlc *)") && !commands.includes("Bash");
+        nativePermission = commands.includes("Bash(aidlc engine *)") &&
+          !commands.includes("Bash");
       } else if (harnessDir() === ".kiro") {
-        nativePermission = commands.includes("aidlc .*") ||
-          commands.includes("aidlc *");
+        nativePermission = commands.includes("aidlc engine .*") ||
+          commands.includes("aidlc engine *");
       } else if (harnessDir() === ".codex") {
         const rules = join(harnessRoot, "rules", "default.rules");
         const seed = join(harnessRoot, "trust-seed.toml");
@@ -1411,7 +1412,9 @@ export async function collectDoctorReport(
         const seedText = existsSync(seed) ? readFileSync(seed, "utf-8") : "";
         nativePermission =
           existsSync(rules) &&
-          readFileSync(rules, "utf-8").includes('prefix_rule(pattern = ["aidlc"], decision = "allow")') &&
+          readFileSync(rules, "utf-8").includes(
+            'prefix_rule(pattern = ["aidlc", "engine"], decision = "allow")',
+          ) &&
           hashes.length > 0 &&
           hashes.every((hash) => seedText.includes(`trusted_hash = "${hash}"`));
       }
@@ -1425,7 +1428,7 @@ export async function collectDoctorReport(
           }, native hooks ${nativeHooks ? "present" : "missing"}, native permission/trust ${
             nativePermission ? "present" : "missing"
           }`,
-        fix: "refresh the project with `aidlc init`",
+        fix: "refresh the project with `aidlc config`",
       });
     }
   } else {
@@ -1490,13 +1493,13 @@ export async function collectDoctorReport(
         label: stampVersion === AIDLC_VERSION
           ? `Project runtime stamp: ${stampVersion} (${stamp.distribution ?? "unknown"})`
           : `Project runtime stamp: ${stampVersion}; selected engine: ${AIDLC_VERSION}`,
-        fix: `run \`aidlc init\` or \`aidlc use ${stampVersion}\``,
+        fix: `run \`aidlc config\` or \`aidlc use ${stampVersion}\``,
       });
     } catch {
       results.push({
         pass: false,
         label: "Project runtime stamp is malformed",
-        fix: "refresh the project with `aidlc init`",
+        fix: "refresh the project with `aidlc config`",
       });
     }
   }
@@ -1532,7 +1535,7 @@ export async function collectDoctorReport(
         label: pinState.complete
           ? `Project pin: ${pinned} is installed`
           : `Project pin: ${pinned} is not installed completely`,
-        fix: `run \`aidlc versions install ${pinned}\``,
+        fix: `run \`aidlc use ${pinned}\``,
       });
     }
   }
@@ -1586,10 +1589,10 @@ export async function collectDoctorReport(
           refs.add(match[0]);
         }
         const dispatcherHook = new RegExp(
-          `${dispatcher}\\s+hook\\s+([A-Za-z0-9_-]+)\\b`,
+          `${dispatcher}\\s+engine\\s+hook\\s+([A-Za-z0-9_-]+)\\b`,
         ).exec(command);
         if (dispatcherHook) refs.add(`aidlc-${dispatcherHook[1]}.ts`);
-        if (new RegExp(`${dispatcher}\\s+statusline\\b`).test(command)) {
+        if (new RegExp(`${dispatcher}\\s+engine\\s+statusline\\b`).test(command)) {
           refs.add("aidlc-statusline.ts");
         }
       }
@@ -1833,7 +1836,7 @@ export async function collectDoctorReport(
         ? "Plugin selection flags: harness.json agrees with stage-graph.json"
         : `Plugin selection flags: ${disagreements.length} disagreement(s)`,
       fix: disagreements.length > 0
-        ? `${disagreements.join("; ")} - run \`${aidlcToolInvocation("utility")} select-plugins ${
+        ? `${disagreements.join("; ")} - run \`${aidlcDispatcherInvocation("plugin select")} ${
             selected === null ? knownPluginNames().join(",") : [...selected].sort().join(",")
           }\` to recover`
         : undefined,
@@ -1881,7 +1884,7 @@ export async function collectDoctorReport(
           ? `Enabled stage compile coverage: ${missingEnabled.length} enabled stage file(s) missing from the full graph`
           : `Enabled stage compile coverage: ${missingEnabled.length} uncompiled stage file(s) - no selection active, see the Uncompiled stage files advisory`,
       fix: torn
-        ? `${missingEnabled.join("; ")} - recover with \`${aidlcToolInvocation("utility")} select-plugins ${
+        ? `${missingEnabled.join("; ")} - recover with \`${aidlcDispatcherInvocation("plugin select")} ${
             [...(selected as ReadonlySet<string>)].sort().join(",")
           }\``
         : undefined,
@@ -1898,7 +1901,7 @@ export async function collectDoctorReport(
           ? "Plugin selection vs active workflows: no stranded dependencies"
           : `Plugin selection vs active workflows: ${stranded.length} stranded dependency(ies)`,
         fix: stranded.length > 0
-          ? `${stranded.join("; ")} - re-enable the plugin(s) with \`${aidlcToolInvocation("utility")} select-plugins\`, or complete/park the workflow(s)`
+          ? `${stranded.join("; ")} - re-enable the plugin(s) with \`${aidlcDispatcherInvocation("plugin select")}\`, or complete/park the workflow(s)`
           : undefined,
       });
 
@@ -5520,7 +5523,7 @@ export function findScopeByKeyword(kw: string): string[] {
 // fixture SKILL.md (so drift tests never mutate the real file).
 
 const SCOPE_TABLE_BEGIN =
-  `<!-- BEGIN: compiled scope grid via \`${aidlcDispatcherInvocation("utility")} scope-table\` - do NOT hand-edit -->`;
+  `<!-- BEGIN: compiled scope grid via \`${aidlcDispatcherInvocation("gen scope-table")}\` - do NOT hand-edit -->`;
 const SCOPE_TABLE_END =
   "<!-- END: compiled scope grid -->";
 
@@ -5603,7 +5606,7 @@ function checkGeneratedTableRegion(
   }
 
   console.error(
-    `SKILL.md ${verb} region is out of date. Refresh it from \`${aidlcToolInvocation("utility")} ${verb}\`.`
+    `SKILL.md ${verb} region is out of date. Refresh it from \`${aidlcDispatcherInvocation(`gen ${verb}`)}\`.`
   );
   process.exit(1);
 }
@@ -5641,7 +5644,7 @@ function handleScopeTable(
 // fixture SKILL.md (so drift tests never mutate the real file).
 
 const STAGE_TABLE_BEGIN =
-  `<!-- BEGIN: compiled stage graph via \`${aidlcDispatcherInvocation("utility")} stage-table\` - do NOT hand-edit -->`;
+  `<!-- BEGIN: compiled stage graph via \`${aidlcDispatcherInvocation("gen stage-table")}\` - do NOT hand-edit -->`;
 const STAGE_TABLE_END =
   "<!-- END: compiled stage graph -->";
 

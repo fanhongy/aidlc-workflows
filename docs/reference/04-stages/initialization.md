@@ -6,7 +6,7 @@ The Initialization phase is the first of five phases in the AI-DLC workflow. It
 runs stages 0.1 through 0.3, **birthing the intent** — minting its record dir at
 `aidlc/spaces/<space>/intents/<YYMMDD>-<label>/` (written `<record>/` below)
 with state files, directory scaffolding, workspace classification, and routing
-configuration. Project-level `aidlc init` installs or refreshes the generated
+configuration. Project-level `aidlc config` installs or refreshes the generated
 harness projection; it does not run these workflow stages. Once the project is
 installed, the engine auto-births the first intent on the first `/aidlc` (or
 when you describe what to build).
@@ -15,7 +15,7 @@ All 3 stages in this phase execute for EVERY scope — there are no conditional 
 
 The welcome message is rendered at session start via the `companyAnnouncements` entry in `settings.json`. It is not a stage — no stage file, no audit event, no checkbox.
 
-All three stages run inside a single deterministic `aidlc __delegate utility intent-birth --scope <scope>` call that completes in well under a second. The conductor creates 3 tasks in the sidebar (Workspace Scaffold, Workspace Detection, State Init) for observability, then marks them all completed once the tool returns.
+All three stages run inside a single deterministic `aidlc engine intent birth --scope <scope>` call that completes in well under a second. The conductor creates 3 tasks in the sidebar (Workspace Scaffold, Workspace Detection, State Init) for observability, then marks them all completed once the tool returns.
 
 ## Scope-Driven Stage Inclusion
 

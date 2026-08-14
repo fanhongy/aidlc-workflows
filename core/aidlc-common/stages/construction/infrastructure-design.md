@@ -138,7 +138,7 @@ Generate the following in `<record>/construction/{unit-name}/infrastructure-desi
 ### Step 7: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`{{INVOKE}} __delegate orchestrate report --stage infrastructure-design --result <outcome>`.
+`{{INVOKE}} engine orchestrate report --stage infrastructure-design --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 8: Completion

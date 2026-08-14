@@ -21,7 +21,7 @@ import emit from "./emit.ts";
 const manifest: HarnessManifest = {
   name: "codex",
   productName: "Codex CLI",
-  initNextStep: "run `codex`, then `$aidlc --doctor`",
+  configNextStep: "run `codex`, then `$aidlc --doctor`",
   harnessDir: ".codex",
   tierFlavor: "codex",
   rootIntegrations: [

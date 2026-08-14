@@ -85,7 +85,7 @@ For non-UI: create API developer experience specification.
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`aidlc __delegate orchestrate report --stage refined-mockups --result <outcome>`.
+`aidlc engine orchestrate report --stage refined-mockups --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval

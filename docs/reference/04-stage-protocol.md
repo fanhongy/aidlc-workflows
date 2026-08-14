@@ -71,19 +71,19 @@ Before and during every stage, verify these commonly missed steps:
 
 State transitions and audit emissions are tool-owned rather than
 hand-written audit blocks. The conductor reports forward progress through
-`aidlc report --stage <slug>`; the dispatcher delegates to the orchestration
+`aidlc engine orchestrate report --stage <slug>`; the dispatcher delegates to the orchestration
 engine, which delegates to the
 state tool, which atomically updates state and emits the paired audit event
 with a fresh timestamp.
 
 | # | Check |
 |---|-------|
-| 1 | At the approval gate, call `aidlc report --stage <slug> --result awaiting-approval`. The engine flips state from `[-]` to `[?]` AwaitingApproval and emits `STAGE_AWAITING_APPROVAL` atomically, so status shows the held gate while the prompt is open. (`STAGE_STARTED` / the `[-]` transition was emitted when the stage became active.) |
-| 2 | For non-gate questions, log options BEFORE calling `AskUserQuestion` via `aidlc __delegate log decision` (not by hand-writing to the `audit/` shards), then log the exact response via `aidlc __delegate log answer`. |
-| 3 | After an approval-gate response, call `aidlc report --stage <slug> --result approved --user-input "<exact choice>"` for approval or `aidlc report --stage <slug> --result rejected --user-input "<feedback>"` for request-changes. Never call the log tool's `decision` or `answer` verb for the gate. After revision work, report `--result revised` before re-presenting it. |
+| 1 | At the approval gate, call `aidlc engine orchestrate report --stage <slug> --result awaiting-approval`. The engine flips state from `[-]` to `[?]` AwaitingApproval and emits `STAGE_AWAITING_APPROVAL` atomically, so status shows the held gate while the prompt is open. (`STAGE_STARTED` / the `[-]` transition was emitted when the stage became active.) |
+| 2 | For non-gate questions, log options BEFORE calling `AskUserQuestion` via `aidlc engine log decision` (not by hand-writing to the `audit/` shards), then log the exact response via `aidlc engine log answer`. |
+| 3 | After an approval-gate response, call `aidlc engine orchestrate report --stage <slug> --result approved --user-input "<exact choice>"` for approval or `aidlc engine orchestrate report --stage <slug> --result rejected --user-input "<feedback>"` for request-changes. Never call the log tool's `decision` or `answer` verb for the gate. After revision work, report `--result revised` before re-presenting it. |
 | 4 | Never summarize user input -- pass exact option labels to the owning log or report tool; for automated stages use `N/A -- [reason]` |
 | 5 | One audit entry per interaction -- the log/state tools enforce single-event emission; never merge multiple events into one call |
-| 6 | At stage end, call `aidlc report --stage <slug> --result approved --user-input "<exact choice>"` (gated stages) or `aidlc report --stage <slug> --result completed` (Initialization). The engine flips `[?]`/`[-]` to `[x]`, emits `GATE_APPROVED` when gated, and emits `STAGE_COMPLETED` atomically through the state tool |
+| 6 | At stage end, call `aidlc engine orchestrate report --stage <slug> --result approved --user-input "<exact choice>"` (gated stages) or `aidlc engine orchestrate report --stage <slug> --result completed` (Initialization). The engine flips `[?]`/`[-]` to `[x]`, emits `GATE_APPROVED` when gated, and emits `STAGE_COMPLETED` atomically through the state tool |
 | 7 | Mark previous stage task `completed` and current stage task `in_progress` with `activeForm` BEFORE work begins (the `sync-statusline` hook handles state syncing) |
 | 8 | Use ONLY event types from `knowledge/aidlc-shared/audit-format.md` -- the state and log tools enforce this; never write directly to the `audit/` shards |
 | 9 | Do NOT hand-write lifecycle events or invoke lifecycle verbs on `aidlc-state.ts`. Report outcomes through `aidlc-orchestrate.ts`; the engine's internal state call emits the atomic audit rows |

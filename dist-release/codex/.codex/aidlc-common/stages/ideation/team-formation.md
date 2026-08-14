@@ -72,7 +72,7 @@ Create team availability assessment, skill matrix (with gap analysis), mob compo
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`aidlc __delegate orchestrate report --stage team-formation --result <outcome>`.
+`aidlc engine orchestrate report --stage team-formation --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval

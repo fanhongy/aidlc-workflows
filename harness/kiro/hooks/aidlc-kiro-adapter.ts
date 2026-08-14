@@ -24,7 +24,7 @@
 //     is IDENTICAL (verified live), so it passes through verbatim.
 //
 // Usage (registered in the conductor and delegated .kiro/agents/*.json configs):
-//   {{INVOKE}} adapter kiro <target>
+//   {{INVOKE}} engine adapter kiro <target>
 // where <target> ∈ session-start | audit-and-sensors | runtime-compile |
 //                  state-sync | log-subagent | stop | verb-intercept |
 //                  pretool-block | state-transition-guard | reviewer-scope
@@ -164,7 +164,7 @@ function extractNextInvocation(
   // Accept the native dispatcher anchor and the legacy filename shape so the
   // seam keeps working across both invocation channels.
   const m = expandedPrompt.match(
-    /(?:__delegate\s+orchestrate|aidlc-orchestrate\.ts)\s+next ([^`\n]*)`/,
+    /(?:engine\s+orchestrate|aidlc-orchestrate\.ts)\s+next ([^`\n]*)`/,
   );
   if (!m) return { raw: "", args: [] };
   const raw = m[1].trim();
@@ -290,7 +290,7 @@ if (target === "verb-intercept") {
       process.stdout.write(
         "SYSTEM (deterministic argument forwarding): Your immediate first tool call " +
           "must be exactly the engine call below. Preserve every argument; do not run a bare `next`.\n\n" +
-          `{{INVOKE}} __delegate orchestrate next ${invocation.raw}\n`,
+          `{{INVOKE}} engine orchestrate next ${invocation.raw}\n`,
       );
     }
     return 0; // non-terminal command — conductor handles the directive
@@ -369,7 +369,7 @@ if (target === "pretool-block") {
   const cmdStr = String(kiro.tool_input?.command ?? "");
   const cwd = projectDir;
   const m = cmdStr.match(
-    /(?:__delegate\s+orchestrate|aidlc-orchestrate\.ts)\s+next\b([^\n]*)/,
+    /(?:engine\s+orchestrate|aidlc-orchestrate\.ts)\s+next\b([^\n]*)/,
   );
   const nextArgs = m ? shellWords(m[1].trim()) : [];
   // A next carrying ANY advancing/config flag is a DELIBERATE move — only a truly
@@ -425,7 +425,7 @@ if (target === "pretool-block") {
         if (!matches) {
           process.stderr.write(
             "The first aidlc-orchestrate next call dropped or changed the user's arguments. " +
-              `Run exactly: {{INVOKE}} __delegate orchestrate next ${forwarding.raw ?? ""}\n`,
+              `Run exactly: {{INVOKE}} engine orchestrate next ${forwarding.raw ?? ""}\n`,
           );
           process.exit(2);
         }
@@ -480,7 +480,7 @@ if (target === "state-transition-guard") {
   const command = String(kiro.tool_input?.command ?? "");
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const hookCommand = executable
-    ? [executable, "hook", "state-transition-guard"]
+    ? [executable, "engine", "hook", "state-transition-guard"]
     : [process.execPath, join(HOOKS_DIR, "aidlc-state-transition-guard.ts")];
   const r = Bun.spawnSync(
     hookCommand,
@@ -530,7 +530,7 @@ if (target === "plan-approval-guard") {
   ].filter((t) => t.length > 0).join("\n");
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", "plan-approval-guard"]
+    ? [executable, "engine", "hook", "plan-approval-guard"]
     : [process.execPath, join(HOOKS_DIR, "aidlc-plan-approval-guard.ts")];
   const r = Bun.spawnSync(
     command,
@@ -600,7 +600,7 @@ if (target === "reviewer-scope") {
   const registeredAgent = extraArgs[0] ?? "";
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", "reviewer-scope"]
+    ? [executable, "engine", "hook", "reviewer-scope"]
     : [process.execPath, join(HOOKS_DIR, "aidlc-reviewer-scope.ts")];
   const r = Bun.spawnSync(command, {
     stdin: Buffer.from(
@@ -648,7 +648,7 @@ if (target === "review-freeze") {
   }
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", "review-freeze"]
+    ? [executable, "engine", "hook", "review-freeze"]
     : [process.execPath, join(HOOKS_DIR, "aidlc-review-freeze.ts")];
   const r = Bun.spawnSync(command, {
     stdin: Buffer.from(
@@ -691,7 +691,7 @@ if (target === "dispatch-rules") {
   if ((kiro.tool_name ?? "") !== "subagent") return 0;
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", "dispatch-rules"]
+    ? [executable, "engine", "hook", "dispatch-rules"]
     : [process.execPath, join(HOOKS_DIR, "aidlc-dispatch-rules.ts")];
   const r = Bun.spawnSync(command, {
     stdin: Buffer.from(input, "utf-8"),
@@ -843,7 +843,7 @@ function runCore(hookFile: string, input: Record<string, unknown>): { stdout: st
   // PATH containing bun (the hook environment often lacks the bun install dir).
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", hookFile.replace(/^aidlc-|\.ts$/g, "")]
+    ? [executable, "engine", "hook", hookFile.replace(/^aidlc-|\.ts$/g, "")]
     : [process.execPath, join(HOOKS_DIR, hookFile)];
   const r = Bun.spawnSync(command, {
     stdin: Buffer.from(JSON.stringify(input), "utf-8"),

@@ -16,7 +16,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "{{INVOKE}} statusline"
+    "command": "{{INVOKE}} engine statusline"
   },
   "env": {
     "AWS_AIDLC_DEFAULT_SCOPE": "workshop",
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook fold-usage"
+            "command": "{{INVOKE}} engine hook fold-usage"
           }
         ]
       },
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook dispatch-rules"
+            "command": "{{INVOKE}} engine hook dispatch-rules"
           }
         ]
       },
@@ -54,15 +54,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook state-transition-guard"
+            "command": "{{INVOKE}} engine hook state-transition-guard"
           },
           {
             "type": "command",
-            "command": "{{INVOKE}} hook reviewer-scope"
+            "command": "{{INVOKE}} engine hook reviewer-scope"
           },
           {
             "type": "command",
-            "command": "{{INVOKE}} hook review-freeze"
+            "command": "{{INVOKE}} engine hook review-freeze"
           }
         ]
       },
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook plan-approval-guard"
+            "command": "{{INVOKE}} engine hook plan-approval-guard"
           }
         ]
       }
@@ -82,7 +82,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook mint-presence"
+            "command": "{{INVOKE}} engine hook mint-presence"
           }
         ]
       }
@@ -93,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook session-start"
+            "command": "{{INVOKE}} engine hook session-start"
           }
         ]
       }
@@ -104,7 +104,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook session-end"
+            "command": "{{INVOKE}} engine hook session-end"
           }
         ]
       }
@@ -115,11 +115,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook audit-logger"
+            "command": "{{INVOKE}} engine hook audit-logger"
           },
           {
             "type": "command",
-            "command": "{{INVOKE}} hook sensor-fire"
+            "command": "{{INVOKE}} engine hook sensor-fire"
           }
         ]
       },
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook sync-statusline"
+            "command": "{{INVOKE}} engine hook sync-statusline"
           }
         ]
       },
@@ -137,7 +137,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook mint-presence"
+            "command": "{{INVOKE}} engine hook mint-presence"
           }
         ]
       },
@@ -146,7 +146,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook runtime-compile"
+            "command": "{{INVOKE}} engine hook runtime-compile"
           }
         ]
       },
@@ -155,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook fold-usage"
+            "command": "{{INVOKE}} engine hook fold-usage"
           }
         ]
       }
@@ -166,7 +166,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook validate-state"
+            "command": "{{INVOKE}} engine hook validate-state"
           }
         ]
       }
@@ -177,7 +177,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook log-subagent"
+            "command": "{{INVOKE}} engine hook log-subagent"
           }
         ]
       }
@@ -188,7 +188,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{INVOKE}} hook stop"
+            "command": "{{INVOKE}} engine hook stop"
           }
         ]
       }

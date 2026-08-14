@@ -37,7 +37,7 @@
 //   - everything else: advisory; stdout ignored, exit 0.
 //
 // Usage (wired in .codex/hooks.json):
-//   bun .codex/tools/aidlc.ts adapter codex <target>
+//   bun .codex/tools/aidlc.ts engine adapter codex <target>
 // where <target> ∈ session-start | audit-and-sensors | state-sync |
 //                  runtime-compile | validate-state | log-subagent | stop |
 //                  mint | state-transition-guard | reviewer-scope |
@@ -213,7 +213,7 @@ function runCore(hookFile: string, input: string): { stdout: string; code: numbe
   // PATH containing bun (the hook environment often lacks the bun install dir).
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", hookFile.replace(/^aidlc-|\.ts$/g, "")]
+    ? [executable, "engine", "hook", hookFile.replace(/^aidlc-|\.ts$/g, "")]
     : [process.execPath, join(HOOKS_DIR, hookFile)];
   const r = Bun.spawnSync(command, {
     stdin: Buffer.from(input, "utf-8"),
@@ -233,7 +233,7 @@ function runCoreWithStderr(
 ): { stdout: string; stderr: string; code: number } {
   const executable = process.env.AIDLC_COMPILED_EXECUTABLE;
   const command = executable
-    ? [executable, "hook", hookFile.replace(/^aidlc-|\.ts$/g, "")]
+    ? [executable, "engine", "hook", hookFile.replace(/^aidlc-|\.ts$/g, "")]
     : [process.execPath, join(HOOKS_DIR, hookFile)];
   const r = Bun.spawnSync(command, {
     stdin: Buffer.from(input, "utf-8"),

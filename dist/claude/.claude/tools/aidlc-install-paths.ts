@@ -303,6 +303,16 @@ export function inspectInstalledVersion(
       reason: error instanceof Error ? error.message : String(error),
     };
   }
+  const missing = [...declared].filter((distribution) =>
+    !distributions.includes(distribution)
+  ).sort();
+  if (missing.length > 0) {
+    return {
+      complete: false,
+      distributions,
+      reason: `declared runtime is missing: ${missing.join(", ")}`,
+    };
+  }
   if (requiredDistribution && !distributions.includes(requiredDistribution)) {
     return {
       complete: false,

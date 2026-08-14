@@ -258,7 +258,7 @@ describe("t240 dist/opencode packaging parity + shell shape", () => {
         { tool: "bash", sessionID: "main", callID: "direct" },
         {
           args: {
-            command: "bun .aidlc/tools/aidlc.ts __delegate state approve",
+            command: "bun .aidlc/tools/aidlc.ts engine state approve",
           },
         },
       ),

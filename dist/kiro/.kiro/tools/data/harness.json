@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "kiro",
   "productName": "Kiro CLI",
-  "initNextStep": "run `kiro-cli chat`, then `/aidlc --doctor`",
+  "configNextStep": "run `kiro-cli chat`, then `/aidlc --doctor`",
   "harnessDir": ".kiro",
   "rulesSubdir": "steering"
 }

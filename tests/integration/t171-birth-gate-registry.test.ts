@@ -144,7 +144,7 @@ describe("t171 birth gate consults the intent registry (Blocker B1)", () => {
       const r = next(["--scope", "poc"]);
       const d = JSON.parse(r.stdout.trim());
       expect(d.kind).toBe("print");
-      expect(d.message).toContain("intent-birth --scope poc");
+      expect(d.message).toContain("intent birth --scope poc");
       // Read-only: next did not birth anything itself.
       expect(existsSync(intentsDir(proj))).toBe(false);
     });
@@ -153,7 +153,7 @@ describe("t171 birth gate consults the intent registry (Blocker B1)", () => {
       const r = next(["poc"]);
       const d = JSON.parse(r.stdout.trim());
       expect(d.kind).toBe("print");
-      expect(d.message).toContain("intent-birth --scope poc");
+      expect(d.message).toContain("intent birth --scope poc");
       expect(existsSync(intentsDir(proj))).toBe(false);
     });
   });

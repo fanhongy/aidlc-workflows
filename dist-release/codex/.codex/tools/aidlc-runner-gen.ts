@@ -69,6 +69,7 @@ import {
 } from "./aidlc-lib.ts";
 import { type GraphStage, loadGraph } from "./aidlc-graph.ts";
 import {
+  aidlcDispatcherInvocation,
   aidlcToolInvocation,
   resolveHarnessPath,
   resolveSkillsPath,
@@ -229,7 +230,7 @@ no standalone meaning.
    tool then falls back to the scope token):
 
    \`\`\`bash
-   ${aidlcToolInvocation("utility")} intent-birth --arguments "<description>" --label "<2-3 word essence>"
+   ${aidlcDispatcherInvocation("intent birth")} --arguments "<description>" --label "<2-3 word essence>"
    \`\`\`
 
    Pass \`--scope <name>\` **only if the user named one**; otherwise omit it and the engine picks the install's default scope. Omit \`--arguments\`
@@ -459,7 +460,7 @@ function handleCheck(): void {
   if (orphans.length > 0) {
     console.log(`ORPHAN runners (skill drives --single stage with no matching stage): ${orphans.join(", ")}`);
   }
-  console.log(`Run \`${aidlcToolInvocation("runner-gen")} write\` to regenerate.`);
+  console.log(`Run \`${aidlcDispatcherInvocation("gen runners")}\` to regenerate.`);
   process.exit(1);
 }
 
@@ -675,7 +676,7 @@ function handleScopes(rest: string[]): void {
       console.error("Scope-runner drift detected:");
       for (const d of drift) console.error(`  ${d}`);
       console.error(
-        `Re-run \`${aidlcToolInvocation("runner-gen", undefined, false)} scopes\` to regenerate.`,
+        `Re-run \`${aidlcDispatcherInvocation("gen runner-scopes")}\` to regenerate.`,
       );
       process.exit(1);
     }
@@ -695,7 +696,7 @@ function handleScopes(rest: string[]): void {
 
 function scopeRunnerSlugFromBody(body: string): string | null {
   const m = body.match(
-    /(?:aidlc\s+__delegate\s+orchestrate|aidlc-orchestrate\.ts)\s+next\s+--scope\s+([a-z][a-z0-9-]*)\b/,
+    /(?:aidlc\s+engine\s+orchestrate|aidlc-orchestrate\.ts)\s+next\s+--scope\s+([a-z][a-z0-9-]*)\b/,
   );
   return m?.[1] ?? null;
 }

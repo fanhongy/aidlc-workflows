@@ -33,31 +33,29 @@ This chapter covers common issues and their solutions, organized by symptom.
 
 | Symptom or error | Resolution |
 |------------------|------------|
-| `Checksum mismatch for <asset>.` or `<asset>: checksum mismatch` | Stop. Do not reuse the downloaded directory. Download the release assets and `checksums.txt` again from the same version, or have the owner of an offline package recreate it with `aidlc package create`. |
+| `Checksum mismatch for <asset>.` or `<asset>: checksum mismatch` | Stop. Do not reuse the downloaded directory. Download the complete release asset set and `checksums.txt` again from the same immutable release. |
 | `command not found: aidlc` after `install.sh` | Add the installer-reported bin directory to `PATH` (normally `export PATH="$HOME/.local/bin:$PATH"`), open a new shell, and run `aidlc doctor`. |
-| Installer says `a harness is required in non-interactive installs` | Rerun with literal `--harness <name>`. It is required without a controlling terminal and whenever `--yes`, `--quiet`, or `--json` is used. |
-| `--offline requires --from <release-directory>` | Offline mode never falls back to a network release. Transfer a package created by `aidlc package create`, verify it, then pass its directory with `--from` / `-From`. |
-| `aidlc.cmd` exits 4 or the Windows active pointer is invalid | Do not edit `%LOCALAPPDATA%\aidlc\active-executable`. Rerun the same verified `install.ps1 --harness <name>` or use `aidlc rollback --version <retained-version>` from a retained executable. |
+| `--offline requires --from <release-directory>` | Offline mode never falls back to a network release. Transfer the complete release asset set, then pass its directory with `--from` / `-From`; the installer verifies it. |
+| `aidlc.cmd` exits 4 or the Windows active pointer is invalid | Do not edit `%LOCALAPPDATA%\aidlc\active-executable`. Rerun the same verified installer or use `aidlc use <version>` from a working retained executable. |
 | `pending Windows uninstall` or a Windows uninstall recovery failure | Close active AI-DLC commands and run `aidlc doctor`. A valid continuation resumes on the next command; do not delete its temp journal, cleanup script, or machine fence independently. |
-| `refusing to refresh while ... workflow(s) are active` | Complete every named workflow, including parked workflows, then rerun init. `--force`, `--yes`, and a plan token cannot bypass this guard. Upgrade or rollback may proceed because they do not modify projects. |
-| `init plan changed after approval` | Rerun `aidlc init --dry-run --json`, review `data.actions`, and apply the new `data.planToken` with exactly the same source and behavior options. |
-| `locally modified` or `managed block was locally modified` from `aidlc init` | Run `aidlc init --dry-run --json` and review `data.actions`. Use `--force` only to replace baseline-owned framework bytes or managed blocks; it never authorizes unrelated root content. |
-| `unowned whole file` from `aidlc init` | Move or merge the existing file manually before init. Whole-file integrations such as OpenCode's `opencode.json` cannot be claimed with `--force`. |
-| `legacy root integration ambiguous; move or delete the unmarked AI-DLC content` | Move or delete the old unmarked AI-DLC block in the named root file, preserve any project-owned text elsewhere, then rerun `aidlc init`. This release intentionally refuses to guess ownership. |
-| `managed markers are missing, duplicated, or malformed` | Repair the named root file so it has exactly one matching `BEGIN AI-DLC` / `END AI-DLC` pair, or remove the broken AI-DLC block and rerun `aidlc init`. |
-| `project runtime <version> is incompatible with selected engine <version>` | Install and select a compatible retained version with `aidlc versions install <version>` and `aidlc use <version>`, or refresh the project intentionally with `aidlc init`. |
-| `this project requires <version>, which is not installed completely` | Install the exact strict-semver pin with `aidlc versions install <version> --harness <project-harness>`. Do not edit the pin to make the error disappear unless the team intends to change toolchains. |
-| An upgrade was interrupted and `aidlc version` still shows the prior release | This is the safe pre-pointer state: the old command remains active. Run `aidlc doctor`, then rerun the same `aidlc upgrade --version <version>` command. A complete unused retained version may remain and is reported by `aidlc versions list`. |
-| `rollback target lacks harnesses` | Choose a retained version containing every harness in the active release. Inspect candidates with `aidlc rollback --list` and their harness sets with `aidlc versions list`. |
+| `refusing to refresh while ... workflow(s) are active` | Complete every named workflow, including parked workflows, then rerun `aidlc config`. `--force`, `--yes`, and a plan token cannot bypass this guard. `update` or `use` may proceed because they do not modify projects. |
+| `config plan changed after approval` | Rerun `aidlc config --dry-run --json`, review `data.actions`, and apply the new `data.planToken` with exactly the same source and behavior options. |
+| `locally modified` or `managed block was locally modified` from `aidlc config` | Run `aidlc config --dry-run --json` and review `data.actions`. Use `--force` only to replace baseline-owned framework bytes or managed blocks; it never authorizes unrelated root content. |
+| `unowned whole file` from `aidlc config` | Move or merge the existing file manually before config. Whole-file integrations such as OpenCode's `opencode.json` cannot be claimed with `--force`. |
+| `legacy root integration ambiguous; move or delete the unmarked AI-DLC content` | Move or delete the old unmarked AI-DLC block in the named root file, preserve any project-owned text elsewhere, then rerun `aidlc config`. This release intentionally refuses to guess ownership. |
+| `managed markers are missing, duplicated, or malformed` | Repair the named root file so it has exactly one matching `BEGIN AI-DLC` / `END AI-DLC` pair, or remove the broken AI-DLC block and rerun `aidlc config`. |
+| `project runtime <version> is incompatible with selected engine <version>` | Run `aidlc use <version>` to install and select the compatible version, or refresh the project intentionally with `aidlc config`. |
+| `this project requires <version>, which is not installed completely` | Install the exact strict-semver pin with `aidlc use <version>`. Do not edit the pin unless the team intends to change toolchains. |
+| An update was interrupted and `aidlc version` still shows the prior release | This is the safe restored state: the old command remains active. Run `aidlc doctor`, then rerun the same `aidlc update --version <version>` command. |
 | `another AI-DLC mutation holds .../.aidlc-transaction.lock` | Let the active init/lifecycle command finish. If its process no longer exists, rerun the command; stale owner-private staging is swept only after the lock is safely reclaimed. |
 | `existing aidlc is managed by Homebrew` / `Nix`, or the destination command is `not owned by the AI-DLC installer` | Upgrade through the reported owner. To keep a separate native install, set `AIDLC_BIN_DIR` explicitly to an empty user-owned directory. This release does not itself ship Homebrew or Nix packaging and never replaces a mixed-ownership command. |
-| `update cache is invalid` or machine config is rejected | Run `aidlc config global list`. Repair or remove only the named `%LOCALAPPDATA%\aidlc\config.json` (Windows) or `${XDG_DATA_HOME:-$HOME/.local/share}/aidlc/config.json` (macOS/Linux); unknown keys and stored credentials are rejected. |
+| `update cache is invalid` or machine config is rejected | Run `aidlc system config global list`. Repair or remove only the named `%LOCALAPPDATA%\aidlc\config.json` (Windows) or `${XDG_DATA_HOME:-$HOME/.local/share}/aidlc/config.json` (macOS/Linux); unknown keys and stored credentials are rejected. |
 | `HTTPS_PROXY must use HTTP or HTTPS` or a release URL is rejected | Use an HTTP(S) proxy URL and an HTTPS release mirror without credentials, query, or fragment. The native client reads `HTTPS_PROXY` and `NO_PROXY`, not `HTTP_PROXY`, and redacts secret-like URL parts in errors. |
 | Download fails behind a corporate CA | Pass `--ca-bundle <absolute-path>` or set `AIDLC_CA_BUNDLE`. The Windows bootstrap requires `curl.exe` when a custom CA is supplied. |
 | `host inventory unavailable` from a plugin command | Run sync from a host session that injects the current plugin root, or restore the Claude/Codex host registry. Missing or malformed inventory is never treated as proof that content is safe to prune. |
 | `cannot prune <plugin>: owned path changed since composition` | Preserve and review the local edit. Reconcile it with the plugin source before retrying; `--yes` does not override ownership hashes. |
-| `versions prune`, `harness remove`, `uninstall`, or plugin prune requires `--yes` | The command is running without an interactive stdin. Review the listed removals, then rerun with `--yes`; integrity refusals cannot be bypassed. |
-| `aidlc setup` is unknown, or an npm install is unavailable | Those channels are planned but not shipped. Use the release installer plus `aidlc init`; do not treat proposal transcripts as available commands. |
+| `aidlc system versions prune`, `uninstall`, or plugin prune requires `--yes` | The command is running without an interactive stdin. Review the listed removals, then rerun with `--yes`; integrity refusals cannot be bypassed. |
+| `aidlc setup` is unknown, or an npm install is unavailable | Those channels are planned but not shipped. Use the release installer plus `aidlc config`; do not treat proposal transcripts as available commands. |
 
 Native `aidlc doctor` also checks the active command pointer, rollback
 eligibility, retained pin completeness, stale pin registrations, abandoned
@@ -109,7 +107,7 @@ During a per-unit Construction review, the reviewer-scope hook refuses the dispa
 Hooks are registered project-wide in the harness's native configuration. On
 Claude, verify that `.claude/settings.json` contains the expected `hooks`
 events and `statusLine`. For a native project, complete active workflows and
-run `aidlc init` to reconcile framework-owned wiring. For a copy install,
+run `aidlc config` to reconcile framework-owned wiring. For a copy install,
 re-copy the complete current `dist/<harness>/` projection while preserving
 project root integrations; do not patch one hook command in isolation.
 

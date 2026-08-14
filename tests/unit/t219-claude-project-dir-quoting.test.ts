@@ -22,13 +22,13 @@ const SUBJECTS = [
     label: "authored Claude harness settings",
     path: join(REPO_ROOT, "harness", "claude", "settings.json"),
     commandPrefix: "{{INVOKE}}",
-    foldUsageCommand: "{{INVOKE}} hook fold-usage",
+    foldUsageCommand: "{{INVOKE}} engine hook fold-usage",
   },
   {
     label: "generated Claude dist settings",
     path: join(REPO_ROOT, "dist", "claude", ".claude", "settings.json"),
     commandPrefix: "bun .claude/tools/aidlc.ts",
-    foldUsageCommand: "bun .claude/tools/aidlc.ts hook fold-usage",
+    foldUsageCommand: "bun .claude/tools/aidlc.ts engine hook fold-usage",
   },
 ] as const;
 

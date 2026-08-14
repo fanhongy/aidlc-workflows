@@ -265,7 +265,7 @@ describe("t-journey-workspace (live SDK multi-repo·intent·space journey)", () 
           .map(shellCommand)
           .filter((command): command is string => command !== undefined);
         const r2Next = r2Commands.filter((command) =>
-          /(?:aidlc-orchestrate\.ts["']?|__delegate orchestrate)\s+next\b/.test(command)
+          /(?:aidlc-orchestrate\.ts["']?|engine orchestrate)\s+next\b/.test(command)
         );
         expect(r2Next.length).toBeGreaterThan(0);
         for (const command of r2Next) {
@@ -273,7 +273,7 @@ describe("t-journey-workspace (live SDK multi-repo·intent·space journey)", () 
           expect(command).toMatch(/--stage(?:=|\s+)(?:["'])?reverse-engineering\b/);
         }
         const r2Reports = r2Commands.filter((command) =>
-          /(?:aidlc-orchestrate\.ts["']?|__delegate orchestrate)\s+report\b/.test(command)
+          /(?:aidlc-orchestrate\.ts["']?|engine orchestrate)\s+report\b/.test(command)
         );
         expect(
           r2Reports,
@@ -298,7 +298,7 @@ describe("t-journey-workspace (live SDK multi-repo·intent·space journey)", () 
         ).toBe(false);
         expect(
           r2Commands.some((command) =>
-            /(?:aidlc-orchestrate\.ts["']?|__delegate orchestrate)\s+park\b/.test(command)
+            /(?:aidlc-orchestrate\.ts["']?|engine orchestrate)\s+park\b/.test(command)
           ),
         ).toBe(false);
         // Resolve A's record dir up front (hoisted above the codekb asserts) so we

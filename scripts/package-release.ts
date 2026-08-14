@@ -114,6 +114,7 @@ function build(argv: string[]): void {
   const assets: ReleaseAsset[] = [];
   const distributions: ReleaseManifest["distributions"] = [];
 
+  const runtimeEntries: ArchiveEntry[] = [];
   for (const distribution of readdirSync(join(REPO_ROOT, "dist-release")).sort()) {
     const root = join(REPO_ROOT, "dist-release", distribution);
     const projection = projectionFiles(root);
@@ -121,17 +122,35 @@ function build(argv: string[]): void {
       name: projection.stamp.distribution,
       productName: projection.descriptor.productName,
     });
-    const name = `aidlc-data-${distribution}.tgz`;
-    const path = join(output, name);
-    writeFileSync(path, createTarGz(entriesFor(root)));
-    assets.push({
-      name,
-      sha256: digest(path),
-      bytes: statSync(path).size,
-      kind: "data",
-      distribution,
-    });
+    runtimeEntries.push(...entriesFor(root).map((entry) => ({
+      ...entry,
+      path: `runtime/${distribution}/${entry.path}`,
+    })));
   }
+  const pluginsRoot = join(REPO_ROOT, "dist", "plugins");
+  if (existsSync(pluginsRoot)) {
+    for (const plugin of readdirSync(pluginsRoot).sort()) {
+      const pluginRoot = join(pluginsRoot, plugin);
+      if (!statSync(pluginRoot).isDirectory()) continue;
+      for (const harness of readdirSync(pluginRoot).sort()) {
+        const harnessRoot = join(pluginRoot, harness);
+        if (!statSync(harnessRoot).isDirectory()) continue;
+        runtimeEntries.push(...entriesFor(harnessRoot).map((entry) => ({
+          ...entry,
+          path: `plugins/${plugin}/${harness}/${entry.path}`,
+        })));
+      }
+    }
+  }
+  const runtimeName = "aidlc-runtime.tar.gz";
+  const runtimePath = join(output, runtimeName);
+  writeFileSync(runtimePath, createTarGz(runtimeEntries));
+  assets.push({
+    name: runtimeName,
+    sha256: digest(runtimePath),
+    bytes: statSync(runtimePath).size,
+    kind: "runtime",
+  });
 
   for (const target of readdirSync(binaries).sort()) {
     if (target.startsWith("build-results")) continue;

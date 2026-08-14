@@ -61,8 +61,8 @@ Create `harness/<name>/manifest.ts` exporting a `HarnessManifest`
 (`scripts/manifest-types.ts`). The fields:
 
 - `name` / `harnessDir` — the dir the token substitutes to (e.g. `.foo`).
-- `productName` / `initNextStep` — user-facing projection metadata consumed by
-  lifecycle and `aidlc init`; keep host commands exact.
+- `productName` / `configNextStep` — user-facing projection metadata consumed by
+  lifecycle and `aidlc config`; keep host commands exact.
 - `rootIntegrations` — every project-root file emitted by the normal projection,
   each with an explicit init merge policy (`managed-block`, `json-map`,
   `json-array`, or `whole-file`). Declare marker/JSON identity, optionality, and
@@ -113,7 +113,7 @@ Codex demonstrates native-only root integration and imperative emission.
 The packager writes `tools/data/harness.json`, `aidlc-stamp.json`, and
 `aidlc-projection.json` from these fields. The first is runtime configuration;
 the stamp identifies version/distribution/harness; the projection descriptor is
-the install ownership contract. `aidlc init` will reject an inconsistent or
+the install ownership contract. `aidlc config` will reject an inconsistent or
 unsafe descriptor, so do not generate parallel metadata in `emit.ts`.
 
 ## Step 2 — the hook adapter (the per-harness shim)

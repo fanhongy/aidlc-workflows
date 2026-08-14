@@ -18,9 +18,8 @@ export type ReleaseAsset = {
   name: string;
   sha256: string;
   bytes: number;
-  kind: "binary" | "data" | "installer";
+  kind: "binary" | "runtime" | "installer";
   target?: string;
-  distribution?: string;
   verification?: {
     status: "VERIFIED" | "UNVERIFIED";
     mode: "full-runtime" | "inspection-only";
@@ -154,14 +153,11 @@ export function readReleaseManifest(directory: string): ReleaseManifest {
         /^[a-z0-9][a-z0-9-]*$/.test(asset.verification.hostTarget)
       );
     if (
-      !["binary", "data", "installer"].includes(asset.kind) ||
+      !["binary", "runtime", "installer"].includes(asset.kind) ||
       !verificationValid ||
       (asset.kind === "binary" &&
         (!asset.target || asset.name !== `aidlc-${asset.target}${asset.target.startsWith("windows-") ? ".exe" : ""}`)) ||
-      (asset.kind === "data" &&
-        (!asset.distribution ||
-          !distributions.has(asset.distribution) ||
-          asset.name !== `aidlc-data-${asset.distribution}.tgz`)) ||
+      (asset.kind === "runtime" && asset.name !== "aidlc-runtime.tar.gz") ||
       (asset.kind === "installer" &&
         asset.name !== "install.sh" &&
         asset.name !== "install.ps1")

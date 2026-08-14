@@ -58,6 +58,7 @@ import {
   readEnvCap,
   readMemoryCap,
 } from "../core/tools/aidlc-tiers.ts";
+import { ROUTES } from "../core/tools/aidlc.ts";
 import { AIDLC_VERSION } from "../core/tools/aidlc-version.ts";
 import { sha256Bytes } from "../core/tools/aidlc-distribution.ts";
 
@@ -123,7 +124,7 @@ function substituteInvocationTokens(
   harnessDir: string,
   invoke = `bun ${harnessDir}/tools/aidlc.ts`,
 ): string {
-  const toolPrefix = invoke === "aidlc" ? "aidlc " : `bun ${harnessDir}/tools/`;
+  const toolPrefix = invoke === "aidlc" ? "aidlc engine " : `bun ${harnessDir}/tools/`;
   return s.replace(INVOKE_TOKEN, invoke).replace(TOOL_PREFIX_TOKEN, toolPrefix);
 }
 
@@ -424,7 +425,7 @@ function writeHarnessData(treeRoot: string, m: HarnessManifest): void {
     schemaVersion: 1,
     distribution: m.name,
     productName: m.productName,
-    initNextStep: m.initNextStep,
+    configNextStep: m.configNextStep,
     harnessDir: m.harnessDir,
     rulesSubdir: m.rulesRename ?? "rules",
   };
@@ -482,7 +483,7 @@ function writeProjectionData(outRoot: string, treeRoot: string, m: HarnessManife
     schemaVersion: 1,
     distribution: m.name,
     productName: m.productName,
-    initNextStep: m.initNextStep,
+    configNextStep: m.configNextStep,
     harnessDir: m.harnessDir,
     managedDirectories,
     rootIntegrations,
@@ -797,7 +798,7 @@ function rewriteKiroNativeAllowlists(outRoot: string, m: HarnessManifest): void 
       typeof command === "string" &&
         command.startsWith("bun ") &&
         command.includes(`${m.harnessDir.replace(".", "\\.")}/tools/`)
-        ? "aidlc .*"
+        ? "aidlc engine .*"
         : command
     );
     value.toolsSettings!.execute_bash!.allowedCommands = [...new Set(rewritten)];
@@ -818,7 +819,7 @@ function rewriteClaudeNativePermissions(outRoot: string, m: HarnessManifest): vo
       entry !== "Bash" &&
       !(typeof entry === "string" && entry.startsWith("Bash(bun "))
     ),
-    "Bash(aidlc *)",
+    "Bash(aidlc engine *)",
   ];
   writeFileSync(settingsPath, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -835,7 +836,7 @@ function rewriteNativeOnboarding(value: string): string {
     )
     .replace(
       /^- \*\*Permissions\*\*:.*$/gm,
-      "- **Permissions**: the `aidlc` agent pre-approves only the native `aidlc` command prefix and its listed read-only tools; everything else prompts.",
+      "- **Permissions**: the `aidlc` agent pre-approves only the native `aidlc engine` command prefix and its listed read-only tools; everything else prompts.",
     )
     .replace(
       /TypeScript, run via bun/g,
@@ -843,11 +844,11 @@ function rewriteNativeOnboarding(value: string): string {
     )
     .replace(
       /pre-approves ONLY `bun \.kiro\/tools\/\*` shell commands/g,
-      "pre-approves only `aidlc` shell commands",
+      "pre-approves only `aidlc engine` shell commands",
     )
     .replace(
       /pre-allows the deterministic core's exact command prefixes — `bun \.codex\/tools\/`, `bun \.codex\/hooks\/`, and/g,
-      "pre-allows the deterministic core's `aidlc` command prefix and",
+      "pre-allows the deterministic core's `aidlc engine` command prefix and",
     )
     .replace(
       /^\*\*CWD drift warning\*\*: If a stage runs `cd` in Bash.*$/gm,
@@ -878,6 +879,75 @@ function projectNativeRootIntegrations(outRoot: string, m: HarnessManifest): voi
     paths.add(integration.path);
   }
   writeFileSync(descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`);
+}
+
+function cleanInvocationToken(token: string | undefined): string | undefined {
+  return token
+    ?.replace(/^[([`"']+/, "")
+    .replace(/[\]),.:;\\`"']+$/, "");
+}
+
+function projectedNamespaceInvocationResolves(
+  namespace: "engine" | "system",
+  noun: string | undefined,
+  verb: string | undefined,
+): boolean {
+  if (
+    !noun ||
+    noun === "*" ||
+    noun === ".*" ||
+    noun === "--help" ||
+    noun === "-h" ||
+    noun.includes("<") ||
+    noun.startsWith("$")
+  ) {
+    return true;
+  }
+  const routes = ROUTES.filter((route) => route.namespace === namespace);
+  if (
+    routes.some((route) =>
+      route.group === "top" && route.verbs.includes(noun)
+    )
+  ) {
+    return true;
+  }
+  const grouped = routes.filter((route) => route.group === noun);
+  if (grouped.length === 0) return false;
+  if (!verb) return true;
+  if (verb.startsWith("<") || verb.startsWith("$")) return true;
+  if (verb.startsWith("--")) {
+    return grouped.some((route) => route.kind === "routing-only");
+  }
+  return grouped.some((route) =>
+    route.kind === "routing-only" ||
+    route.verbs.some((candidate) =>
+      candidate === verb ||
+      candidate.startsWith(`${verb} `) ||
+      candidate.startsWith("<")
+    )
+  );
+}
+
+function projectedNamespaceInvocationViolations(
+  file: string,
+  value: string,
+): string[] {
+  const violations: string[] = [];
+  for (const [index, line] of value.split(/\r?\n/).entries()) {
+    const invocation =
+      /\baidlc\s+(engine|system)(?:\s+([^\s`"'|;&(){}]+))?(?:\s+([^\s`"'|;&(){}]+))?/g;
+    for (const match of line.matchAll(invocation)) {
+      const namespace = match[1] as "engine" | "system";
+      const noun = cleanInvocationToken(match[2]);
+      const verb = cleanInvocationToken(match[3]);
+      if (projectedNamespaceInvocationResolves(namespace, noun, verb)) continue;
+      const command = ["aidlc", namespace, noun, verb].filter(Boolean).join(" ");
+      violations.push(
+        `${file}:${index + 1}: unresolvable projected namespace invocation "${command}"`,
+      );
+    }
+  }
+  return violations;
 }
 
 function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
@@ -931,29 +1001,29 @@ function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
       "gi",
     );
     value = value.replace(escapedJsonHook, (_match, hook: string) =>
-      hook === "statusline" ? "aidlc statusline" : `aidlc hook ${hook}`
+      hook === "statusline" ? "aidlc engine statusline" : `aidlc engine hook ${hook}`
     );
     value = value.replace(toolPattern, (_match, delegate: string | undefined) =>
-      delegate ? `aidlc __delegate ${delegate}` : "aidlc"
+      delegate ? `aidlc engine ${delegate}` : "aidlc engine"
     );
     value = value.replace(
       bareToolPattern,
-      (_match, delegate: string) => `aidlc __delegate ${delegate}`,
+      (_match, delegate: string) => `aidlc engine ${delegate}`,
     );
     value = value.replace(hookPattern, (_match, hook: string) => {
       if (hook === "kiro-adapter" || hook === "codex-adapter") {
-        return `aidlc adapter ${m.name}`;
+        return `aidlc engine adapter ${m.name}`;
       }
-      if (hook === "statusline") return "aidlc statusline";
-      return `aidlc hook ${hook}`;
+      if (hook === "statusline") return "aidlc engine statusline";
+      return `aidlc engine hook ${hook}`;
     });
     value = value.replaceAll(
       `"bun \\\\${m.harnessDir}/tools/.*"`,
-      `"aidlc .*"`,
+      `"aidlc engine .*"`,
     );
     value = value.replaceAll(
       `"bun \\\\$\\\\{?KIRO_PROJECT_DIR\\\\}?/${m.harnessDir}/tools/.*"`,
-      `"aidlc .*"`,
+      `"aidlc engine .*"`,
     );
     value = substituteInvocationTokens(value, m.harnessDir, "aidlc");
     value = rewriteNativeOnboarding(value);
@@ -1029,6 +1099,12 @@ function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
     if (bareToolCheck.test(value)) {
       leftovers.push(`${relative(outRoot, file)}: bare bun invocation survived native projection`);
     }
+    if (/\baidlc\s+engine\s+(?:utility|runner-gen)\b/.test(value)) {
+      leftovers.push(`${relative(outRoot, file)}: retired engine alias survived native projection`);
+    }
+    leftovers.push(
+      ...projectedNamespaceInvocationViolations(relative(outRoot, file), value),
+    );
     if (
       relative(outRoot, file).split(sep).join("/").includes("/agents/") &&
       /"allowedCommands"\s*:\s*\[[\s\S]*?"bun [^"]*tools\//.test(value)
@@ -1328,7 +1404,7 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
   );
 
   // 3. The compose hook + per-harness wiring. Prefer an installed aidlc binary
-  //    so the host hook can front the fold through `aidlc plugin sync`; fall back
+  //    so the host hook can front the fold through `aidlc engine plugin sync`; fall back
   //    only when that entrypoint is absent, never when a transaction fails. Claude
   //    populates CLAUDE_PLUGIN_ROOT, Codex PLUGIN_ROOT; AIDLC_HARNESS_DIR targets
   //    the right harness tree.
@@ -1341,11 +1417,11 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
   // executable, exit 0 with a note rather than running a non-existent binary.
   const aidlcExpr =
     'AIDLC=$(command -v aidlc 2>/dev/null || true); ' +
-    `[ -n "$AIDLC" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} "$AIDLC" plugin sync; exit $?; }; `;
+    `[ -n "$AIDLC" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} "$AIDLC" engine plugin sync; exit $?; }; `;
   const bunExpr =
     'BUN=$(command -v bun 2>/dev/null || true); ' +
     '[ -z "$BUN" ] && [ -x "$HOME/.bun/bin/bun" ] && BUN="$HOME/.bun/bin/bun"; ' +
-    '[ -z "$BUN" ] && { echo "aidlc plugin compose: aidlc and bun not found, skipping" >&2; exit 0; }';
+    '[ -z "$BUN" ] && { echo "aidlc engine plugin compose: aidlc and bun not found, skipping" >&2; exit 0; }';
   const sharedToolExpr =
     `PROJECT_ROOT="\${CLAUDE_PROJECT_DIR:-\${AIDLC_PROJECT_DIR:-$PWD}}"; ` +
     `PLUGIN_TOOL="$PROJECT_ROOT/${harnessLeaf}/tools/aidlc-plugin.ts"; ` +

@@ -401,8 +401,8 @@ describe("documentation parity derives current behavior from authored implementa
     const cliGuide = read("docs", "guide", "12-cli-commands.md");
     for (const verb of workspaceVerbs) expect(cliGuide).toContain(`/aidlc ${verb}`);
     const hiddenUtilityRoutes = new Map([
-      ["codekb-path", "aidlc workspace codekb"],
-      ["select-plugins", "aidlc plugin select"],
+      ["codekb-path", "aidlc engine workspace codekb"],
+      ["select-plugins", "aidlc config"],
     ]);
     for (const [verb, route] of hiddenUtilityRoutes) {
       expect(workspaceVerbs).not.toContain(verb);

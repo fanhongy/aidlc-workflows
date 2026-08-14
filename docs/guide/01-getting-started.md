@@ -147,33 +147,20 @@ Missing credentials are not blocking. A server you have no credentials for — n
 
 ## Installation
 
-The recommended path installs a checksum-verified native executable and the
-runtime for your chosen harness, then projects that runtime into a project with
-`aidlc init`.
+The recommended path installs a checksum-verified native executable and every
+harness runtime, then `aidlc config` selects the project harness.
 
 ### Step 1: Install the native runtime
 
-On macOS, Linux, or WSL, run the installer without arguments to choose from all
-five harnesses:
+On macOS, Linux, or WSL:
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
   | bash
 ```
 
-The picker reads directly from the controlling terminal (`/dev/tty`), so it
-still works when the script itself arrives through a pipe. In automation, or
-with `--yes`, `--json`, `--quiet`, or no controlling terminal, the harness is
-required. Use the literal `--harness` spelling:
-
-```bash
-curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness claude
-```
-
-Valid names are `claude`, `kiro`, `kiro-ide`, `codex`, and `opencode`. The
-installer verifies the release manifest, native executable, and selected
-harness data against the published SHA-256 checksums before installation. The
+The installer verifies the release manifest, native executable, and all-harness
+runtime archive against the published SHA-256 checksums before installation. The
 installed AI-DLC runtime has no Bun, Node.js, or Git dependency; Codex project
 hook discovery still requires the target project to be a Git repository.
 
@@ -182,66 +169,63 @@ On Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP install-aidlc.ps1
 irm https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.ps1 -OutFile $installer
-& $installer --harness claude
+& $installer
 ```
 
-Running the downloaded script without `--harness` shows the same picker in an
-interactive PowerShell host. Redirected input, `pwsh -NonInteractive`,
-`--yes`, `--json`, or `--quiet` requires `--harness`. The installer places a
-stable `aidlc.cmd` under `%LOCALAPPDATA%\aidlc\bin` and verifies the same
-checksums.
+The installer places a stable `aidlc.cmd` under
+`%LOCALAPPDATA%\aidlc\bin` and verifies the same checksums.
 
 For an air-gapped package, use
-`install.sh --from <release-directory> --offline --harness <name>` or
-`install.ps1 -From <release-directory> -Offline --harness <name>`. Pass
+`install.sh --from <release-directory> --offline` or
+`install.ps1 -From <release-directory> -Offline`. Pass
 `--profile "$HOME/.profile"` to the Unix installer only when it should add its
 marked PATH block; profiles are not edited by default.
 
 ### Step 2: Initialize the project
 
-Run init from the project root:
+Run config from the project root:
 
 ```bash
 cd your-project
-aidlc init
+aidlc config
 aidlc doctor
 ```
 
-`aidlc init` is offline. It writes the harness tree and workspace shell, safely
+`aidlc config` is offline. It writes the harness tree and workspace shell, safely
 merges the distribution's declared root integrations, and records ownership
 hashes plus the project runtime version. On Claude Code it asks whether to add
-the optional shipped MCP servers; use `aidlc init --mcp none` or
-`aidlc init --mcp defaults` to make that choice explicit. Use
-`aidlc init --dry-run` to preview every create, update, merge, preserve, remove,
+the optional shipped MCP servers; use `aidlc config --mcp none` or
+`aidlc config --mcp defaults` to make that choice explicit. Use
+`aidlc config --dry-run` to preview every create, update, merge, preserve, remove,
 or conflict action.
 
 Continue with the next step for the selected harness:
 
-| Harness | After `aidlc init` | Native trust behavior |
+| Harness | After `aidlc config` | Native trust behavior |
 |---------|--------------------|-----------------------|
-| Claude Code | Open Claude Code in the project, then run `/aidlc --doctor`. | The projected settings allow `Bash(aidlc *)`; hooks and the statusline call the installed command. |
-| Kiro CLI | Run `kiro-cli chat`, then `/aidlc --doctor`. | The workspace selects the `aidlc` agent by default and permits its `aidlc *` engine calls. |
-| Kiro IDE | Open the project in Kiro IDE, then run `/aidlc --doctor`. | Init merges `aidlc *` into `kiroAgent.trustedCommands` without replacing other `.vscode/settings.json` keys. |
+| Claude Code | Open Claude Code in the project, then run `/aidlc --doctor`. | The projected settings allow `Bash(aidlc engine *)`; hooks and the statusline call the installed command. |
+| Kiro CLI | Run `kiro-cli chat`, then `/aidlc --doctor`. | The workspace selects the `aidlc` agent by default and permits its `aidlc engine *` engine calls. |
+| Kiro IDE | Open the project in Kiro IDE, then run `/aidlc --doctor`. | Config merges `aidlc engine *` into `kiroAgent.trustedCommands` without replacing other `.vscode/settings.json` keys. |
 | Codex CLI | In a Git repository, run `codex`, approve the hook trust dialog, then `$aidlc --doctor`. | Codex requires one trust action: approve interactively or merge the generated `.codex/trust-seed.toml` entries into `$CODEX_HOME/config.toml`. |
-| opencode | Run `opencode`, then `/aidlc --doctor`. | The projected `opencode.json` allows direct `aidlc *` calls; other shell commands still prompt. |
+| opencode | Run `opencode`, then `/aidlc --doctor`. | The projected `opencode.json` allows direct `aidlc engine *` calls; other shell commands still prompt. |
 
 ### Refresh and version skew
 
-`aidlc upgrade` changes the machine runtime only; it does not rewrite projects.
+`aidlc update` changes the machine runtime only; it does not rewrite projects.
 `aidlc doctor` compares each project's version stamp with the selected engine
 and reports skew. Refresh a project between workflows:
 
 ```bash
-aidlc init --dry-run
-aidlc init
+aidlc config --dry-run
+aidlc config
 ```
 
 Refresh uses the recorded ownership baseline to update framework-owned files,
 merge managed root blocks/maps/arrays, preserve user-owned content, and report
 locally modified framework files as conflicts. It refuses to refresh while any
 workflow is active because stage and graph definitions may have changed.
-Complete the workflow before rerunning init. `aidlc upgrade` and
-`aidlc rollback` remain safe during a workflow because they do not touch
+Complete the workflow before rerunning config. `aidlc update` and
+`aidlc use` remain safe during a workflow because they do not touch
 project files.
 
 ### Source/development copy alternative
@@ -249,7 +233,7 @@ project files.
 The committed `dist/<harness>/` trees remain available for framework
 development and source-based installs. This channel requires a repository clone,
 Git, and Bun; its hooks and tools run the projected TypeScript files. It does
-not use `aidlc init` because the copied tree already contains the workspace
+not use `aidlc config` because the copied tree already contains the workspace
 shell.
 
 ```bash
@@ -327,7 +311,7 @@ merging `opencode.json`.
 
 ## The Workspace Shell
 
-For a native install, `aidlc init` creates the workspace shell and its refresh
+For a native install, `aidlc config` creates the workspace shell and its refresh
 baseline before the first harness session. It does not create a workflow intent
 and never uses the network.
 
@@ -335,7 +319,7 @@ For a source/development copy install, there is no scaffold step. The
 distribution you copied already ships the
 workspace shell — the `.claude/` engine plus a pre-built `aidlc/spaces/default/`
 holding the memory layer (`aidlc/spaces/default/memory/`, where team-affirmed
-practices and learnings live). You do not run any init command.
+practices and learnings live). You do not run any config command.
 
 The first time you run `/aidlc` (or describe what to build), the engine
 **auto-births** the first intent into the active space. Each intent gets its own
@@ -375,7 +359,7 @@ Run the health check to confirm everything is in place:
 | Check | What It Validates |
 |-------|-------------------|
 | Prerequisites | Self-contained binary, or `bun` installed and on `$PATH` for copy installs |
-| Installed runtime | Active machine version and selected harness runtime for binary installs |
+| Installed runtime | Active machine version and complete all-harness runtime for binary installs |
 | Project stamp | Project distribution/version compared with the selected engine |
 | Hook presence | All 17 framework hook sources exist in `.claude/hooks/`: the statusline source plus the other 16 wired through the `settings.json` `hooks` block. A wired-but-missing hook fails loudly; sourcing the expected roster from settings means adding a hook there auto-checks it. |
 | Project structure | `.claude/settings.json` exists with expected configuration |
@@ -417,9 +401,9 @@ Run the health check to confirm everything is in place:
 | Failure | Fix |
 |---------|-----|
 | `bun` not installed | Source/development copy only: install via `curl -fsSL https://bun.sh/install \| bash`. On Windows, use `npm install -g bun` or `powershell -c "irm bun.sh/install.ps1 \| iex"`. Ensure it is on PATH for non-interactive shells. |
-| Hook not present | Native: run `aidlc init` between workflows. Copy: re-copy the `.claude/` directory from the distribution. |
-| `settings.json` missing | Native: run `aidlc init`. Copy: re-copy `dist/claude/.claude/settings.json`. |
-| Workspace shell missing | Native: run `aidlc init`. Copy: re-copy the workspace shell from `dist/claude/` into the project root. |
+| Hook not present | Native: run `aidlc config` between workflows. Copy: re-copy the `.claude/` directory from the distribution. |
+| `settings.json` missing | Native: run `aidlc config`. Copy: re-copy `dist/claude/.claude/settings.json`. |
+| Workspace shell missing | Native: run `aidlc config`. Copy: re-copy the workspace shell from `dist/claude/` into the project root. |
 | State file issues | Archive the active intent's record dir under `aidlc/spaces/<space>/intents/` and run `/aidlc` to start fresh |
 | Graph/scope/schema/keyword failures | The diagnostic reports the specific artifact, slug, or scope name at fault. These indicate authoring drift in `.claude/aidlc-common/stages/` or `.claude/scopes/`; regenerate the compiled graph + scope grid with `bun .claude/tools/aidlc-graph.ts compile` or inspect the named stage/scope directly. |
 

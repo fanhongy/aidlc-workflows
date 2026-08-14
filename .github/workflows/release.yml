@@ -199,7 +199,7 @@ jobs:
           }
           Start-Sleep -Milliseconds 500
           try {
-            & ./build/release/install.ps1 -ReleaseBaseUrl "http://localhost:$port" --harness claude -Quiet
+            & ./build/release/install.ps1 -ReleaseBaseUrl "http://localhost:$port" -Quiet
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally {
             Stop-Job $server -ErrorAction SilentlyContinue
@@ -208,17 +208,7 @@ jobs:
           $command = Join-Path $env:AIDLC_BIN_DIR 'aidlc.cmd'
           & $command version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $command harness add kiro --from $releaseRoot --quiet
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $command harness default kiro --quiet
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $command harness list --json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $command harness remove kiro --yes --quiet
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $command completions powershell | Out-Null
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & ./build/release/install.ps1 -From $releaseRoot -Offline --harness claude -Quiet
+          & ./build/release/install.ps1 -From $releaseRoot -Offline -Quiet
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $pointer = Get-Content -Raw (Join-Path $env:AIDLC_INSTALL_ROOT 'active-executable')
           if ($pointer.Trim() -notmatch '\\versions\\[0-9]+\.[0-9]+\.[0-9]+\\aidlc\.exe$') {
@@ -264,45 +254,25 @@ jobs:
           export AIDLC_BIN_DIR="$RUNNER_TEMP/aidlc-online-bin"
           sh "$release/install.sh" \
             --release-base-url "http://127.0.0.1:18765" \
-            --harness claude --quiet
+            --quiet
           online="$AIDLC_BIN_DIR/aidlc"
           env PATH="/usr/bin:/bin" "$online" version
           online_project="$RUNNER_TEMP/aidlc-online-project"
           mkdir -p "$online_project"
-          env PATH="/usr/bin:/bin" "$online" init \
-            --project-dir "$online_project" --mcp none --quiet
+          env PATH="/usr/bin:/bin" "$online" config \
+            --project-dir "$online_project" --harness claude --mcp none --quiet
           env PATH="/usr/bin:/bin" "$online" doctor \
             --project-dir "$online_project" --quiet
 
           export AIDLC_INSTALL_ROOT="$RUNNER_TEMP/aidlc-offline"
           export AIDLC_BIN_DIR="$RUNNER_TEMP/aidlc-offline-bin"
-          sh "$release/install.sh" --from "$release" --offline \
-            --harness opencode --quiet
+          sh "$release/install.sh" --from "$release" --offline --quiet
           offline="$AIDLC_BIN_DIR/aidlc"
           env PATH="/usr/bin:/bin" "$offline" version
-          env PATH="/usr/bin:/bin" "$offline" harness list --json |
-            grep -q '"opencode"'
-      - name: Exercise the piped interactive harness picker through a PTY
-        shell: bash
-        run: |
-          set -euo pipefail
-          release="$PWD/build/release"
-          export AIDLC_INSTALL_ROOT="$RUNNER_TEMP/aidlc-picker"
-          export AIDLC_BIN_DIR="$RUNNER_TEMP/aidlc-picker-bin"
-          export AIDLC_INSTALLER="$release/install.sh"
-          export AIDLC_RELEASE="$release"
-          transcript="$RUNNER_TEMP/aidlc-picker.log"
-          if [[ "$(uname -s)" == "Darwin" ]]; then
-            printf '1\n' | script -q "$transcript" \
-              sh -c 'cat "$AIDLC_INSTALLER" | sh -s -- --from "$AIDLC_RELEASE" --offline'
-          else
-            printf '1\n' | script -qec \
-              'cat "$AIDLC_INSTALLER" | sh -s -- --from "$AIDLC_RELEASE" --offline' \
-              "$transcript"
-          fi
-          grep -q "Select the harness distribution to install:" "$transcript"
-          grep -q "Harness \\[1-" "$transcript"
-          "$AIDLC_BIN_DIR/aidlc" harness list --json | grep -q '"claude"'
+          offline_project="$RUNNER_TEMP/aidlc-offline-project"
+          mkdir -p "$offline_project"
+          env PATH="/usr/bin:/bin" "$offline" config \
+            --project-dir "$offline_project" --harness opencode --mcp none --quiet
 
   publish:
     needs: [musl-smoke, windows-lifecycle, unix-lifecycle]

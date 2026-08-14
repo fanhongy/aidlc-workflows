@@ -3,7 +3,7 @@
 AI-DLC has two user-facing command planes. Harness chat commands drive a
 workflow through `/aidlc` (or `$aidlc` on Codex); the self-contained native
 `aidlc` command initializes projects and provides machine lifecycle,
-diagnostic, configuration, and plugin routes.
+diagnostic and lifecycle routes.
 
 > **Invocation prefix differs by harness.** On Claude Code, Kiro IDE, Kiro CLI,
 > and opencode you type `/aidlc`; on Codex CLI it is `$aidlc` (or `/skills` →
@@ -40,20 +40,13 @@ diagnostic, configuration, and plugin routes.
 | `/aidlc config get <key>` | Print active workflow config (`depth`, `test-strategy`) |
 | `/aidlc config set <key> <value>` | Change active workflow config (`depth`, `test-strategy`) |
 | `/aidlc config list` | List active workflow config (`--json` for structured output) |
-| `aidlc config global <get\|set\|clear\|list>` | Manage machine update and release settings |
-| `aidlc workspace codekb --repo <repo>` | Print the active space's code knowledge directory for a repository |
-| `aidlc plugin select [names]` | Show or transactionally set the enabled plugin list |
-| `aidlc plugin list [--verbose\|--json]` | Compare host-installed plugins with this project's composition stamps |
-| `aidlc plugin sync [--prune-missing]` | Transactionally compose installed plugins; explicitly prune missing owned content |
-| `aidlc init [options]` | Initialize or refresh a project from an installed or local harness projection |
-| `aidlc upgrade [options]` | Install and activate a complete release |
-| `aidlc rollback [--version <v>\|--list]` | List or activate a retained complete release without network access |
-| `aidlc use <version\|current>` | Set or clear the project's `.aidlc-version` pin |
-| `aidlc versions list\|install\|prune` | Inspect, install, or remove unprotected retained versions |
-| `aidlc harness add\|remove\|list\|default` | Manage harness runtimes in the active release |
+| `aidlc config [options]` | Initialize or refresh a project from an installed or local harness projection |
+| `aidlc update [options]` | Install and activate a complete release |
+| `aidlc use <version>` | Select an exact machine-active release, installing it first when needed |
+| `aidlc use <version> --pin` | Install an exact release when needed and write the shared `.aidlc-version` project pin |
+| `aidlc version [--json]` | Print binary and runtime versions |
+| `aidlc doctor [options]` | Report machine, project, version, and plugin composition health |
 | `aidlc uninstall [--purge]` | Remove the command and versions; optionally remove machine state |
-| `aidlc completions <shell>` | Emit bash, zsh, fish, or PowerShell completions |
-| `aidlc package create\|verify` | Create or verify a flat offline release set |
 | `/aidlc --version` | Print the framework version |
 | `/aidlc --help` | Display usage information |
 
@@ -66,13 +59,13 @@ channel and is distinct from the harness chat invocation shown above.
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness claude
+  | bash
 cd your-project
-aidlc init --mcp none
+aidlc config --mcp none
 aidlc doctor
 ```
 
-`init` is local-only. It reads the installed runtime or a local projection
+`config` is local-only. It reads the installed runtime or a local projection
 passed with `--from <dir|tgz>`, previews actions with `--dry-run --json`,
 preserves project-owned workspace data and typed root-file content, and
 refuses locally modified framework files unless `--force` is explicit.
@@ -80,82 +73,59 @@ Refresh also refuses while any workflow in any space remains active; the
 check is repeated under the workspace lock immediately before commit.
 
 For scripted approval, read `data.planToken` from
-`aidlc init --dry-run --json`, then rerun the same command without
+`aidlc config --dry-run --json`, then rerun the same command without
 `--dry-run` and with `--plan-token <token>`. Apply refuses if source bytes,
 options, or current project state changed after the preview.
 
 Machine lifecycle commands never follow a project pin. Engine commands do:
 a valid `.aidlc-version` re-executes that retained binary before project data
-loads, while a missing retained version fails with
-`aidlc versions install <version>` remediation.
+loads, while a missing retained version fails with `aidlc use <version>`
+remediation.
 
 Commit `.aidlc-version`: it is a team-shared toolchain pin and the managed
 AI-DLC `.gitignore` block deliberately does not ignore it. A fresh clone or CI
 runner must install that exact version with
-`curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh | bash -s -- --harness <name> --version "$(cat .aidlc-version)"`, use
-`aidlc versions install "$(cat .aidlc-version)" --harness <name>` when an
-active binary already exists, or consume a reviewed offline package in a
-restricted pipeline.
+`curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh | bash -s -- --version "$(cat .aidlc-version)"`, use
+`aidlc use "$(cat .aidlc-version)"` when an active binary already exists, or
+consume the reviewed release asset set in a restricted pipeline.
 
 ```bash
-aidlc versions list
-aidlc versions install 2.5.0 --harness claude
 aidlc use 2.5.0
-aidlc upgrade --version 2.5.1
-aidlc upgrade --check
-aidlc rollback
-aidlc harness add kiro
-aidlc harness default kiro
-aidlc versions prune --yes
-aidlc package create --version 2.5.0 --harness claude --target linux-x64 --output ./aidlc-offline
-aidlc package verify ./aidlc-offline
+aidlc use 2.5.0 --pin
+aidlc update --version 2.5.1
+aidlc update --check
+aidlc doctor
 ```
 
-`harness add` always acquires the running version, never latest. Harness
-removal, version pruning, uninstall, and plugin missing-content pruning prompt
-on a TTY and require `--yes` when stdin is not interactive. Active, rollback,
-and registered pinned versions are never pruned; stale pin paths are protected
-and reported for explicit cleanup.
-Removing the final harness leaves the native command available for lifecycle
-management; doctor reports the missing runtime, upgrades carry the empty set
-forward, and `aidlc harness add <name>` restores project operations.
+`update` retains the prior active version and every registered project pin,
+then prunes older unprotected versions automatically. `use` is the only
+intentional version-selection command. `uninstall` prompts on a TTY and
+requires `--yes` when stdin is not interactive.
 `aidlc uninstall` leaves project trees untouched and preserves machine config,
 cache, pins, and the harness default unless `--purge` is supplied.
 
-Update settings use `aidlc config global set <key> <value>` (the equivalent
-`aidlc config set <key> <value> --global` form is also accepted). Initial keys
-are `update-check`, `offline`, `release-base-url`, and `ca-bundle`. Flag values
-override environment variables, which override machine config. Bare help and
-management listings never use the network: they read only a valid 24-hour
-cache. Interactive human `aidlc doctor` may refresh stale data within 750 ms;
+Machine settings remain internal implementation state. Command flags override
+environment variables, which override machine config. Bare help never uses the
+network. Interactive human `aidlc doctor` may refresh stale data within 750 ms;
 non-TTY, JSON, and quiet doctor runs remain network-free unless
 `--check-updates` is explicit. `doctor --check-updates` and
-`upgrade --check` use a 15-second budget. Doctor refreshes accept
+`update --check` use a 15-second budget. Doctor refreshes accept
 `--release-base-url <url>` and `--ca-bundle <absolute-path>`; release URLs
 cannot contain credentials, a query, or a fragment.
 
 Lifecycle routes support human, `--quiet`, and `--json` output unless
-`aidlc help --all` lists a narrower route. The installer also accepts
-`--quiet`, `--json`, `--no-color`, and `--yes`; all automation modes require
-an explicit `--harness`.
+`aidlc system --help` lists a narrower form. `aidlc help --all` reveals the
+hidden `engine` and `system` namespaces without changing default help. The installer also accepts
+`--quiet`, `--json`, `--no-color`, and `--yes`; it installs all harness runtimes.
 Human mode reports each completed download with a fixed-width TTY display;
 quiet and JSON modes suppress download progress.
 It never edits a startup file unless `--profile <absolute-startup-file>` is
 explicit; that opt-in writes one marked PATH block through a separate
 transaction.
 
-Generate shell definitions from the same route registry used by help:
-
-```bash
-aidlc completions bash
-aidlc completions zsh
-aidlc completions fish
-aidlc completions powershell
-```
-
-The definitions complete route options plus locally installed harness names and
-retained versions. Their helper calls are local, network-free, and output
-bounded.
+The installer places deterministic Bash, Zsh, Fish, and PowerShell completion
+files under the per-user AI-DLC data root's `completions/` directory. They are
+generated from the same six-command route registry used by help.
 
 The complete platform option tables, root-file ownership rules, lifecycle
 semantics, offline/proxy policy, and exit codes are in
@@ -307,7 +277,7 @@ or guardrails before the first run, edit the shipped `aidlc/spaces/default/memor
 files; the space-level `aidlc/knowledge/` directory is created (empty) once the
 first intent exists, and you add free-form files to it from there.
 
-For native machine installs, run `aidlc init` once before opening the harness.
+For native machine installs, run `aidlc config` once before opening the harness.
 That command lays down the same shell and records a refresh baseline; workflow
 intent birth remains automatic on the first chat invocation.
 
@@ -674,12 +644,12 @@ copy channel still implements those operations with Bun/TypeScript tools under
 the harness directory, and direct tool calls remain useful for plumbing that
 has no public route. Prefer `aidlc` whenever a route is documented below.
 
-### `aidlc workspace codekb` - resolve the code knowledge directory
+### `aidlc engine workspace codekb` - resolve the code knowledge directory
 
 Use the public read-only query:
 
 ```bash
-aidlc workspace codekb --repo <repo>
+aidlc engine workspace codekb --repo <repo>
 ```
 
 It prints the active space's deterministic
@@ -737,7 +707,7 @@ the workspace root (see
 [Declaring the repo set](03-spaces-and-intents.md#declaring-the-repo-set-optional-manifest)):
 
 ```bash
-aidlc __delegate workspace-sync [--force]
+aidlc system workspace-sync [--force]
 ```
 
 It serializes reconciles with a workspace lock whose live owner is never reaped
@@ -782,47 +752,12 @@ about it (uncommitted `aidlc/` records, `repos.json` vs on-disk drift, and a
 stale managed `.gitignore` block); like all advisory rows they never change the
 doctor exit code.
 
-### `aidlc plugin select|list|sync` - project plugin state
+### Plugin state
 
-`aidlc plugin list` reads the host's installed plugin inventory and compares
-each plugin's manifest version and deterministic source hash with the project's
-composition stamp. Its default status column is `current`,
-`run: aidlc plugin sync`, or `needs attention: <remediation>`.
-`--verbose` and `--json` retain the exact internal state. Claude and Codex use
-their host registries. Claude falls back to current-root-only when its enablement
-settings are malformed instead of assuming every installed plugin is enabled;
-both hosts fall back when their proved registry source disappears. Kiro reports
-`host inventory unavailable` outside a hook that supplies the current plugin
-root. The check is always offline.
-`aidlc plugin select` prints the current selection (`all enabled (no
-selection)` when the `plugins` key is absent) and known plugin names. Pass a
-comma-separated list or separate names to set it:
-
-```bash
-aidlc plugin select test-pro
-aidlc plugin select aidlc,test-pro
-```
-
-The command validates names, updates the active harness's
-`tools/data/harness.json`, strips a newly disabled plugin's recorded merged
-contributions in staging, recompiles the full graph, regenerates runners and
-tables, and commits one transaction. Re-enabling restores contributions on the
-next session start. `aidlc` is core; omitting it disables core surfaces except
-the always-on Initialization stages. A change that would strand an active
-workflow's scope or pending stage is refused with each dependency named.
-
-`aidlc plugin sync` stages all enabled installed plugins, composes and
-regenerates their graph/runner surfaces, then commits one rollback-safe project
-transaction with version/hash stamps. SessionStart calls the same implementation
-for its injected current root. Missing installed sources are reported but never
-deleted by plain sync. Use `aidlc plugin sync --prune-missing` only after
-reviewing the missing rows; it requires full inventory, confirmation (or
-`--yes`), and refuses any path whose ownership and unchanged hash cannot be
-proved.
-
-Within a harness chat, `/aidlc plugin ...` (or `$aidlc plugin ...` on Codex)
-reaches the same operations. Copy installs keep their Bun implementation under
-the hood; users do not need to invoke `aidlc-utility.ts` directly.
+`aidlc doctor` compares installed plugin inventory with the project composition
+and reports drift without mutating the project. Plugin changes converge through
+the single project mutator, `aidlc config`; there is no separate public plugin
+command.
 
 ### `aidlc-utility recompose` - in-flight plan flips
 

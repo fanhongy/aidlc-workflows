@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "codex",
   "productName": "Codex CLI",
-  "initNextStep": "run `codex`, then `$aidlc --doctor`",
+  "configNextStep": "run `codex`, then `$aidlc --doctor`",
   "harnessDir": ".codex",
   "managedDirectories": [
     ".agents",
@@ -36,7 +36,7 @@
           "sha256:d8afae6a0813f5298cf873a047664cf485308c6e0dad41dde53d8dcb27dd7769",
           "sha256:f1deb7dc72a78fe7d39c71ad2fe6c0f41248c03cde7fb36b7a478f5b9233881c",
           "sha256:f7c55e9917d3801f676fba066fdd78d8df2c36311e8d6e78068965fc7b4371fa",
-          "sha256:f0c7f032e208274fc9eefa4252a39340297e8039fb86514d48b58264bd92c9dc"
+          "sha256:456f7a1555d8bf85b82c51f0a59aaf7c909a522d3e8ed13c7e8d90cf376b1242"
         ]
       }
     }

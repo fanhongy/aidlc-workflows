@@ -8,6 +8,7 @@ import {
   parseWorkspaceCommand,
   workspaceCommandUtilityArgv,
 } from "./aidlc-lib.ts";
+import { parseSensorManifest } from "./aidlc-sensor-schema.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import {
   installRoot,
@@ -28,6 +29,11 @@ import { cachedUpdateNotice } from "./aidlc-update.ts";
 import {
   recoverWindowsUninstallContinuations,
 } from "./aidlc-windows-uninstall.ts";
+import claimSourcesSensorSource from "../sensors/aidlc-claim-sources.md" with { type: "text" };
+import linterSensorSource from "../sensors/aidlc-linter.md" with { type: "text" };
+import requiredSectionsSensorSource from "../sensors/aidlc-required-sections.md" with { type: "text" };
+import typeCheckSensorSource from "../sensors/aidlc-type-check.md" with { type: "text" };
+import upstreamCoverageSensorSource from "../sensors/aidlc-upstream-coverage.md" with { type: "text" };
 
 type Classification = "passthrough" | "translation" | "stub" | "routing-only" | "help";
 type RouteKind =
@@ -45,9 +51,15 @@ type HelpLine = {
   summary: string;
 };
 
+type HelpSection = {
+  label: string;
+  forms: readonly string[];
+};
+
 type CustomRoute = "workspace" | "config" | "plugin" | "gen";
-type RouteOnly = "hook" | "statusline" | "adapter" | "delegate";
+type RouteOnly = "hook" | "statusline" | "adapter" | "tool-passthrough";
 type Visibility = "public" | "hidden" | "legacy";
+type RouteNamespace = "public" | "engine" | "system";
 type ProjectRequirement = "none" | "optional" | "required";
 type PinPolicy = "active" | "inspect" | "pinned";
 type NetworkPolicy = "forbidden" | "explicit-only" | "interactive-bounded" | "required";
@@ -55,6 +67,7 @@ type MutationScope = "none" | "project" | "machine" | "project-and-machine";
 
 export type Route = {
   id: string;
+  namespace: RouteNamespace;
   group: string;
   kind: RouteKind;
   classification: Classification;
@@ -72,10 +85,20 @@ export type Route = {
   outputModes: readonly ("human" | "quiet" | "json")[];
   human?: readonly HelpLine[];
   all?: readonly string[];
+  helpSummary?: string;
+  helpSections?: readonly HelpSection[];
+};
+
+export type NamespaceHelpOptions = {
+  namespace: Exclude<RouteNamespace, "public">;
+  usage: string;
+  header: string;
+  excludedRouteIds?: ReadonlySet<string>;
 };
 
 const PUBLIC_ENGINE = {
-  visibility: "public",
+  namespace: "engine",
+  visibility: "hidden",
   projectRequirement: "required",
   pinPolicy: "pinned",
   networkPolicy: "forbidden",
@@ -124,6 +147,14 @@ export const TOOLS = {
   workspaceSync: "aidlc-workspace-sync.ts",
 } as const;
 
+const SENSOR_WORKERS = [
+  [claimSourcesSensorSource, TOOLS.sensorClaimSources],
+  [linterSensorSource, TOOLS.sensorLinter],
+  [requiredSectionsSensorSource, TOOLS.sensorRequiredSections],
+  [typeCheckSensorSource, TOOLS.sensorTypeCheck],
+  [upstreamCoverageSensorSource, TOOLS.sensorUpstreamCoverage],
+] as const;
+
 export const SLASH_FLAG_ALIASES: readonly Alias[] = [
   { from: "--status", to: "status" },
   { from: "--doctor", to: "doctor" },
@@ -131,10 +162,41 @@ export const SLASH_FLAG_ALIASES: readonly Alias[] = [
   { from: "--version", to: "version" },
   { from: "--resume", to: "next --resume", irregular: true },
   { from: "--scope", to: "next --scope", irregular: true },
-  { from: "--upgrade", to: "upgrade", irregular: true },
   { from: "config-change", to: "config set", irregular: true },
   { from: "space-create", to: "space create", irregular: true },
 ];
+
+const HUMAN_HELP: readonly HelpLine[] = [
+  { command: "config [args]", summary: "configure or refresh this project" },
+  { command: "doctor [args]", summary: "run machine and project diagnostics" },
+  { command: "version [--json]", summary: "print binary and runtime versions" },
+  { command: "update [args]", summary: "install and activate a framework release" },
+  { command: "use <version> [--pin]", summary: "select or pin an exact framework release" },
+  { command: "uninstall [--purge]", summary: "remove the machine installation" },
+];
+
+const HUMAN_TOP_ROUTE_IDS = new Set([
+  "top-doctor",
+  "top-version",
+  "top-help",
+  "top-config",
+  "top-update",
+  "top-use",
+  "top-uninstall",
+]);
+
+export const ENGINE_NAMESPACE_HELP: NamespaceHelpOptions = {
+  namespace: "engine",
+  usage: "aidlc engine <noun> <verb> [args]",
+  header: "Engine machinery - generated harness surfaces only; not for human scripts:",
+  excludedRouteIds: HUMAN_TOP_ROUTE_IDS,
+};
+
+export const SYSTEM_NAMESPACE_HELP: NamespaceHelpOptions = {
+  namespace: "system",
+  usage: "aidlc system <noun> <verb> [args]",
+  header: "Operations on this user's aidlc installation; never a system-wide or root install:",
+};
 
 // ROUTES_TABLE_START
 export const ROUTES: readonly Route[] = [
@@ -146,6 +208,7 @@ export const ROUTES: readonly Route[] = [
     verbs: ["next", "continue", "report", "park"],
     tool: TOOLS.orchestrate,
     ...PUBLIC_ENGINE,
+    namespace: "public",
     human: [
       { command: "next [args]", summary: "run the next orchestrator action" },
       { command: "report [args]", summary: "render the orchestrator report" },
@@ -162,6 +225,7 @@ export const ROUTES: readonly Route[] = [
     tool: TOOLS.orchestrate,
     prefix: ["next", "compose"],
     ...PUBLIC_ENGINE,
+    namespace: "public",
     human: [{ command: "compose [args]", summary: "start composition through orchestrate next compose" }],
     all: ["compose [args]"],
   },
@@ -173,6 +237,7 @@ export const ROUTES: readonly Route[] = [
     verbs: ["status"],
     tool: TOOLS.utility,
     ...PUBLIC_ENGINE,
+    namespace: "engine",
     mutationScope: "none",
     human: [
       { command: "status [args]", summary: "show the current AIDLC status" },
@@ -187,6 +252,7 @@ export const ROUTES: readonly Route[] = [
     verbs: ["recompose"],
     tool: TOOLS.utility,
     ...PUBLIC_ENGINE,
+    namespace: "engine",
     human: [
       { command: "recompose [args]", summary: "rerun composition through the utility handler" },
     ],
@@ -194,6 +260,7 @@ export const ROUTES: readonly Route[] = [
   },
   {
     id: "top-doctor",
+    namespace: "public",
     group: "top",
     kind: "top-passthrough",
     classification: "passthrough",
@@ -201,7 +268,7 @@ export const ROUTES: readonly Route[] = [
     tool: TOOLS.doctor,
     visibility: "public",
     projectRequirement: "optional",
-    pinPolicy: "inspect",
+    pinPolicy: "active",
     networkPolicy: "interactive-bounded",
     mutationScope: "project-and-machine",
     outputModes: ["human", "quiet", "json"],
@@ -214,6 +281,7 @@ export const ROUTES: readonly Route[] = [
   },
   {
     id: "top-version",
+    namespace: "public",
     group: "top",
     kind: "top-passthrough",
     classification: "passthrough",
@@ -224,12 +292,13 @@ export const ROUTES: readonly Route[] = [
     pinPolicy: "active",
     networkPolicy: "forbidden",
     mutationScope: "none",
-    outputModes: ["human"],
+    outputModes: ["human", "json"],
     human: [{ command: "version [args]", summary: "print the installed AIDLC version" }],
     all: ["version [args]"],
   },
   {
     id: "top-help",
+    namespace: "public",
     group: "top",
     kind: "top-help",
     classification: "help",
@@ -243,27 +312,29 @@ export const ROUTES: readonly Route[] = [
     all: ["help [--all]"],
   },
   {
-    id: "top-init",
+    id: "top-config",
+    namespace: "public",
     group: "top",
     kind: "top-passthrough",
     classification: "translation",
-    verbs: ["init"],
+    verbs: ["config"],
     tool: TOOLS.init,
     visibility: "public",
     projectRequirement: "optional",
-    pinPolicy: "inspect",
+    pinPolicy: "active",
     networkPolicy: "forbidden",
     mutationScope: "project",
     outputModes: ["human", "quiet", "json"],
-    human: [{ command: "init [args]", summary: "initialize or refresh this project" }],
-    all: ["init [--harness <name>] [--from <path>] [--dry-run] [--force]"],
+    human: [{ command: "config [args]", summary: "configure or refresh this project" }],
+    all: ["config [--harness <name>] [--from <path>] [--dry-run] [--force]"],
   },
   {
-    id: "top-upgrade",
+    id: "top-update",
+    namespace: "public",
     group: "top",
     kind: "top-passthrough",
     classification: "passthrough",
-    verbs: ["upgrade", "update"],
+    verbs: ["update"],
     tool: TOOLS.lifecycle,
     visibility: "public",
     projectRequirement: "optional",
@@ -272,47 +343,50 @@ export const ROUTES: readonly Route[] = [
     mutationScope: "machine",
     outputModes: ["human", "quiet", "json"],
     human: [
-      { command: "upgrade [args]", summary: "install and activate a framework release" },
+      { command: "update [args]", summary: "install and activate a framework release" },
     ],
     all: [
-      "upgrade [--version <version>] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--check|--dry-run]",
       "update [--version <version>] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--check|--dry-run]",
     ],
   },
   {
     id: "top-rollback",
+    namespace: "system",
     group: "top",
     kind: "top-passthrough",
     classification: "passthrough",
     verbs: ["rollback"],
     tool: TOOLS.lifecycle,
-    visibility: "public",
+    visibility: "hidden",
     projectRequirement: "optional",
     pinPolicy: "active",
     networkPolicy: "forbidden",
     mutationScope: "machine",
     outputModes: ["human", "quiet", "json"],
-    human: [{ command: "rollback [args]", summary: "activate a retained framework release" }],
     all: ["rollback [--version <version>|--list]"],
   },
   {
     id: "top-use",
+    namespace: "public",
     group: "top",
     kind: "top-passthrough",
     classification: "passthrough",
     verbs: ["use"],
     tool: TOOLS.lifecycle,
     visibility: "public",
-    projectRequirement: "required",
-    pinPolicy: "inspect",
-    networkPolicy: "forbidden",
+    projectRequirement: "optional",
+    pinPolicy: "active",
+    networkPolicy: "explicit-only",
     mutationScope: "project-and-machine",
     outputModes: ["human", "quiet", "json"],
-    human: [{ command: "use <version|current>", summary: "set or clear this project's version pin" }],
-    all: ["use <version|current>"],
+    human: [{ command: "use <version> [--pin]", summary: "select or pin an exact framework release" }],
+    all: [
+      "use <version> [--pin] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline]",
+    ],
   },
   {
     id: "top-uninstall",
+    namespace: "public",
     group: "top",
     kind: "top-passthrough",
     classification: "passthrough",
@@ -329,29 +403,31 @@ export const ROUTES: readonly Route[] = [
   },
   {
     id: "top-completions",
-    group: "top",
-    kind: "top-passthrough",
-    classification: "passthrough",
-    verbs: ["completions"],
+    namespace: "system",
+    group: "completions",
+    kind: "routing-only",
+    classification: "routing-only",
+    verbs: ["<shell>"],
     tool: TOOLS.completions,
-    visibility: "public",
+    routeOnly: "tool-passthrough",
+    visibility: "hidden",
     projectRequirement: "none",
     pinPolicy: "active",
     networkPolicy: "forbidden",
     mutationScope: "none",
     outputModes: ["human"],
-    human: [{ command: "completions <shell>", summary: "emit shell completion definitions" }],
     all: ["completions <bash|zsh|fish|powershell>"],
   },
   {
     id: "versions-list",
+    namespace: "system",
     group: "versions",
     kind: "noun-passthrough",
     classification: "passthrough",
     verbs: ["list"],
     tool: TOOLS.lifecycle,
     prefix: ["versions"],
-    visibility: "public",
+    visibility: "hidden",
     projectRequirement: "optional",
     pinPolicy: "active",
     networkPolicy: "forbidden",
@@ -362,13 +438,14 @@ export const ROUTES: readonly Route[] = [
   },
   {
     id: "versions-install",
+    namespace: "system",
     group: "versions",
     kind: "noun-passthrough",
     classification: "passthrough",
     verbs: ["install"],
     tool: TOOLS.lifecycle,
     prefix: ["versions"],
-    visibility: "public",
+    visibility: "hidden",
     projectRequirement: "optional",
     pinPolicy: "active",
     networkPolicy: "explicit-only",
@@ -376,111 +453,25 @@ export const ROUTES: readonly Route[] = [
     outputModes: ["human", "quiet", "json"],
     human: [{ command: "versions install", summary: "install a retained release" }],
     all: [
-      "install <version> [--harness <name>] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>]",
+      "install <version> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>]",
     ],
   },
   {
     id: "versions-prune",
+    namespace: "system",
     group: "versions",
     kind: "noun-passthrough",
     classification: "passthrough",
     verbs: ["prune"],
     tool: TOOLS.lifecycle,
     prefix: ["versions"],
-    visibility: "public",
+    visibility: "hidden",
     projectRequirement: "none",
     pinPolicy: "active",
     networkPolicy: "forbidden",
     mutationScope: "machine",
     outputModes: ["human", "quiet", "json"],
     all: ["prune [--yes]"],
-  },
-  {
-    id: "package-create",
-    group: "package",
-    kind: "noun-passthrough",
-    classification: "passthrough",
-    verbs: ["create"],
-    tool: TOOLS.lifecycle,
-    prefix: ["package"],
-    visibility: "public",
-    projectRequirement: "none",
-    pinPolicy: "active",
-    networkPolicy: "explicit-only",
-    mutationScope: "machine",
-    outputModes: ["human", "quiet", "json"],
-    human: [{ command: "package create", summary: "create an offline release set" }],
-    all: [
-      "create [--version <version>] --harness <name> --target <triple> --output <directory> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>]",
-    ],
-  },
-  {
-    id: "package-verify",
-    group: "package",
-    kind: "noun-passthrough",
-    classification: "passthrough",
-    verbs: ["verify"],
-    tool: TOOLS.lifecycle,
-    prefix: ["package"],
-    visibility: "public",
-    projectRequirement: "none",
-    pinPolicy: "active",
-    networkPolicy: "forbidden",
-    mutationScope: "none",
-    outputModes: ["human", "quiet", "json"],
-    human: [{ command: "package verify", summary: "verify an offline release set" }],
-    all: ["verify <directory>"],
-  },
-  {
-    id: "harness-add",
-    group: "harness",
-    kind: "noun-passthrough",
-    classification: "passthrough",
-    verbs: ["add"],
-    tool: TOOLS.lifecycle,
-    prefix: ["harness"],
-    visibility: "public",
-    projectRequirement: "none",
-    pinPolicy: "active",
-    networkPolicy: "explicit-only",
-    mutationScope: "machine",
-    outputModes: ["human", "quiet", "json"],
-    all: [
-      "add <name> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>]",
-    ],
-  },
-  {
-    id: "harness-mutate",
-    group: "harness",
-    kind: "noun-passthrough",
-    classification: "passthrough",
-    verbs: ["remove", "default"],
-    tool: TOOLS.lifecycle,
-    prefix: ["harness"],
-    visibility: "public",
-    projectRequirement: "none",
-    pinPolicy: "active",
-    networkPolicy: "forbidden",
-    mutationScope: "machine",
-    outputModes: ["human", "quiet", "json"],
-    all: ["remove <name> [--yes]", "default <name|clear>"],
-  },
-  {
-    id: "harness-list",
-    group: "harness",
-    kind: "noun-passthrough",
-    classification: "passthrough",
-    verbs: ["list"],
-    tool: TOOLS.lifecycle,
-    prefix: ["harness"],
-    visibility: "public",
-    projectRequirement: "none",
-    pinPolicy: "active",
-    networkPolicy: "forbidden",
-    mutationScope: "none",
-    outputModes: ["human", "quiet", "json"],
-    human: [{ command: "harness <add|remove|list|default>", summary: "manage installed harnesses" }],
-    all: ["list"],
   },
   {
     id: "state-passthrough",
@@ -514,6 +505,50 @@ export const ROUTES: readonly Route[] = [
       "merge",
       "park",
       "unpark",
+    ],
+    helpSections: [
+      {
+        label: "records",
+        forms: [
+          "get",
+          "set",
+          "set-status",
+          "set-skeleton-stance",
+          "set-construction-iteration",
+          "checkbox",
+          "count",
+          "lookup",
+        ],
+      },
+      {
+        label: "lifecycle",
+        forms: [
+          "init",
+          "advance",
+          "finalize",
+          "complete-workflow",
+          "skip",
+          "resume",
+          "acknowledge-compaction",
+          "reuse-artifact",
+        ],
+      },
+      {
+        label: "gates",
+        forms: ["gate-start", "approve", "reject", "revise"],
+      },
+      {
+        label: "practices",
+        forms: ["practices-event", "practices-promote"],
+      },
+      {
+        label: "fork/merge",
+        forms: ["fork", "merge"],
+      },
+      {
+        label: "parking",
+        forms: ["park", "unpark"],
+      },
     ],
   },
   {
@@ -559,6 +594,7 @@ export const ROUTES: readonly Route[] = [
       "scope",
       "validate-scope",
       "validate-grid",
+      "ars",
       "compile",
       "resolve",
       "export",
@@ -625,7 +661,7 @@ export const ROUTES: readonly Route[] = [
     group: "log",
     kind: "noun-passthrough",
     classification: "passthrough",
-    verbs: ["decision", "answer"],
+    verbs: ["decision", "answer", "review"],
     tool: TOOLS.log,
     ...HIDDEN_ENGINE,
   },
@@ -677,16 +713,21 @@ export const ROUTES: readonly Route[] = [
     verbs: ["change", "detect", "resolve-env"],
     tool: TOOLS.utility,
     ...PUBLIC_ENGINE,
-    targets: { change: "scope-change", detect: "detect-scope", "resolve-env": "resolve-env-scope" },
+    targets: {
+      change: "scope-change",
+      detect: "detect-scope",
+      "resolve-env": "resolve-env-scope",
+    },
   },
   {
     id: "config-global",
+    namespace: "system",
     group: "config",
     kind: "noun-passthrough",
     classification: "passthrough",
     verbs: ["global"],
     tool: TOOLS.machineConfig,
-    visibility: "public",
+    visibility: "hidden",
     projectRequirement: "none",
     pinPolicy: "active",
     networkPolicy: "forbidden",
@@ -702,6 +743,7 @@ export const ROUTES: readonly Route[] = [
     verbs: ["set depth", "set test-strategy", "get", "list"],
     custom: "config",
     ...PUBLIC_ENGINE,
+    visibility: "hidden",
     targets: {
       "set depth": "config-change",
       "set test-strategy": "config-change",
@@ -723,6 +765,7 @@ export const ROUTES: readonly Route[] = [
     verbs: ["select", "sync", "list"],
     custom: "plugin",
     ...PUBLIC_ENGINE,
+    visibility: "hidden",
     targets: { select: "select-plugins", sync: "sync", list: "list" },
     human: [
       { command: "plugin select [names]", summary: "set enabled plugins" },
@@ -747,36 +790,93 @@ export const ROUTES: readonly Route[] = [
     group: "workspace",
     kind: "noun-map",
     classification: "translation",
-    verbs: ["detect", "codekb"],
+    verbs: ["detect", "codekb", "codekb-scope-diff"],
     tool: TOOLS.utility,
     ...HIDDEN_ENGINE,
-    targets: { detect: "detect", codekb: "codekb-path" },
+    targets: {
+      detect: "detect",
+      codekb: "codekb-path",
+      "codekb-scope-diff": "codekb-scope-diff",
+    },
   },
   {
     id: "workspace-sync",
-    group: "workspace",
+    namespace: "system",
+    group: "workspace-sync",
     kind: "routing-only",
     classification: "routing-only",
-    verbs: ["__delegate"],
+    verbs: ["<args>"],
     tool: TOOLS.workspaceSync,
-    ...HIDDEN_ENGINE,
+    routeOnly: "tool-passthrough",
+    visibility: "hidden",
+    projectRequirement: "required",
+    pinPolicy: "pinned",
     networkPolicy: "required",
-    all: [],
+    mutationScope: "project",
+    outputModes: ["human", "quiet", "json"],
+    all: ["[--force] [--project-dir <path>]"],
   },
   {
-    id: "delegate",
-    group: "top",
+    id: "engine-orchestrate",
+    group: "orchestrate",
+    kind: "noun-passthrough",
+    classification: "passthrough",
+    verbs: ["next", "continue", "report", "park"],
+    tool: TOOLS.orchestrate,
+    ...HIDDEN_ENGINE,
+    all: ["next [args]", "continue <token>", "report [args]", "park [args]"],
+  },
+  {
+    id: "engine-orchestrate-help",
+    group: "orchestrate",
+    kind: "noun-map",
+    classification: "translation",
+    verbs: ["help"],
+    tool: TOOLS.utility,
+    targets: { help: "help" },
+    ...HIDDEN_ENGINE,
+    all: ["help"],
+  },
+  ...SENSOR_WORKERS.map(([source, tool]): Route => {
+    const manifest = parseSensorManifest(source);
+    const group = `sensor-${manifest.id}`;
+    return {
+    id: `engine-${group}`,
+    namespace: "engine",
+    group,
     kind: "routing-only",
     classification: "routing-only",
-    verbs: ["__delegate"],
-    routeOnly: "delegate",
+    verbs: ["<args>"],
+    tool,
+    routeOnly: "tool-passthrough",
+    visibility: "hidden",
+    projectRequirement: "required",
+    pinPolicy: "pinned",
+    networkPolicy: "forbidden",
+    mutationScope: "project",
+    outputModes: ["human", "quiet", "json"],
+    helpSummary: manifest.description,
+  };
+  }),
+  {
+    id: "system-lifecycle",
+    namespace: "system",
+    group: "lifecycle",
+    kind: "routing-only",
+    classification: "routing-only",
+    verbs: ["<command>"],
+    tool: TOOLS.lifecycle,
+    routeOnly: "tool-passthrough",
     visibility: "hidden",
     projectRequirement: "optional",
     pinPolicy: "active",
-    networkPolicy: "forbidden",
+    networkPolicy: "explicit-only",
     mutationScope: "project-and-machine",
     outputModes: ["human", "quiet", "json"],
-    all: [],
+    all: [
+      "install-apply --from <dir> --version <version> [args]",
+      "install-profile --profile <path> --bin-dir <path> [args]",
+    ],
   },
   {
     id: "hook",
@@ -817,9 +917,9 @@ export type Action =
   | { type: "statusline"; path: string; projectDir?: string }
   | { type: "adapter"; harness: AdapterHarness; target: string; extraArgs: string[]; path: string; projectDir?: string }
   | { type: "sensor-script-file"; id: string; args: string[]; projectDir?: string }
-  | { type: "version" }
+  | { type: "version"; json: boolean }
   | { type: "stub"; message: string; code: number }
-  | { type: "help"; all: boolean }
+  | { type: "help"; scope: "human" | "engine" | "system" | "all" }
   | { type: "error"; message: string; code: number };
 
 function text(fd: number, value: string | Uint8Array): void {
@@ -893,36 +993,71 @@ export function listRoutes(): readonly Route[] {
 }
 
 export function renderHumanHelp(): string {
-  const lines: string[] = ["aidlc <noun> <verb> [args]", "", "Human commands:"];
-  const commands = ROUTES.flatMap((route) => [...(route.human ?? [])]);
-  const width = Math.max(...commands.map((line) => line.command.length));
-  for (const line of commands) {
+  const lines: string[] = ["aidlc <command> [args]", "", "Commands:"];
+  const width = Math.max(...HUMAN_HELP.map((line) => line.command.length));
+  for (const line of HUMAN_HELP) {
     lines.push(`  ${line.command.padEnd(width)}  ${line.summary}`);
   }
   return `${lines.join("\n")}\n`;
 }
 
-export function renderAllHelp(): string {
-  const lines: string[] = ["aidlc <noun> <verb> [args]", "", "Top level:"];
-  for (const route of ROUTES.filter((item) => item.group === "top")) {
-    for (const form of routeForms(route)) lines.push(`  ${form}`);
-  }
+function stripHelpGroupPrefix(group: string, form: string): string {
+  if (form === group) return "";
+  return form.startsWith(`${group} `) ? form.slice(group.length + 1) : form;
+}
 
-  lines.push("", "conductor protocol - not a stable scripting interface", "Plumbing:");
+export function renderNamespaceHelp(options: NamespaceHelpOptions): string {
+  const lines: string[] = [options.usage, "", options.header];
   const grouped = new Map<string, string[]>();
-  for (const route of ROUTES.filter((item) => item.group !== "top")) {
-    grouped.set(route.group, [...(grouped.get(route.group) ?? []), ...routeForms(route)]);
+  const summaries = new Map<string, string>();
+  const sections = new Map<string, readonly HelpSection[]>();
+  for (const route of ROUTES) {
+    if (
+      route.namespace !== options.namespace ||
+      options.excludedRouteIds?.has(route.id)
+    ) {
+      continue;
+    }
+    const group = route.group === "top"
+      ? route.id.replace(/^top-/, "")
+      : route.group;
+    grouped.set(group, [...(grouped.get(group) ?? []), ...routeForms(route)]);
+    if (route.helpSummary) summaries.set(group, route.helpSummary);
+    if (route.helpSections) sections.set(group, route.helpSections);
   }
   for (const [group, forms] of grouped) {
-    lines.push(`  ${group}: ${forms.join(", ")}`);
-  }
-
-  lines.push("", "Slash-flag aliases:");
-  for (const alias of SLASH_FLAG_ALIASES) {
-    const mark = alias.irregular ? " (irregular)" : "";
-    lines.push(`  ${alias.from} -> ${alias.to}${mark}`);
+    const summary = summaries.get(group);
+    if (summary) {
+      lines.push(`  ${group}: ${summary}`);
+      continue;
+    }
+    const helpSections = sections.get(group);
+    if (helpSections) {
+      lines.push(`  ${group}:`);
+      for (const section of helpSections) {
+        lines.push(`    ${section.label}: ${section.forms.join(", ")}`);
+      }
+      continue;
+    }
+    const rendered = forms.map((form) => stripHelpGroupPrefix(group, form));
+    if (rendered.length === 1 && rendered[0] === "") {
+      lines.push(`  ${group}`);
+      continue;
+    }
+    lines.push(`  ${group}: ${rendered.filter(Boolean).join(", ")}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+export function renderAllHelp(): string {
+  return [
+    renderHumanHelp().trimEnd(),
+    "",
+    "Hidden namespaces:",
+    "  engine  Generated harness surfaces only; not for human scripts. Run: aidlc engine --help",
+    "  system  This user's installation; unsupported interface. Run: aidlc system --help",
+    "",
+  ].join("\n");
 }
 
 function topLevelError(command: string): Action {
@@ -938,7 +1073,7 @@ function nounError(noun: string, verb: string | undefined): Action {
   return {
     type: "error",
     code: 2,
-    message: `aidlc: ${detail} for noun '${noun}'; try 'aidlc help --all'\n`,
+    message: `aidlc: ${detail} for engine noun '${noun}'; try 'aidlc engine --help'\n`,
   };
 }
 
@@ -965,16 +1100,6 @@ function handleWorkspace(argv: string[]): Action {
 
 function handleConfig(route: Route, argv: string[]): Action {
   const verb = argv[1];
-  if (argv.includes("--global")) {
-    const args = argv.filter((value) => value !== "--global");
-    if (["get", "set", "clear", "list"].includes(verb ?? "")) {
-      return {
-        type: "delegate",
-        tool: TOOLS.machineConfig,
-        args: ["global", verb, ...args.slice(2)],
-      };
-    }
-  }
   if (verb === "get" || verb === "list") {
     const target = route.targets?.[verb];
     if (target) return { type: "delegate", tool: TOOLS.utility, args: [target, ...argv.slice(2)] };
@@ -1040,41 +1165,9 @@ function handleCustom(route: Route, argv: string[]): Action {
 }
 
 function handleRouteOnly(route: Route, argv: string[]): Action {
-  if (route.routeOnly === "delegate") {
-    const name = argv[1];
-    if (!name || !isSafeName(name)) return topLevelError(argv.slice(0, 2).join(" "));
-    const byStem: Readonly<Record<string, string>> = {
-      audit: TOOLS.audit,
-      bolt: TOOLS.bolt,
-      graph: TOOLS.graph,
-      doctor: TOOLS.doctor,
-      init: TOOLS.init,
-      jump: TOOLS.jump,
-      learnings: TOOLS.learnings,
-      lifecycle: TOOLS.lifecycle,
-      "machine-config": TOOLS.machineConfig,
-      completions: TOOLS.completions,
-      log: TOOLS.log,
-      orchestrate: TOOLS.orchestrate,
-      "runner-gen": TOOLS.runnerGen,
-      runtime: TOOLS.runtime,
-      sensor: TOOLS.sensor,
-      "sensor-claim-sources": TOOLS.sensorClaimSources,
-      "sensor-linter": TOOLS.sensorLinter,
-      "sensor-required-sections": TOOLS.sensorRequiredSections,
-      "sensor-type-check": TOOLS.sensorTypeCheck,
-      "sensor-upstream-coverage": TOOLS.sensorUpstreamCoverage,
-      state: TOOLS.state,
-      swarm: TOOLS.swarm,
-      utility: TOOLS.utility,
-      validate: TOOLS.validate,
-      worktree: TOOLS.worktree,
-      "workspace-sync": TOOLS.workspaceSync,
-    };
-    const tool = byStem[name];
-    return tool
-      ? { type: "delegate", tool, args: argv.slice(2) }
-      : topLevelError(argv.slice(0, 2).join(" "));
+  if (route.routeOnly === "tool-passthrough") {
+    if (!route.tool) return nounError(argv[0], argv[1]);
+    return { type: "delegate", tool: route.tool, args: argv.slice(1) };
   }
   if (route.routeOnly === "hook") {
     const name = argv[1];
@@ -1104,10 +1197,9 @@ function handleRouteOnly(route: Route, argv: string[]): Action {
   return nounError(argv[0], argv[1]);
 }
 
-function resolveAlias(argv: string[]): Action | undefined {
+function resolveAlias(argv: string[], engineNamespace = false): Action | undefined {
   const head = argv[0];
-  if (head === "space-create") return handleWorkspace(argv);
-  if (head === "__sensor-script-file") {
+  if (engineNamespace && head === "__sensor-script-file") {
     const id = argv[1];
     if (!id || !isSafeName(id)) {
       return topLevelError(argv.slice(0, 2).join(" "));
@@ -1118,7 +1210,7 @@ function resolveAlias(argv: string[]): Action | undefined {
       args: argv.slice(2),
     };
   }
-  if (head === "__sensor-script") {
+  if (engineNamespace && head === "__sensor-script") {
     const scripts: Record<string, string> = {
       "claim-sources": TOOLS.sensorClaimSources,
       linter: TOOLS.sensorLinter,
@@ -1133,23 +1225,21 @@ function resolveAlias(argv: string[]): Action | undefined {
   }
   if (head === "--status") return { type: "delegate", tool: TOOLS.utility, args: ["status", ...argv.slice(1)] };
   if (head === "--doctor") return { type: "delegate", tool: TOOLS.doctor, args: ["doctor", ...argv.slice(1)] };
-  if (head === "--version") return { type: "version" };
+  if (head === "--version") return { type: "version", json: false };
   if (head === "--resume") return { type: "delegate", tool: TOOLS.orchestrate, args: ["next", "--resume", ...argv.slice(1)] };
   if (head === "--scope") return { type: "delegate", tool: TOOLS.orchestrate, args: ["next", "--scope", ...argv.slice(1)] };
-  if (head === "--upgrade") return { type: "delegate", tool: TOOLS.lifecycle, args: ["upgrade", ...argv.slice(1)] };
-  if (head === "config-change") {
-    return { type: "delegate", tool: TOOLS.utility, args: ["config-change", ...argv.slice(1)] };
-  }
   return undefined;
 }
 
 function resolveTop(argv: string[]): Action | undefined {
   const verb = argv[0];
-  for (const route of ROUTES.filter((item) => item.group === "top")) {
+  for (const route of ROUTES.filter((item) =>
+    item.group === "top" && HUMAN_TOP_ROUTE_IDS.has(item.id)
+  )) {
     if (!route.verbs.includes(verb)) continue;
 
     if (route.kind === "top-passthrough" && route.tool) {
-      if (verb === "version") return { type: "version" };
+      if (verb === "version") return { type: "version", json: false };
       return { type: "delegate", tool: route.tool, args: [verb, ...argv.slice(1)] };
     }
     if (route.kind === "top-prefix" && route.tool && route.prefix) {
@@ -1162,15 +1252,17 @@ function resolveTop(argv: string[]): Action | undefined {
         message: "reserved; not available in this install\n",
       };
     }
-    if (route.kind === "top-help") return { type: "help", all: argv[1] === "--all" };
+    if (route.kind === "top-help") return { type: "help", scope: "human" };
     if (route.kind === "routing-only") return handleRouteOnly(route, argv);
   }
   return undefined;
 }
 
-function resolveNoun(argv: string[]): Action | undefined {
+function resolveNoun(argv: string[], namespace: Exclude<RouteNamespace, "public">): Action | undefined {
   const noun = argv[0];
-  const routes = ROUTES.filter((item) => item.group === noun);
+  const routes = ROUTES.filter((item) =>
+    item.namespace === namespace && item.group === noun
+  );
   if (routes.length === 0) return undefined;
 
   for (const route of routes) {
@@ -1203,22 +1295,74 @@ function resolveNoun(argv: string[]): Action | undefined {
   return nounError(noun, argv[1]);
 }
 
+function resolveEngine(argv: string[]): Action {
+  if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
+    return { type: "help", scope: "engine" };
+  }
+
+  const alias = resolveAlias(argv, true);
+  if (alias) return alias;
+
+  const noun = resolveNoun(argv, "engine");
+  if (noun) return noun;
+
+  const top = ROUTES.find((route) =>
+    route.namespace === "engine" &&
+    route.group === "top" &&
+    route.verbs.includes(argv[0])
+  );
+  if (top?.kind === "top-passthrough" && top.tool) {
+    return { type: "delegate", tool: top.tool, args: [argv[0], ...argv.slice(1)] };
+  }
+
+  const routeOnly = ROUTES.find((route) =>
+    route.namespace === "engine" &&
+    route.group === "top" &&
+    route.kind === "routing-only" &&
+    route.verbs.includes(argv[0])
+  );
+  if (routeOnly) return handleRouteOnly(routeOnly, argv);
+
+  return topLevelError(`engine ${argv[0]}`);
+}
+
+function resolveSystem(argv: string[]): Action {
+  if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
+    return { type: "help", scope: "system" };
+  }
+
+  const noun = resolveNoun(argv, "system");
+  if (noun) return noun;
+
+  const top = ROUTES.find((route) =>
+    route.namespace === "system" &&
+    route.group === "top" &&
+    route.verbs.includes(argv[0])
+  );
+  if (top?.kind === "top-passthrough" && top.tool) {
+    return { type: "delegate", tool: top.tool, args: [argv[0], ...argv.slice(1)] };
+  }
+  return topLevelError(`system ${argv[0]}`);
+}
+
 function resolveActionWithoutGlobalFlags(argv: string[]): Action {
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h") {
-    return { type: "help", all: false };
+    return { type: "help", scope: "human" };
   }
   if (argv[0] === "help") {
-    return { type: "help", all: argv[1] === "--all" };
+    return {
+      type: "help",
+      scope: argv[1] === "--all" ? "all" : "human",
+    };
   }
+  if (argv[0] === "engine") return resolveEngine(argv.slice(1));
+  if (argv[0] === "system") return resolveSystem(argv.slice(1));
 
   const alias = resolveAlias(argv);
   if (alias) return alias;
 
   const top = resolveTop(argv);
   if (top) return top;
-
-  const noun = resolveNoun(argv);
-  if (noun) return noun;
 
   return topLevelError(argv[0]);
 }
@@ -1248,6 +1392,9 @@ export function resolveAction(argv: string[]): Action {
   }
 
   const action = resolveActionWithoutGlobalFlags(clean);
+  if (action.type === "version" && globalFlags.includes("--json")) {
+    action.json = true;
+  }
   if (projectDir) {
     const absoluteProjectDir = isAbsolute(projectDir)
       ? projectDir
@@ -1457,12 +1604,12 @@ async function withProjectDir(
 
 async function runHook(action: Extract<Action, { type: "hook" }>): Promise<number> {
   if (!existsSync(action.path)) {
-    text(2, `aidlc hook ${action.name}: not available in this install\n`);
+    text(2, `aidlc engine hook ${action.name}: not available in this install\n`);
     return 1;
   }
   const mod = await import(pathToFileURL(action.path).href);
   if (typeof mod.run !== "function") {
-    text(2, `aidlc hook ${action.name}: hook does not export run(input)\n`);
+    text(2, `aidlc engine hook ${action.name}: hook does not export run(input)\n`);
     return 1;
   }
   return await mod.run(await readStdin());
@@ -1470,12 +1617,12 @@ async function runHook(action: Extract<Action, { type: "hook" }>): Promise<numbe
 
 async function runStatusline(action: Extract<Action, { type: "statusline" }>): Promise<number> {
   if (!existsSync(action.path)) {
-    text(2, "aidlc statusline: not available in this install\n");
+    text(2, "aidlc engine statusline: not available in this install\n");
     return 1;
   }
   const mod = await import(pathToFileURL(action.path).href);
   if (typeof mod.run !== "function") {
-    text(2, "aidlc statusline: hook does not export run(input)\n");
+    text(2, "aidlc engine statusline: hook does not export run(input)\n");
     return 1;
   }
   return await mod.run(await readStdin());
@@ -1483,7 +1630,7 @@ async function runStatusline(action: Extract<Action, { type: "statusline" }>): P
 
 async function runAdapter(action: Extract<Action, { type: "adapter" }>): Promise<number> {
   if (!existsSync(action.path)) {
-    text(2, `aidlc adapter ${action.harness} ${action.target}: not available in this install\n`);
+    text(2, `aidlc engine adapter ${action.harness} ${action.target}: not available in this install\n`);
     return 1;
   }
   const previousHarness = process.env.AIDLC_HARNESS_DIR;
@@ -1495,7 +1642,7 @@ async function runAdapter(action: Extract<Action, { type: "adapter" }>): Promise
   try {
     const mod = await import(pathToFileURL(action.path).href);
     if (typeof mod.run !== "function") {
-      text(2, `aidlc adapter ${action.harness} ${action.target}: adapter does not export run(target, input, extraArgs)\n`);
+      text(2, `aidlc engine adapter ${action.harness} ${action.target}: adapter does not export run(target, input, extraArgs)\n`);
       return 1;
     }
     let input = "";
@@ -1568,8 +1715,17 @@ async function execute(action: Action): Promise<number> {
       : runDelegateDev(action.tool, action.args);
   }
   if (action.type === "help") {
-    text(1, action.all ? renderAllHelp() : renderHumanHelp());
-    if (!action.all && process.stdout.isTTY) {
+    text(
+      1,
+      action.scope === "engine"
+        ? renderNamespaceHelp(ENGINE_NAMESPACE_HELP)
+        : action.scope === "system"
+        ? renderNamespaceHelp(SYSTEM_NAMESPACE_HELP)
+        : action.scope === "all"
+        ? renderAllHelp()
+        : renderHumanHelp(),
+    );
+    if (action.scope === "human" && process.stdout.isTTY) {
       try {
         const notice = cachedUpdateNotice();
         if (notice) text(1, `\n${notice}\n`);
@@ -1580,7 +1736,16 @@ async function execute(action: Action): Promise<number> {
     return 0;
   }
   if (action.type === "version") {
-    text(1, `aidlc ${AIDLC_VERSION}\n`);
+    text(
+      1,
+      action.json
+        ? `${JSON.stringify({
+            schemaVersion: 1,
+            binaryVersion: AIDLC_VERSION,
+            runtimeVersion: AIDLC_VERSION,
+          })}\n`
+        : `aidlc ${AIDLC_VERSION} (runtime ${AIDLC_VERSION})\n`,
+    );
     return 0;
   }
   if (action.type === "hook") {
@@ -1635,122 +1800,54 @@ export function routePolicyFor(argv: readonly string[]): Route | null {
     "--version": "top-version",
     "--resume": "top-orchestrate",
     "--scope": "top-orchestrate",
-    "--upgrade": "top-upgrade",
-    "config-change": "config",
-    "space-create": "space",
-    "__sensor-script": "sensor",
-    "__sensor-script-file": "sensor",
   };
   if (aliasRoutes[head]) return routeById(aliasRoutes[head]);
 
-  if (head === "__delegate") {
+  if (head === "engine" || head === "system") {
+    const namespace = head;
     const delegate = clean[1];
     const command = clean[2];
-    if (delegate === "lifecycle") {
-      if (command === "upgrade" || command === "update") return routeById("top-upgrade");
-      if (command === "rollback") return routeById("top-rollback");
-      if (command === "use") return routeById("top-use");
-      if (command === "versions") {
-        return routeById(
-          clean[3] === "list"
-            ? "versions-list"
-            : clean[3] === "prune"
-            ? "versions-prune"
-            : "versions-install",
-        );
-      }
-      if (command === "harness") {
-        return routeById(clean[3] === "list" ? "harness-list" : clean[3] === "add" ? "harness-add" : "harness-mutate");
-      }
-      if (command === "uninstall") return routeById("top-uninstall");
-      if (command === "package") {
-        return routeById(clean[3] === "verify" ? "package-verify" : "package-create");
-      }
-      return routeById("delegate");
+    if (!delegate || delegate === "--help" || delegate === "-h" || delegate === "help") {
+      return head === "engine" ? routeById("top-help") : null;
     }
-    if (delegate === "init") return routeById("top-init");
-    if (delegate === "utility") {
-      const utilityRoutes: Readonly<Record<string, string>> = {
-        help: "top-help",
-        version: "top-version",
-        status: "top-status",
-        doctor: "top-doctor",
-        "intent-birth": "intent",
-        intent: "intent",
-        space: "space",
-        "space-create": "space",
-        "codekb-path": "workspace",
-        "codekb-scope-diff": "workspace",
-        detect: "workspace",
-        "select-plugins": "plugin",
-        "plugin-list": "plugin",
-        "plugin-sync": "plugin",
-        init: "top-init",
-        "state-init": "state-utility",
-        upgrade: "top-upgrade",
-        "scope-change": "scope",
-        recompose: "top-recompose",
-        "config-change": "config",
-        "config-get": "config",
-        "config-list": "config",
-        "set-status": "state-utility",
-        "detect-scope": "scope",
-        "resolve-env-scope": "scope",
-        "scope-table": "gen",
-        "stage-table": "gen",
-      };
-      const routeId = utilityRoutes[command ?? ""];
-      if (routeId) return routeById(routeId);
-      return routeById("delegate");
+    if (
+      namespace === "engine" &&
+      (delegate === "__sensor-script" || delegate === "__sensor-script-file")
+    ) {
+      return routeById("sensor");
     }
-    if (delegate === "workspace-sync") return routeById("workspace-sync");
-    if (delegate === "sensor-claim-sources") return routeById("sensor");
-    const toolByDelegate: Readonly<Record<string, string>> = {
-      audit: TOOLS.audit,
-      bolt: TOOLS.bolt,
-      graph: TOOLS.graph,
-      jump: TOOLS.jump,
-      learnings: TOOLS.learnings,
-      log: TOOLS.log,
-      orchestrate: TOOLS.orchestrate,
-      "runner-gen": TOOLS.runnerGen,
-      runtime: TOOLS.runtime,
-      sensor: TOOLS.sensor,
-      "sensor-claim-sources": TOOLS.sensorClaimSources,
-      "sensor-linter": TOOLS.sensorLinter,
-      "sensor-required-sections": TOOLS.sensorRequiredSections,
-      "sensor-type-check": TOOLS.sensorTypeCheck,
-      "sensor-upstream-coverage": TOOLS.sensorUpstreamCoverage,
-      state: TOOLS.state,
-      swarm: TOOLS.swarm,
-      validate: TOOLS.validate,
-      worktree: TOOLS.worktree,
-      "workspace-sync": TOOLS.workspaceSync,
-    };
-    const tool = toolByDelegate[delegate ?? ""];
-    if (!tool) return routeById("delegate");
-    const exact = ROUTES.find((route) =>
-      route.tool === tool &&
-      (route.verbs.includes(command ?? "") ||
-        Object.values(route.targets ?? {}).includes(command ?? ""))
+    const nounRoutes = ROUTES.filter((route) =>
+      route.namespace === namespace && route.group === delegate
     );
-    return exact ?? ROUTES.find((route) => route.tool === tool) ?? routeById("delegate");
+    if (nounRoutes.length > 0) {
+      const matched = nounRoutes.find((route) => route.verbs.includes(command ?? "")) ??
+        nounRoutes.find((route) =>
+          route.kind === "custom" &&
+          route.verbs.includes(`${command ?? ""} ${clean[3] ?? ""}`)
+        ) ??
+        nounRoutes.find((route) =>
+          route.kind === "custom" &&
+          route.verbs.includes("<name>") &&
+          Boolean(command && isSafeName(command))
+        ) ??
+        nounRoutes.find((route) => route.kind === "routing-only") ??
+        undefined;
+      if (matched) return matched;
+    }
+    return ROUTES.find((route) =>
+      route.namespace === namespace &&
+      route.group === "top" &&
+      route.verbs.includes(delegate)
+    ) ?? null;
   }
 
   const top = ROUTES.find((route) =>
-    route.group === "top" && route.verbs.includes(head)
+    route.namespace === "public" &&
+    route.group === "top" &&
+    route.verbs.includes(head)
   );
   if (top) return top;
-  const nounRoutes = ROUTES.filter((route) => route.group === head);
-  if (nounRoutes.length === 0) return null;
-  const verb = clean[1];
-  if (head === "config" && clean.includes("--global")) return routeById("config-global");
-  return nounRoutes.find((route) => route.verbs.includes(verb ?? "")) ??
-    nounRoutes.find((route) =>
-      route.kind === "routing-only" && route.verbs.includes("<name>")
-    ) ??
-    nounRoutes.find((route) => route.kind === "custom") ??
-    null;
+  return null;
 }
 
 function routePinPolicy(argv: readonly string[]): PinPolicy {
@@ -1790,7 +1887,7 @@ function pinSessionId(argv: readonly string[], input: string | null): string | n
     }
   }
   const clean = withoutProjectDirFlag(argv);
-  if (clean[0] === "adapter" && clean[1] === "kiro-ide") {
+  if (clean[0] === "engine" && clean[1] === "adapter" && clean[2] === "kiro-ide") {
     const vscodePid = process.env.VSCODE_PID?.trim();
     const vscodeIpc = process.env.VSCODE_IPC_HOOK?.trim();
     if (vscodePid || vscodeIpc) {
@@ -1945,7 +2042,7 @@ function dispatchPinnedVersion(argv: string[], input: string | null): number | n
       argv,
       1,
       `this project requires ${version}, which is not installed completely`,
-      `aidlc versions install ${version}`,
+      `aidlc use ${version}`,
     );
   }
   reconcilePinRegistration(projectDir, version);
@@ -1974,7 +2071,7 @@ function refuseUnpinnedMajorSkew(argv: readonly string[]): number | null {
         argv,
         1,
         `project runtime ${harness.frameworkVersion} is incompatible with selected engine ${AIDLC_VERSION}`,
-        "aidlc use <installed-version> or aidlc init",
+        "aidlc use <installed-version> or aidlc config",
       );
     }
   }
@@ -2040,7 +2137,7 @@ function projectPolicyError(route: Route, argv: readonly string[]): string | nul
     discoverProjectHarnesses(projectDir).length > 0;
   return recognized
     ? null
-    : `${route.id} requires an installed project harness or recognized project directory; run aidlc init`;
+    : `${route.id} requires an installed project harness or recognized project directory; run aidlc config`;
 }
 
 async function withRoutePolicy(route: Route, argv: readonly string[], run: () => Promise<number>): Promise<number> {
@@ -2116,7 +2213,7 @@ export async function main(argv: string[]): Promise<void> {
   if (
     route?.routeOnly === "hook" ||
     route?.routeOnly === "statusline" ||
-    (route?.routeOnly === "adapter" && withoutProjectDirFlag(argv)[1] !== "kiro-ide")
+    (route?.routeOnly === "adapter" && withoutProjectDirFlag(argv)[2] !== "kiro-ide")
   ) {
     await readStdin();
   }

@@ -96,7 +96,7 @@ The composer runs once over `bare core + {chosen plugins}` and writes the effect
 |------|---------|-------|
 | **Claude** | SessionStart hook (fires eagerly on session spawn) | managed allowlist (`strictKnownMarketplaces`) |
 | **Codex** | SessionStart hook (fires lazily on first interaction) | one-time trust prompt, content-hash-pinned |
-| **Kiro** (CLI/IDE) | `aidlc plugin sync` when the binary is on PATH, or manual `bun <plugin>/hooks/compose.ts` after the folder-drop | n/a - folder-drop distribution |
+| **Kiro** (CLI/IDE) | `aidlc engine plugin sync` when the binary is on PATH, or manual `bun <plugin>/hooks/compose.ts` after the folder-drop | n/a - folder-drop distribution |
 
 The steps (identical regardless of trigger):
 
@@ -134,9 +134,9 @@ enabled scope.
 Use the deterministic utility command to inspect or change the selection:
 
 ```bash
-aidlc plugin select
-aidlc plugin select test-pro
-aidlc plugin select aidlc,test-pro
+aidlc engine plugin select
+aidlc engine plugin select test-pro
+aidlc engine plugin select aidlc,test-pro
 ```
 
 `select-plugins` validates names against the known set (`aidlc` plus plugin
@@ -152,7 +152,7 @@ the older three-file snapshot convention. `/aidlc --doctor` reports the enabled
 plugins, per-plugin enabled-stage counts, and hard-fails if the graph's
 `enabled:false` flags disagree with `harness.json`.
 
-`aidlc plugin list` is a separate installed-versus-composed status command; it
+`aidlc engine plugin list` is a separate installed-versus-composed status command; it
 does not print or change the project selection.
 
 ## 5a. Installed inventory, composition stamps, and sync
@@ -187,21 +187,21 @@ paths plus LF-normalized bytes before `{{HARNESS_DIR}}` substitution. Host
 wrappers and generated project output are excluded, so same-version vendored
 edits and path-only renames are visible.
 
-`aidlc plugin list [--verbose|--json]` compares the host inventory with those
+`aidlc engine plugin list [--verbose|--json]` compares the host inventory with those
 stamps. Default output deliberately has only three actions: `current`,
-`run: aidlc plugin sync`, or `needs attention: <remediation>`. Verbose and JSON
+`run: aidlc engine plugin sync`, or `needs attention: <remediation>`. Verbose and JSON
 output retain the internal reason: version differs, source changed, not
 composed, legacy unstamped, disabled, missing, invalid/ambiguous, or inventory
 unavailable.
 
-`aidlc plugin sync` composes every enabled installed plugin in a staged project,
+`aidlc engine plugin sync` composes every enabled installed plugin in a staged project,
 regenerates graph and runner surfaces, writes composition and ownership records,
 diffs the staged project, and submits one project transaction. Expected-state
 checks reject concurrent live edits; a commit failure rolls back all bytes,
 modes, stamps, and ownership records. A supported host hook with an injected
 current root uses the same implementation for only that plugin. Plain sync never
 deletes content for a missing installed source. Explicit
-`aidlc plugin sync --prune-missing` requires a proved full inventory,
+`aidlc engine plugin sync --prune-missing` requires a proved full inventory,
 confirmation (`--yes` when non-interactive), and hash-proven ownership; it
 refuses locally modified or unowned paths.
 
@@ -425,7 +425,7 @@ compilation fails, newly copied files and contribution writes are restored
 before the retry marker is written.
 
 The emitted SessionStart command probes for `aidlc` on `PATH` first and runs
-`aidlc plugin sync` when it is available. If no binary is found, it invokes the
+`aidlc engine plugin sync` when it is available. If no binary is found, it invokes the
 project's Bun `aidlc-plugin.ts` only as a compatibility fallback for older
 project projections. A discovered sync entrypoint is authoritative: its failure
 is propagated without falling through to another composer. Direct
@@ -449,13 +449,13 @@ codex plugin add aidlc-<name>@aidlc-plugins       # approve the one-time hook tr
 PLUGIN_ROOT="$(pwd)/dist/plugins/<name>/kiro"
 cp -r "$PLUGIN_ROOT"/. <project>/
 AIDLC_PLUGIN_ROOT="$PLUGIN_ROOT" AIDLC_PROJECT_DIR="<project>" \
-  AIDLC_HARNESS_DIR=.kiro aidlc plugin sync
+  AIDLC_HARNESS_DIR=.kiro aidlc engine plugin sync
 # fallback when aidlc is not installed:
 AIDLC_PLUGIN_ROOT="$PLUGIN_ROOT" AIDLC_PROJECT_DIR="<project>" \
   AIDLC_HARNESS_DIR=.kiro bun "$PLUGIN_ROOT/hooks/compose.ts"
 ```
 
-Then `/aidlc plugin list` and `/aidlc --doctor` compare installed and composed
+Then `/aidlc engine plugin list` and `/aidlc --doctor` compare installed and composed
 plugin versions and source hashes. The selection diagnostics remain in doctor,
 and a scoped run (`/aidlc --scope enterprise`) routes enabled plugin stages
 wherever their scopes put them on-path.

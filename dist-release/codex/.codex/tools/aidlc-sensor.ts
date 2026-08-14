@@ -71,7 +71,7 @@ const DEFAULT_TIMEOUT_GRACE_MS = 100;
 
 // Resolve sibling per-sensor script paths relative to THIS file's location,
 // not cwd. The copy projection names `bun <harness>/tools/aidlc-sensor-<id>.ts`;
-// the release projection names `aidlc __delegate sensor-<id>`. Both resolve to
+// the release projection names `aidlc engine sensor-<id>`. Both resolve to
 // the same bundled module identity.
 const __FILE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -142,8 +142,8 @@ function resolveScriptPath(command: string): string {
 	const tokens = command.trim().split(/\s+/);
 	// Find the first .ts token (drops the "bun" prefix or any flags).
 	const tsToken = tokens.find((t) => t.endsWith(".ts"));
-	const delegateIndex = tokens.indexOf("__delegate");
-	const nativeDelegate = delegateIndex >= 0 ? tokens[delegateIndex + 1] : undefined;
+	const engineIndex = tokens.indexOf("engine");
+	const nativeDelegate = engineIndex >= 0 ? tokens[engineIndex + 1] : undefined;
 	if (!tsToken && !nativeDelegate?.startsWith("sensor-")) {
 		dispatchError(`manifest command lacks a .ts script: "${command}"`);
 	}
@@ -515,10 +515,10 @@ function handleFire(args: string[]): void {
 		BUNDLED_SENSOR_IDS.has(ctx.sensor.id) &&
 		!process.env.AIDLC_SENSOR_SCRIPT_DIR;
 	const command = useBundledWorker
-		? [executable, "__sensor-script", ctx.sensor.id, ...ctx.scriptArgs]
-		: executable
-			? [executable, "__sensor-script-file", ctx.sensor.id, ...ctx.scriptArgs]
-			: [process.execPath, ctx.scriptAbsPath, ...ctx.scriptArgs];
+			? [executable, "engine", "__sensor-script", ctx.sensor.id, ...ctx.scriptArgs]
+			: executable
+				? [executable, "engine", "__sensor-script-file", ctx.sensor.id, ...ctx.scriptArgs]
+				: [process.execPath, ctx.scriptAbsPath, ...ctx.scriptArgs];
 	const result = spawnSync(command[0], command.slice(1), {
 		encoding: "utf-8",
 		timeout: timeoutMs,

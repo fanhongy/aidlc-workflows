@@ -135,7 +135,7 @@ NOTE: This artifact describes topology only. It does NOT pick a single "recommen
 ### Step 7: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage units-generation --result <outcome>`.
+`bun .kiro/tools/aidlc.ts engine orchestrate report --stage units-generation --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 8: Present Completion & Request Approval

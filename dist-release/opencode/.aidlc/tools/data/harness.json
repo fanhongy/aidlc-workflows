@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "opencode",
   "productName": "opencode",
-  "initNextStep": "run `opencode`, then `/aidlc --doctor`",
+  "configNextStep": "run `opencode`, then `/aidlc --doctor`",
   "harnessDir": ".aidlc",
   "rulesSubdir": "rules"
 }

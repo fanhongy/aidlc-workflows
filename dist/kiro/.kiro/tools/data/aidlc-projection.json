@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "kiro",
   "productName": "Kiro CLI",
-  "initNextStep": "run `kiro-cli chat`, then `/aidlc --doctor`",
+  "configNextStep": "run `kiro-cli chat`, then `/aidlc --doctor`",
   "harnessDir": ".kiro",
   "managedDirectories": [
     ".kiro",
@@ -34,7 +34,7 @@
           "sha256:e01ac1caf52a59d25faf859a03cfb65b803853c99298bbcbc80ef565e7628de6",
           "sha256:e3de4a295f9b9404b40678c28c0773ae432ac8d4aeacc07613ecfcdfbb4c866b",
           "sha256:e85a5d7ce13b676282dc99572f89c81256f2dada50b1881f4c9641e61339f5a4",
-          "sha256:aab0524828d39edc88379678246042eec5696881763b6fcd63a1ca22bb7ddb48"
+          "sha256:0388fb1eefe1927c202f79c6949662d1564470c4844fdc5400c2fd25800a1f0a"
         ]
       }
     }

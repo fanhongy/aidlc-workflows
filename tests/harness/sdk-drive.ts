@@ -299,7 +299,11 @@ export interface DriveOptions {
    * is the tool output itself and continuing would spend tokens on an unrelated
    * live workflow.
    */
-  stopAfterToolResult?: { toolName?: string; resultIncludes: string };
+  stopAfterToolResult?: {
+    toolName?: string;
+    resultIncludes: string;
+    inputExcludes?: string;
+  };
 }
 
 interface ClaudeSettings {
@@ -632,6 +636,12 @@ export async function driveAidlc(
                 opts.stopAfterToolResult &&
                 (opts.stopAfterToolResult.toolName === undefined ||
                   pending?.toolName === opts.stopAfterToolResult.toolName) &&
+                (
+                  opts.stopAfterToolResult.inputExcludes === undefined ||
+                  !JSON.stringify(pending?.input ?? {}).includes(
+                    opts.stopAfterToolResult.inputExcludes,
+                  )
+                ) &&
                 resultText.includes(opts.stopAfterToolResult.resultIncludes)
               ) {
                 stoppedAfterToolResult = true;

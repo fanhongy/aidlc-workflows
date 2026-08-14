@@ -73,7 +73,7 @@ Things that are **not** artifacts in this registry:
    declares every canonical name the stage emits. `consumes:` names the
    canonical strings the stage depends on.
 2. **The registry is computed, not written.** Run
-   `aidlc graph artifacts` to
+   `aidlc engine graph artifacts` to
    print the live registry — one name per line, sorted alphabetically.
    The tool unions every stage's `produces[]` from the compiled
    `stage-graph.json`.
@@ -180,13 +180,13 @@ every intent in the space, keyed by repo rather than by intent. The path is
 resolved outside the record-relative rule via the `isCodekb` branch in
 `resolveArtifactPath` (`dist/claude/.claude/tools/aidlc-orchestrate.ts`), and
 the same directory is printed by the read-only native route
-`aidlc workspace codekb`.
+`aidlc engine workspace codekb`.
 
 **Canonical name ≠ filename for collisions.** Where a collision is split
 (see above), the on-disk filename may keep the pre-split form
 (`test-results.md`) while the canonical name is the disambiguated
 version. Use the stage's `produces:` list and
-`aidlc graph artifacts` as the source of truth, not the
+`aidlc engine graph artifacts` as the source of truth, not the
 filesystem.
 
 ---
@@ -194,7 +194,7 @@ filesystem.
 ## How to view the live registry
 
 ```bash
-aidlc graph artifacts
+aidlc engine graph artifacts
 ```
 
 Prints one canonical name per line, alphabetically sorted.
@@ -216,7 +216,7 @@ No edit to this chapter required — the registry is derived.
 
 1. Edit the producing stage's `.md` file and add the canonical name to
    its `produces:` list.
-2. Run `aidlc graph artifacts` to confirm it appears.
+2. Run `aidlc engine graph artifacts` to confirm it appears.
 3. Run `/aidlc --doctor` to confirm no consumer references a name that no
    longer exists (the "Graph references" check).
 

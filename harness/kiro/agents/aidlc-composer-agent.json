@@ -42,19 +42,19 @@
     "preToolUse": [
       {
         "matcher": "fs_write",
-        "command": "{{INVOKE}} adapter kiro review-freeze",
+        "command": "{{INVOKE}} engine adapter kiro review-freeze",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} adapter kiro review-freeze",
+        "command": "{{INVOKE}} engine adapter kiro review-freeze",
         "timeout_ms": 15000
       }
     ],
     "postToolUse": [
       {
         "matcher": "fs_write",
-        "command": "{{INVOKE}} adapter kiro audit-and-sensors",
+        "command": "{{INVOKE}} engine adapter kiro audit-and-sensors",
         "timeout_ms": 120000
       }
     ]

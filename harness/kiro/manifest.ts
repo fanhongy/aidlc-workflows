@@ -23,7 +23,7 @@ import onboardingFills from "./onboarding.fills.ts";
 const manifest: HarnessManifest = {
   name: "kiro",
   productName: "Kiro CLI",
-  initNextStep: "run `kiro-cli chat`, then `/aidlc --doctor`",
+  configNextStep: "run `kiro-cli chat`, then `/aidlc --doctor`",
   harnessDir: ".kiro",
   tierFlavor: "kiro",
   rootIntegrations: [

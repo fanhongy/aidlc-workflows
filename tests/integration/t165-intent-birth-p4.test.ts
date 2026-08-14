@@ -155,7 +155,7 @@ describe("t164 auto-birth (intent-birth) on an empty workspace", () => {
     const r = next(["--scope", "poc"]);
     const d = JSON.parse(r.stdout.trim());
     expect(d.kind).toBe("print");
-    expect(d.message).toContain("intent-birth --scope poc");
+    expect(d.message).toContain("intent birth --scope poc");
     // next is read-only: it must NOT have birthed anything.
     expect(existsSync(intentsDir(proj))).toBe(false);
     expect(existsSync(seededStateFile(proj))).toBe(false);

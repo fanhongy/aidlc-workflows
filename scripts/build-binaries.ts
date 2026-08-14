@@ -14,7 +14,6 @@
 // produce a binary that crashes before the dispatcher runs on this codebase.
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -246,13 +245,11 @@ function formatSeconds(ms: number): number {
   return Math.round((ms / 1000) * 1000) / 1000;
 }
 
-function sha256(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
 function stampedVersion(stdout: string): string {
   const trimmed = stdout.trim();
-  const prefixed = /^aidlc\s+([0-9]+\.[0-9]+\.[0-9]+)$/.exec(trimmed);
+  const prefixed =
+    /^aidlc\s+([0-9]+\.[0-9]+\.[0-9]+)(?:\s+\(runtime\s+[0-9]+\.[0-9]+\.[0-9]+\))?$/
+      .exec(trimmed);
   return prefixed?.[1] ?? trimmed;
 }
 
@@ -321,7 +318,7 @@ function runtimeCrash(output: string): boolean {
 }
 
 function sensorListGate(artifact: string): GateResult {
-  const result = run(artifact, ["sensor", "list"], {
+  const result = run(artifact, ["engine", "sensor", "list"], {
     cwd: standaloneGateCwd(),
     env: pathlessEnv(),
     timeoutMs: 30_000,
@@ -353,7 +350,7 @@ function graphCompileGate(artifact: string): GateResult {
   try {
     const result = run(
       artifact,
-      ["graph", "compile", "--check", "--project-dir", project],
+      ["engine", "graph", "compile", "--check", "--project-dir", project],
       { cwd: project, env: pathlessEnv(project), timeoutMs: 60_000 },
     );
     return commandGate(
@@ -386,12 +383,12 @@ function packagedRuntimeImmutableGate(artifact: string): GateResult {
   try {
     const plugin = run(
       artifact,
-      ["plugin", "select", "aidlc", "--project-dir", project],
+      ["engine", "plugin", "select", "aidlc", "--project-dir", project],
       { cwd: project, env: pathlessEnv(), timeoutMs: 30_000 },
     );
     const graph = run(
       artifact,
-      ["graph", "compile", "--project-dir", project],
+      ["engine", "graph", "compile", "--project-dir", project],
       { cwd: project, env: pathlessEnv(), timeoutMs: 60_000 },
     );
     const unchanged = paths.every(
@@ -420,7 +417,7 @@ function packagedRuntimeImmutableGate(artifact: string): GateResult {
 }
 
 function validateOutputsGate(artifact: string): GateResult {
-  const result = run(artifact, ["validate", "outputs", "inception"], {
+  const result = run(artifact, ["engine", "validate", "outputs", "inception"], {
     cwd: standaloneGateCwd(),
     env: pathlessEnv(),
     timeoutMs: 30_000,
@@ -474,12 +471,12 @@ function harnessRuntimeGate(
     AIDLC_HARNESS_DIR: harnessDir,
     AIDLC_HARNESS_NAME: distribution,
   };
-  const sensors = run(artifact, ["sensor", "list"], {
+  const sensors = run(artifact, ["engine", "sensor", "list"], {
     cwd: standaloneGateCwd(),
     env,
     timeoutMs: 30_000,
   });
-  const runners = run(artifact, ["gen", "runners", "--check"], {
+  const runners = run(artifact, ["engine", "gen", "runners", "--check"], {
     cwd: standaloneGateCwd(),
     env,
     timeoutMs: 30_000,
@@ -509,7 +506,7 @@ function harnessProbeGate(artifact: string): GateResult {
     delete env.AIDLC_HARNESS_DIR;
     const result = run(
       artifact,
-      ["sensor", "describe", "linter", "--project-dir", project],
+      ["engine", "sensor", "describe", "linter", "--project-dir", project],
       { cwd: project, env, timeoutMs: 30_000 },
     );
     const output = `${result.stdout}\n${result.stderr}`;
@@ -517,7 +514,7 @@ function harnessProbeGate(artifact: string): GateResult {
       "harness-probe-kiro",
       result,
       result.status === 0 &&
-        result.stdout.includes("command: aidlc __delegate sensor-linter") &&
+        result.stdout.includes("command: aidlc engine sensor-linter") &&
         result.stdout.includes("path: .kiro/sensors/aidlc-linter.md") &&
         !runtimeCrash(output),
       {
@@ -536,7 +533,7 @@ function pluginSelectGate(artifact: string): GateResult {
   try {
     const result = run(
       artifact,
-      ["plugin", "select", "aidlc", "--project-dir", project],
+      ["engine", "plugin", "select", "aidlc", "--project-dir", project],
       { cwd: project, env: pathlessEnv(project), timeoutMs: 60_000 },
     );
     let selected = "";
@@ -580,7 +577,7 @@ function conductorPersonaGate(artifact: string): GateResult {
   };
   let result = run(
     artifact,
-    ["next", "--single", "--stage", "requirements-analysis"],
+    ["engine", "orchestrate", "next", "--single", "--stage", "requirements-analysis"],
     options,
   );
   let kind = "";
@@ -596,7 +593,7 @@ function conductorPersonaGate(artifact: string): GateResult {
       };
       kind = parsed.kind ?? "";
       if (kind === "load-steering" && parsed.continue_token) {
-        result = run(artifact, ["continue", parsed.continue_token], options);
+        result = run(artifact, ["engine", "orchestrate", "continue", parsed.continue_token], options);
         continue;
       }
       personaBytes = parsed.conductor_persona?.length ?? 0;
@@ -630,7 +627,7 @@ function workspaceFlagsGate(artifact: string): GateResult {
     mkdirSync(join(project, ".git"));
     const interleaved = run(
       artifact,
-      ["space", "--project-dir", project, "create", "teamB"],
+      ["engine", "space", "--project-dir", project, "create", "teamB"],
       { cwd: project, env: pathlessEnv(), timeoutMs: 30_000 },
     );
     const legacy = run(
@@ -643,12 +640,12 @@ function workspaceFlagsGate(artifact: string): GateResult {
       "workspace-global-flags",
       interleaved,
       interleaved.status === 0 &&
-        legacy.status === 0 &&
+        legacy.status === 2 &&
         existsSync(join(project, "aidlc", "spaces", "teamb")) &&
-        existsSync(join(project, "aidlc", "spaces", "teamc")) &&
-        !runtimeCrash(output),
+        !existsSync(join(project, "aidlc", "spaces", "teamc")) &&
+        !runtimeCrash(`${interleaved.stdout}\n${interleaved.stderr}`),
       {
-        expected: "interleaved --project-dir and legacy space-create both create spaces",
+        expected: "engine space accepts interleaved --project-dir and legacy space-create is rejected",
         actual: output.trim(),
         detail: `legacyStatus=${legacy.status}`,
       },
@@ -680,7 +677,7 @@ function sensorFireGate(artifact: string): GateResult {
   try {
     const birth = run(
       artifact,
-      ["intent", "birth", "--scope", "poc", "--label", "sensor-gate", "--project-dir", project],
+      ["engine", "intent", "birth", "--scope", "poc", "--label", "sensor-gate", "--project-dir", project],
       { cwd: project, env: pathlessEnv(project), timeoutMs: 30_000 },
     );
     const outputPath = join(
@@ -696,6 +693,7 @@ function sensorFireGate(artifact: string): GateResult {
     const result = run(
       artifact,
       [
+        "engine",
         "sensor",
         "fire",
         "required-sections",
@@ -753,17 +751,18 @@ function boltReentryGate(artifact: string): GateResult {
     const env = { ...pathlessEnv(), PATH: dirname(git) };
     const birth = run(
       artifact,
-      ["intent", "birth", "--scope", "poc", "--label", "bolt-gate", "--project-dir", projectArg],
+      ["engine", "intent", "birth", "--scope", "poc", "--label", "bolt-gate", "--project-dir", projectArg],
       { cwd: invocationCwd, env, timeoutMs: 30_000 },
     );
     const worktree = run(
       artifact,
-      ["worktree", "create", "--slug", "binary-bolt", "--base", branch, "--project-dir", projectArg],
+      ["engine", "worktree", "create", "--slug", "binary-bolt", "--base", branch, "--project-dir", projectArg],
       { cwd: invocationCwd, env, timeoutMs: 30_000 },
     );
     const result = run(
       artifact,
       [
+        "engine",
         "bolt",
         "start",
         "--name",
@@ -811,12 +810,13 @@ function swarmReentryGate(artifact: string): GateResult {
     const env = { ...pathlessEnv(), PATH: dirname(git) };
     const birth = run(
       artifact,
-      ["intent", "birth", "--scope", "poc", "--label", "swarm-gate", "--project-dir", projectArg],
+      ["engine", "intent", "birth", "--scope", "poc", "--label", "swarm-gate", "--project-dir", projectArg],
       { cwd: invocationCwd, env, timeoutMs: 30_000 },
     );
     const result = run(
       artifact,
       [
+        "engine",
         "swarm",
         "prepare",
         "--batch",
@@ -864,7 +864,7 @@ function delegatePluginSyncGate(artifact: string): GateResult {
     const settings = join(fixture, "settings.json");
     writeFileSync(registry, '{"version":2,"plugins":{}}\n');
     writeFileSync(settings, '{"enabledPlugins":{}}\n');
-    const result = run(artifact, ["plugin", "sync"], {
+    const result = run(artifact, ["engine", "plugin", "sync"], {
       cwd: standaloneGateCwd(),
       env: {
         ...process.env,
@@ -903,7 +903,7 @@ function realPluginSyncGate(artifact: string): GateResult {
     cpSync(join(REPO_ROOT, "dist-release", "claude", "aidlc"), join(project, "aidlc"), {
       recursive: true,
     });
-    const result = run(artifact, ["plugin", "sync", "--project-dir", project], {
+    const result = run(artifact, ["engine", "plugin", "sync", "--project-dir", project], {
       cwd: project,
       env: {
         ...process.env,
@@ -1022,7 +1022,7 @@ function hookGate(artifact: string, hook: string): GateResult {
   const project = mkdtempSync(join(tmpdir(), "aidlc-binary-hook-"));
   try {
     mkdirSync(join(project, ".git"));
-    const result = run(artifact, ["hook", hook], {
+    const result = run(artifact, ["engine", "hook", hook], {
       cwd: project,
       env: { ...process.env, PATH: "", CLAUDE_PROJECT_DIR: project },
       input: "{}",
@@ -1084,7 +1084,7 @@ function planApprovalHookGate(artifact: string): GateResult {
         prompt: "AIDLC-UNIT: todo-core\nImplement todo-core",
       },
     });
-    const result = run(artifact, ["hook", "plan-approval-guard"], {
+    const result = run(artifact, ["engine", "hook", "plan-approval-guard"], {
       cwd: project,
       env: pathlessEnv(project),
       input,
@@ -1145,7 +1145,7 @@ function planApprovalAdapterGate(
             ],
           },
         };
-    const result = run(artifact, ["adapter", harness, "plan-approval-guard"], {
+    const result = run(artifact, ["engine", "adapter", harness, "plan-approval-guard"], {
       cwd: project,
       env: pathlessEnv(project),
       input: JSON.stringify(input),
@@ -1178,7 +1178,7 @@ function statuslineGate(artifact: string): GateResult {
       model: { id: "claude-test" },
       context_window: { used_percentage: 5 },
     });
-    const result = run(artifact, ["statusline"], {
+    const result = run(artifact, ["engine", "statusline"], {
       cwd: project,
       env: { ...process.env, PATH: "" },
       input,
@@ -1212,7 +1212,7 @@ function codexAdapterGate(artifact: string): GateResult {
       cwd: project,
       session_id: `binary-gate-${Date.now()}`,
     });
-    const result = run(artifact, ["adapter", "codex", "validate-state"], {
+    const result = run(artifact, ["engine", "adapter", "codex", "validate-state"], {
       cwd: project,
       env: { ...process.env, PATH: "" },
       input,
@@ -1256,7 +1256,7 @@ function routedProjectDirGate(artifact: string): GateResult {
     const env = { ...pathlessEnv(), CLAUDE_PROJECT_DIR: cwdProject };
     const hook = run(
       artifact,
-      ["hook", "validate-state", "--project-dir", targetProject],
+      ["engine", "hook", "validate-state", "--project-dir", targetProject],
       { cwd: cwdProject, env, input: "{}", timeoutMs: 30_000 },
     );
     const targetGenericHeartbeat = join(
@@ -1281,6 +1281,7 @@ function routedProjectDirGate(artifact: string): GateResult {
     const birth = run(
       artifact,
       [
+        "engine",
         "intent",
         "birth",
         "--scope",
@@ -1294,7 +1295,7 @@ function routedProjectDirGate(artifact: string): GateResult {
     );
     const statusline = run(
       artifact,
-      ["statusline", "--project-dir", targetProject],
+      ["engine", "statusline", "--project-dir", targetProject],
       {
         cwd: cwdProject,
         env,
@@ -1330,7 +1331,7 @@ function routedProjectDirGate(artifact: string): GateResult {
     );
     const adapter = run(
       artifact,
-      ["adapter", "codex", "validate-state", "--project-dir", targetProject],
+      ["engine", "adapter", "codex", "validate-state", "--project-dir", targetProject],
       {
         cwd: cwdProject,
         env,
@@ -1417,13 +1418,13 @@ function dispatcherParityGate(artifact: string): GateResult {
       {
         name: "hook",
         projectDir: codexProject,
-        args: ["hook", "validate-state"],
+        args: ["engine", "hook", "validate-state"],
         input: "{}",
       },
       {
         name: "statusline",
         projectDir: codexProject,
-        args: ["statusline"],
+        args: ["engine", "statusline"],
         input: JSON.stringify({
           workspace: { project_dir: codexProject },
           model: { id: "claude-parity" },
@@ -1433,7 +1434,7 @@ function dispatcherParityGate(artifact: string): GateResult {
       {
         name: "adapter-codex",
         projectDir: codexProject,
-        args: ["adapter", "codex", "validate-state"],
+        args: ["engine", "adapter", "codex", "validate-state"],
         input: JSON.stringify({
           hook_event_name: "PreCompact",
           cwd: codexProject,
@@ -1443,7 +1444,7 @@ function dispatcherParityGate(artifact: string): GateResult {
       {
         name: "adapter-kiro",
         projectDir: kiroProject,
-        args: ["adapter", "kiro", "session-start"],
+        args: ["engine", "adapter", "kiro", "session-start"],
         input: JSON.stringify({
           hook_event_name: "agentSpawn",
           cwd: kiroProject,
@@ -1453,7 +1454,7 @@ function dispatcherParityGate(artifact: string): GateResult {
       {
         name: "adapter-kiro-ide",
         projectDir: kiroIdeProject,
-        args: ["adapter", "kiro-ide", "mint"],
+        args: ["engine", "adapter", "kiro-ide", "mint"],
         env: {
           USER_PROMPT: "{}",
           VSCODE_PID: "23801",
@@ -1463,7 +1464,7 @@ function dispatcherParityGate(artifact: string): GateResult {
       {
         name: "generated-surface",
         projectDir: codexProject,
-        args: ["gen", "stage-table", "--check"],
+        args: ["engine", "gen", "stage-table", "--check"],
         input: undefined,
       },
     ] as const;
@@ -1665,10 +1666,8 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
   const project = join(root, "project");
   const registry = join(root, "installed_plugins.json");
   const settings = join(root, "settings.json");
-  const release = join(root, "release");
   mkdirSync(project, { recursive: true });
   mkdirSync(join(project, ".git"));
-  mkdirSync(release);
   writeFileSync(registry, '{"version":2,"plugins":{}}\n');
   writeFileSync(settings, '{"enabledPlugins":{}}\n');
   const env: NodeJS.ProcessEnv = {
@@ -1681,7 +1680,7 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
 
   try {
     const initArgs = [
-      "init",
+      "config",
       "--project-dir",
       project,
       "--harness",
@@ -1696,10 +1695,10 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
       timeoutMs: 60_000,
     });
     const initDryRun = commandGate(
-      "final-layout-init-dry-run",
+      "final-layout-config-dry-run",
       dryRun,
       dryRun.status === 0 &&
-        dryRun.stdout.includes("init plan for") &&
+        dryRun.stdout.includes("config plan for") &&
         !existsSync(join(project, ".claude")),
       {
         expected: "dry-run plans a fresh Claude projection without creating it",
@@ -1735,12 +1734,12 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
         doctorJson &&
         !runtimeCrash(`${applied.stdout}\n${applied.stderr}\n${doctor.stdout}\n${doctor.stderr}`),
       {
-        expected: "init apply succeeds and doctor --json emits a complete health envelope",
-        actual: `init=${applied.status}; doctor=${doctor.status}; json=${doctorJson}`,
+        expected: "config apply succeeds and doctor --json emits a complete health envelope",
+        actual: `config=${applied.status}; doctor=${doctor.status}; json=${doctorJson}`,
       },
     );
 
-    const versions = run(artifact, ["versions", "list"], {
+    const versions = run(artifact, ["system", "versions", "list"], {
       cwd: project,
       env,
       timeoutMs: 30_000,
@@ -1757,7 +1756,7 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
 
     const plugins = run(
       artifact,
-      ["plugin", "list", "--json", "--project-dir", project],
+      ["engine", "plugin", "list", "--json", "--project-dir", project],
       { cwd: project, env, timeoutMs: 30_000 },
     );
     let pluginJson = false;
@@ -1778,7 +1777,7 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
     );
 
     const completionResults = ["bash", "zsh", "fish"].map((shell) =>
-      run(artifact, ["completions", shell], {
+      run(artifact, ["system", "completions", shell], {
         cwd: project,
         env,
         timeoutMs: 30_000,
@@ -1798,52 +1797,12 @@ function finalLayoutLifecycleGates(artifact: string): GateResult[] {
       },
     );
 
-    const installer = join(release, "install.sh");
-    writeFileSync(installer, "#!/bin/sh\nexit 0\n");
-    const asset = {
-      name: "install.sh",
-      sha256: sha256(installer),
-      bytes: statSync(installer).size,
-      kind: "installer",
-    };
-    const manifest = join(release, "version.json");
-    writeFileSync(
-      manifest,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        version: AIDLC_VERSION,
-        date: "2026-07-19",
-        distributions: [{ name: "claude", productName: "Claude Code" }],
-        assets: [asset],
-      }, null, 2)}\n`,
-    );
-    writeFileSync(
-      join(release, "checksums.txt"),
-      `${sha256(manifest)}  version.json\n${asset.sha256}  install.sh\n`,
-    );
-    const packageVerify = run(artifact, ["package", "verify", release], {
-      cwd: project,
-      env,
-      timeoutMs: 30_000,
-    });
-    const packageVerifyGate = commandGate(
-      "final-layout-package-verify",
-      packageVerify,
-      packageVerify.status === 0 &&
-        packageVerify.stdout.includes(`verified release package ${AIDLC_VERSION}`),
-      {
-        expected: `verified release package ${AIDLC_VERSION}`,
-        actual: packageVerify.stdout.trim() || packageVerify.stderr.trim(),
-      },
-    );
-
     return [
       initDryRun,
       doctorJsonGate,
       versionsGate,
       pluginListGate,
       completionsGate,
-      packageVerifyGate,
     ];
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1915,18 +1874,18 @@ function buildTarget(target: TargetConfig): TargetResult {
     result.gates.push(generatedSurfaceGate(
       actual.artifact,
       "runner-check",
-      ["gen", "runners", "--check"],
+      ["engine", "gen", "runners", "--check"],
       "stage-runner set is in sync",
     ));
     result.gates.push(generatedSurfaceGate(
       actual.artifact,
       "stage-table-check",
-      ["gen", "stage-table", "--check"],
+      ["engine", "gen", "stage-table", "--check"],
     ));
     result.gates.push(generatedSurfaceGate(
       actual.artifact,
       "scope-table-check",
-      ["gen", "scope-table", "--check"],
+      ["engine", "gen", "scope-table", "--check"],
     ));
     result.gates.push(harnessRuntimeGate(actual.artifact, "codex", ".codex"));
     result.gates.push(harnessRuntimeGate(actual.artifact, "kiro", ".kiro"));
@@ -1945,7 +1904,7 @@ function buildTarget(target: TargetConfig): TargetResult {
     result.gates.push(pathlessOrchestrateGate(
       actual.artifact,
       "pathless-next-env-scope",
-      ["next"],
+      ["engine", "orchestrate", "next"],
       { AWS_AIDLC_DEFAULT_SCOPE: "feature" },
       "error",
       "No workflow state found",
@@ -1953,16 +1912,16 @@ function buildTarget(target: TargetConfig): TargetResult {
     result.gates.push(pathlessOrchestrateGate(
       actual.artifact,
       "native-directive-invocation",
-      ["next", "--status"],
+      ["engine", "orchestrate", "next", "--status"],
       {},
       "print",
-      "aidlc __delegate utility status",
+      "aidlc engine status",
       "bun ",
     ));
     result.gates.push(pathlessOrchestrateGate(
       actual.artifact,
       "pathless-park",
-      ["park"],
+      ["engine", "orchestrate", "park"],
       {},
       "error",
       "State file not found",
@@ -1970,7 +1929,16 @@ function buildTarget(target: TargetConfig): TargetResult {
     result.gates.push(pathlessOrchestrateGate(
       actual.artifact,
       "pathless-single-audit",
-      ["report", "--single", "--stage", "requirements-analysis", "--result", "completed"],
+      [
+        "engine",
+        "orchestrate",
+        "report",
+        "--single",
+        "--stage",
+        "reverse-engineering",
+        "--result",
+        "completed",
+      ],
       {},
       "done",
       "committed under synthetic workflow",

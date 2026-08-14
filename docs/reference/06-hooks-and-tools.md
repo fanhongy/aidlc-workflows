@@ -8,7 +8,7 @@ This chapter documents the hook system architecture, all seventeen hook scripts,
 
 ## Hook System Architecture
 
-This implementation uses seventeen TypeScript hook sources in `.claude/hooks/`. The copy channel invokes them through `bun`; the native channel routes them through `aidlc hook`, `aidlc statusline`, or a harness adapter target. All seventeen are **project-wide** — registered in `settings.json` (the statusline via the top-level `statusLine` key, the other sixteen via the `hooks` block), they fire regardless of which skill is active. They were previously split (six declared in `aidlc/SKILL.md` frontmatter as skill-scoped, the rest project-wide); v0.6.0 moved the skill-scoped six into `settings.json` so every entry point — the orchestrator, each packaged scope/stage runner, and any hand-written customer runner — inherits the deterministic spine with no per-runner `hooks:` block.
+This implementation uses seventeen TypeScript hook sources in `.claude/hooks/`. The copy channel invokes them through `bun`; the native channel routes them through `aidlc engine hook`, `aidlc engine statusline`, or an `aidlc engine adapter` target. All seventeen are **project-wide** — registered in `settings.json` (the statusline via the top-level `statusLine` key, the other sixteen via the `hooks` block), they fire regardless of which skill is active. They were previously split (six declared in `aidlc/SKILL.md` frontmatter as skill-scoped, the rest project-wide); v0.6.0 moved the skill-scoped six into `settings.json` so every entry point — the orchestrator, each packaged scope/stage runner, and any hand-written customer runner — inherits the deterministic spine with no per-runner `hooks:` block.
 
 Eleven of the seventeen are **non-blocking**. Six are **flow-altering**: the `Stop` hook keeps the forwarding loop running, the dispatch-rules hook attaches exact active-stage rules to subagent briefs where the harness supports input rewriting, the plan-approval guard refuses premature code-generation dispatches, the reviewer-scope hook refuses sibling-unit reviewer access, the review-freeze hook refuses a produces[] write that would void a fresh READY review receipt before the gate, and the state-transition guard refuses direct lifecycle calls that bypass `aidlc-orchestrate.ts report`.
 
@@ -162,7 +162,7 @@ These six hooks (the audit/sensor/statusline/runtime-compile/state-validation/su
 1. **Project directory resolution:** Same multi-fallback pattern as audit-logger.ts.
 2. **Audit + state guards:** Exits silently if the `audit/` shard or `aidlc-state.md` does not exist (pre-init).
 3. **Active-stage read:** Reads the active stage's `sensors_applicable` array off `stage-graph.json` — the compile-resolved sensor list for that stage node (empty for stages like workspace-scaffold).
-4. **Dispatch:** For each applicable Sensor, invokes `aidlc __delegate sensor fire <id> --stage <slug> --output-path <path>` through the selected channel. The dispatcher applies each Sensor's `matches` glob hook-side; a non-matching write is skipped. Outcomes are advisory — the hook never blocks the write.
+4. **Dispatch:** For each applicable Sensor, invokes `aidlc engine sensor fire <id> --stage <slug> --output-path <path>` through the selected channel. The dispatcher applies each Sensor's `matches` glob hook-side; a non-matching write is skipped. Outcomes are advisory — the hook never blocks the write.
 5. **Health heartbeat:** Writes `.aidlc-hooks-health/sensor-fire.last` on a fire, so the doctor can distinguish a healthy idle hook from a silent failure.
 
 See [Sensor System](07-sensor-system.md) for the manifest schema and the fire lifecycle.
@@ -180,7 +180,7 @@ See [Sensor System](07-sensor-system.md) for the manifest schema and the fire li
 3. **Health heartbeat:** Writes `.aidlc-hooks-health/runtime-compile.last`.
 4. **Tail-read:** Splits the merged `audit/` shards on `\n---\n` and takes the last 3 blocks (the upper bound a single `approve` call appends).
 5. **Event-class filter:** Recompiles only when one of the last 3 blocks carries `GATE_APPROVED`, `STAGE_STARTED`, `STAGE_AWAITING_APPROVAL`, `AUDIT_MERGED`, or `WORKFLOW_COMPLETED`. Exits on no match.
-6. **Dispatch:** Runs `aidlc __delegate runtime compile` through the selected channel. On non-zero exit, records a hook drop for `--doctor`; never blocks the parent Bash call.
+6. **Dispatch:** Runs `aidlc engine runtime compile` through the selected channel. On non-zero exit, records a hook drop for `--doctor`; never blocks the parent Bash call.
 
 See [Runtime Graph](13-runtime-graph.md) for the compile lifecycle and the locked schema.
 
@@ -237,7 +237,7 @@ This is one of the framework's five flow-altering hooks, alongside the four PreT
 
 1. **stdin idiom:** Mirrors `log-subagent.ts` — a TTY means no Claude Code JSON is coming (test/debug), so it allows the stop. Otherwise it reads the Stop-hook JSON, from which it needs only `stop_hook_active`.
 2. **No-op outside AIDLC:** If there is no active intent's `aidlc-state.md` under the project dir, there is nothing to enforce — it allows the stop. The frontmatter `Stop` matcher already scopes the hook to `/aidlc`; this is defence in depth so a non-AIDLC session is never blocked.
-3. **Compose the engine:** Runs `aidlc __delegate orchestrate next --project-dir <dir>` through the selected channel and parses the directive `kind`. It does not re-derive state — it composes the engine.
+3. **Compose the engine:** Runs `aidlc engine orchestrate next --project-dir <dir>` through the selected channel and parses the directive `kind`. It does not re-derive state — it composes the engine.
 4. **`done` → allow:** If the directive is `done`, the workflow is complete; the hook emits nothing and exits 0 (the precedent non-blocking pattern), then clears the recursion counter.
 5. **`parked` -> allow:** If the directive is `parked`, the workflow was intentionally parked mid-flow for a later session (`aidlc-orchestrate park`); the hook allows the stop and clears the counter, exactly like `done`. This is the supported multi-session exit: without it, the only clean stop is `done`, which an agent on a long workflow can only reach by rubber-stamping the remaining stages (#367). **Autonomy guard (#365):** the `parked` allow is suppressed under autonomous Construction (`Construction Autonomy Mode: autonomous`), so a `parked` directive there falls through to the cap-bounded block and the loop keeps moving.
 6. **Human-wait -> allow:** If the directive is pending but the conductor is correctly parked on the human (or simply chatting), the hook allows the stop and records a drop rather than spamming the nudge. Four cases qualify: the current stage's checkbox is positively `[?]` awaiting-approval, `[R]` revising, `[-]` in-progress **with** an unanswered `[Answer]:` tag in its `<slug>-questions.md` (a pending mid-stage clarifying question), or the ending turn was conversational (the human's most recent prompt was answered with no workflow-engine call, read from the harness transcript) - the last two suppressed under autonomous Construction. Positive-confirmation only: any other state, no checkbox row, no open question, no transcript / no human prompt / any engine call in the responding turn, or a parse error falls through to the block below. See "Human-wait carve-out" below.
@@ -516,7 +516,7 @@ The file `core/tools/aidlc-utility.ts` handles utility commands deterministicall
 (no LLM reasoning needed). Generated framework prose uses the dispatcher seam:
 
 ```bash
-aidlc __delegate utility <subcommand>
+aidlc engine <noun> <verb>
 ```
 
 In committed `dist/` copies, `{{INVOKE}}` expands that call to
@@ -533,16 +533,16 @@ path for a framework command.
 | `status` | Read-only status check from `aidlc-state.md`. Surfaces `[?]` / `[R]` gate awareness in the Status line. | — |
 | `doctor` | Health check: verify hooks, prerequisites, file structure | `HEALTH_CHECKED` |
 | `intent-birth` | Birth a new intent and run the three deterministic Initialization stages. | `WORKFLOW_STARTED`, `PHASE_STARTED`, `PHASE_SKIPPED`, `STAGE_STARTED`, `STAGE_COMPLETED`, `WORKSPACE_*`, and the init-to-first-post-init phase hand-off events |
-| `init` | Legacy utility transition error; public project install/refresh is the separate `aidlc init` route backed by `aidlc-init.ts`. Start workflow work by describing what to build so the engine routes to `intent-birth`. | none |
+| `init` | Legacy utility transition error; public project install/refresh is the separate `aidlc config` route backed by `aidlc-init.ts`. Start workflow work by describing what to build so the engine routes to `intent-birth`. | none |
 | `intent [name]` | List intents (`--json`) or switch the active-intent cursor. Normally routed from `/aidlc intent [name]`. | — |
 | `space [name]` | List spaces (`--json`) or switch the active-space cursor and harness include. Normally routed from `/aidlc space [name]`. | — |
 | `space-create <name>` | Create a new space from the framework memory baseline. Normally routed from `/aidlc space-create <name>`. | — |
-| `codekb-path [--repo <name>] [--json]` | Read-only query behind `aidlc workspace codekb`; prints the deterministic per-repo codekb directory. | — |
-| `select-plugins [names]` | Query/update behind `aidlc plugin select`; stages all selected surfaces and commits their diff through the transaction engine. | `PLUGIN_SELECTION_CHANGED` in set mode |
+| `codekb-path [--repo <name>] [--json]` | Read-only query behind `aidlc engine workspace codekb`; prints the deterministic per-repo codekb directory. | — |
+| `select-plugins [names]` | Query/update behind `aidlc engine plugin select`; stages all selected surfaces and commits their diff through the transaction engine. | `PLUGIN_SELECTION_CHANGED` in set mode |
 | `scope-change` | Atomic scope updates mid-workflow (recalculate stage inclusion). Re-plans which stages are EXECUTE/SKIP. | `SCOPE_CHANGED` |
 | `config-get`, `config-list` | Read active workflow config (`depth`, `test-strategy`); `config-list --json` emits the structured shape. | none |
 | `config-change` | Write active workflow config. Dispatcher form: `/aidlc config set depth <value>` or `/aidlc config set test-strategy <value>`. | `DEPTH_CHANGED`, `TEST_STRATEGY_CHANGED` |
-| `plugin-list` | Legacy direct utility view of project selection; the public `aidlc plugin list` route uses `aidlc-plugin.ts`. | none |
+| `plugin-list` | Legacy direct utility view of project selection; the internal `aidlc engine plugin list` route uses `aidlc-plugin.ts`. | none |
 | `plugin-sync` | Legacy injected-root composer retained for direct compatibility; the public route uses `aidlc-plugin.ts`. | none |
 | `set-status` | Low-level state-field sync (called by `sync-statusline.ts` hook on TaskUpdate) | — |
 | `detect-scope` | Record a scope-detection event during freeform handling. Two modes: `--scope <s> --input <text> [--source freeform\|keyword\|env\|cli]` (explicit), or `--from-text --input <text>` (inference via `inferScopeFromText` — reads each scope's `keywords` from its `.claude/scopes/*.md` frontmatter with word-boundary matching, alphabetical tie-break, `>5`-word fallback to `feature`). Modes are mutually exclusive. Audit event includes optional `Matched keywords` field when a keyword fires. | `SCOPE_DETECTED` |
@@ -555,13 +555,13 @@ path for a framework command.
 The user-facing `intent`, `space`, and `space-create` forms are covered in
 [CLI Commands](../guide/12-cli-commands.md) and
 [Spaces and Intents](../guide/03-spaces-and-intents.md). Use
-`aidlc workspace codekb` and `aidlc plugin select` for the corresponding
+`aidlc engine workspace codekb` and `aidlc engine plugin select` for the corresponding
 dispatcher forms; the utility verb names are internal delegate targets.
 
 ## Plugin State Tool
 
-`<harness-dir>/tools/aidlc-plugin.ts` owns the public `aidlc plugin list` and
-`aidlc plugin sync` routes. It normalizes the proved Claude/Codex host
+`<harness-dir>/tools/aidlc-plugin.ts` owns the internal `aidlc engine plugin list` and
+`aidlc engine plugin sync` routes. It normalizes the proved Claude/Codex host
 inventories (or one injected current root), validates host manifests, hashes
 compose inputs, compares project stamps, and renders the three-action status
 surface. Sync composes in staging and applies one `aidlc-transaction.ts` plan;

@@ -749,7 +749,7 @@ export function collectPluginStatus(
 
 function humanAction(status: PluginStatus): string {
   if (status.action === "current") return "current";
-  if (status.action === "sync") return "run: aidlc plugin sync";
+  if (status.action === "sync") return "run: aidlc config";
   return `needs attention: ${status.message}`;
 }
 
@@ -1126,12 +1126,12 @@ function runStagedTool(
   const command = executable ?? process.execPath;
   const commandArgs = executable
     ? tool === "graph"
-      ? ["graph", ...args]
+      ? ["engine", "graph", ...args]
       : args[0] === "write"
-      ? ["gen", "runners", ...args.slice(1)]
+      ? ["engine", "gen", "runners", ...args.slice(1)]
       : args[0] === "scopes"
-      ? ["gen", "runner-scopes", ...args.slice(1)]
-      : ["gen", ...args]
+      ? ["engine", "gen", "runner-scopes", ...args.slice(1)]
+      : ["engine", "gen", ...args]
     : [join(stagedProject, harnessDir, "tools", `aidlc-${tool}.ts`), ...args];
   const result = spawnSync(command, commandArgs, {
     cwd: stagedProject,
@@ -1169,7 +1169,7 @@ function refreshGeneratedTable(
   const verb = `${kind}-table`;
   const command = executable ?? process.execPath;
   const args = executable
-    ? ["gen", verb]
+    ? ["engine", "gen", verb]
     : [join(stagedProject, harnessDir, "tools", "aidlc-utility.ts"), verb];
   const result = spawnSync(command, args, {
     cwd: stagedProject,
@@ -1454,11 +1454,11 @@ export async function main(argv: string[]): Promise<void> {
       else if (flags.quiet !== "true") process.stdout.write(`${message}\n`);
       return;
     }
-    throw new Error("usage: aidlc plugin <list|sync [--prune-missing]>");
+    throw new Error("usage: aidlc engine plugin <list|sync [--prune-missing]>");
   } catch (error) {
     const message = errorMessage(error);
     if (flags.json === "true") process.stdout.write(jsonEnvelope(1, message, null));
-    else process.stderr.write(`aidlc plugin: ${message}\n`);
+    else process.stderr.write(`aidlc engine plugin: ${message}\n`);
     process.exitCode = 1;
   }
 }

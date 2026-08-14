@@ -75,7 +75,7 @@ per-target `runtime/` directories are smoke-gate staging; release data archives
 are rebuilt from the committed native projections, not copied from those
 sidecars. `--require-release-matrix` requires all seven targets and a matching
 verification record for each binary. The generated flat directory is the
-contract consumed by the installer and `aidlc package`.
+contract consumed by the installer and `release packaging tooling`.
 
 The tag-triggered release workflow is deliberately candidate-preserving:
 verification and installer lint run first; target-native jobs produce binaries
@@ -161,7 +161,7 @@ Utility handlers fall into two categories:
 ### Deterministic handlers (preferred)
 For handlers that require no LLM reasoning (print text, read/format files, check prerequisites, create directories):
 1. Add a subcommand to `core/tools/aidlc-utility.ts`
-2. Register a dispatcher route and call it from SKILL.md through `aidlc __delegate utility <subcommand>` (or its public route)
+2. Register a semantic dispatcher noun/verb and call it from SKILL.md through `aidlc engine <noun> <verb>` (or its public route)
 3. No task tracking needed -- the script runs in under a second
 4. Handle audit logging inside the script via `appendAuditEntry` from `aidlc-audit.ts` (never hand-write `**Event**:` markdown blocks)
 5. Add the verb to the `aidlc-utility` usage string. If it renders a generated SKILL.md region, also document the corresponding `--check` guard in this chapter.
@@ -169,7 +169,7 @@ For handlers that require no LLM reasoning (print text, read/format files, check
 The `--help`, `--version`, `--status`, and `--doctor` handlers are reference implementations. `--doctor` also accepts `--export` (with an optional `--output <dir>`), which runs a fresh doctor pass and then writes a small, redacted diagnostic report; the shared `DoctorFinding` model and the report-assembly logic live in `core/tools/aidlc-doctor-bundle.ts`, so the live report and the exported report draw from one set of findings.
 
 The `codekb-path` handler is a read-only utility verb reached through
-`aidlc workspace codekb`, not a chat command. It emits NO audit event, drives
+`aidlc engine workspace codekb`, not a chat command. It emits NO audit event, drives
 NO SKILL.md task tracking, and creates NO directory (`mkdir`). It simply prints
 the canonical per-repo codekb directory the reverse-engineering stage writes
 its artifacts into, so prose never hand-derives that path.
@@ -178,7 +178,7 @@ its artifacts into, so prose never hand-derives that path.
 For handlers that benefit from agent reasoning (filesystem scanning, decision-making):
 1. **Task tracking** -- Create tasks via `TaskCreate` for each logical step, transition them with `TaskUpdate` (`in_progress` -> `completed`) as work progresses. This drives the task sidebar in Claude Code.
 2. **Statusline update** -- If the active intent's `aidlc-state.md` exists, temporarily set `Current Stage` to describe the running utility (e.g., `running health check`), then restore the original value when done. The `aidlc-statusline.ts` hook reads this field for the terminal status bar.
-3. **Audit logging** -- Invoke the appropriate native dispatcher route (for example, `aidlc __delegate utility <handler>` calling `appendAuditEntry` internally). Never hand-write `**Event**:` markdown blocks from LLM prose — see [State Machine: Forbidden patterns](12-state-machine.md).
+3. **Audit logging** -- Invoke the appropriate semantic native dispatcher route, whose backing handler calls `appendAuditEntry` internally. Never hand-write `**Event**:` markdown blocks from LLM prose — see [State Machine: Forbidden patterns](12-state-machine.md).
 
 The `intent-birth` handler is fully deterministic: all three init stages (workspace-scaffold, workspace-detection, state-init) run inside a single `aidlc-utility intent-birth` call. The welcome message is rendered at session start via `companyAnnouncements` in `settings.json` and is not a stage.
 
@@ -217,15 +217,15 @@ A scope is authored as a file (its identity) plus a per-stage membership tag. Th
 
 2. **Tag the member stages** — in each stage that should run under `hotfix` (under `core/aidlc-common/stages/<phase>/`), add `hotfix` to its frontmatter `scopes:` list. A stage you don't tag is `SKIP` for the scope. The 3 initialization stages (`workspace-scaffold`, `workspace-detection`, `state-init`) must include it — they always run.
 
-3. **Recompile + regenerate the scope-table** — `aidlc __delegate graph compile` transposes the `scopes:` tags into `tools/data/scope-grid.json`. Then `aidlc __delegate utility scope-table` prints the canonical Markdown region for SKILL.md's compiled scope table. Keep the region between the `<!-- BEGIN: compiled ... -->` / `<!-- END: compiled ... -->` markers generated, then run `aidlc __delegate graph compile --check` and `aidlc __delegate utility scope-table --check` to confirm exit 0 (no drift).
+3. **Recompile + regenerate the scope-table** — `aidlc engine graph compile` transposes the `scopes:` tags into `tools/data/scope-grid.json`. Then `aidlc engine gen scope-table` prints the canonical Markdown region for SKILL.md's compiled scope table. Keep the region between the `<!-- BEGIN: compiled ... -->` / `<!-- END: compiled ... -->` markers generated, then run `aidlc engine graph compile --check` and `aidlc engine gen scope-table --check` to confirm exit 0 (no drift).
 
-4. **Verify the scope resolves** - `aidlc __delegate utility intent-birth --scope hotfix --project-dir /tmp/scope-smoke` should succeed and produce a state file with `Scope: hotfix`.
+4. **Verify the scope resolves** - `aidlc engine intent birth --scope hotfix --project-dir /tmp/scope-smoke` should succeed and produce a state file with `Scope: hotfix`.
 
 5. **Verify `doctor` accepts it as an env default** — `AWS_AIDLC_DEFAULT_SCOPE=hotfix aidlc doctor` should report the env var as valid.
 
-6. **Verify keyword inference** (if `keywords` populated) — `aidlc __delegate utility detect-scope --from-text --input "urgent customer issue" --project-dir /tmp/scope-smoke` should return `{"scope":"hotfix","source":"keyword","matches":["urgent"]}`.
+6. **Verify keyword inference** (if `keywords` populated) — `aidlc engine scope detect --from-text --input "urgent customer issue" --project-dir /tmp/scope-smoke` should return `{"scope":"hotfix","source":"keyword","matches":["urgent"]}`.
 
-7. **Verify plan parity (optional but recommended)** — `AIDLC_GRAPH_RESOLVE=1 aidlc __delegate graph resolve hotfix --stdout` emits the scope's plan; eyeball that the EXECUTE set matches what you tagged.
+7. **Verify plan parity (optional but recommended)** — `AIDLC_GRAPH_RESOLVE=1 aidlc engine graph resolve hotfix --stdout` emits the scope's plan; eyeball that the EXECUTE set matches what you tagged.
 
 8. **Update scope-aware documentation** — `docs/guide/05-scopes-and-depth.md` (full scope reference, including the Stage-by-Scope Matrix — its cells are drift-guarded against the compiled `scope-grid.json` by `tests/unit/t244-scope-matrix-doc-sync.test.ts`), `docs/guide/13-customization.md` (valid values list and scope table), and `docs/reference/03-orchestrator.md` (scope-to-stage mapping) all enumerate scopes explicitly. Per the documentation policy at the end of this chapter, update them in the same PR.
 
@@ -253,11 +253,11 @@ A stage is authored as a Markdown file with YAML frontmatter under `core/aidlc-c
 
 1. **Write the stage file** - create `core/aidlc-common/stages/<phase>/<slug>.md`. Frontmatter declares `slug`, `phase`, `execution`/`condition`, `lead_agent` and any `support_agents` (by agent slug), `mode` (`inline`, `subagent`, `pipeline`, or `mob`; `agent-team` is reserved and not yet implemented), `consumes` / `produces` (artifact vocabulary names), `optional_produces` for artifacts the stage writes only conditionally per unit (exempt from per-unit coverage), `requires_stage` (ordering edges), the `scopes:` membership list, any `sensors:` to bind, `for_each` if it iterates per Unit, and (on a per-unit stage) an optional `produces_kinds` map to prune produces artifacts to each Unit's kind. The body carries the stage's three compartments. See [Stage Definition](15-stage-definition.md) for the full field contract.
 
-2. **Recompile the graph** — `aidlc __delegate graph compile` reads the new frontmatter into `tools/data/stage-graph.json` and transposes the `scopes:` tags into `tools/data/scope-grid.json`. Run `aidlc __delegate graph compile --check` to confirm exit 0 (no drift). Then refresh the generated SKILL.md mirrors with `aidlc __delegate utility stage-table` and `aidlc __delegate utility scope-table`, and confirm `aidlc __delegate utility stage-table --check` plus `scope-table --check` both exit 0. The stage is runnable immediately via `aidlc __delegate orchestrate next --stage <slug> --single`.
+2. **Recompile the graph** — `aidlc engine graph compile` reads the new frontmatter into `tools/data/stage-graph.json` and transposes the `scopes:` tags into `tools/data/scope-grid.json`. Run `aidlc engine graph compile --check` to confirm exit 0 (no drift). Then refresh the generated SKILL.md mirrors with `aidlc engine gen stage-table` and `aidlc engine gen scope-table`, and confirm `aidlc engine gen stage-table --check` plus `scope-table --check` both exit 0. The stage is runnable immediately via `aidlc engine orchestrate next --stage <slug> --single`.
 
-3. **Regenerate the runners** — `aidlc __delegate runner-gen write` emits a `/aidlc-<slug>` runner skill per runnable compiled stage, so your new stage gets its typeable command with no hand-authoring. Run `aidlc __delegate runner-gen check` to confirm the on-disk runner set matches the compiled stage set (the drift guard; the bootstrap initialization stages are excluded by design).
+3. **Regenerate the runners** — `aidlc engine gen runners` emits a `/aidlc-<slug>` runner skill per runnable compiled stage, so your new stage gets its typeable command with no hand-authoring. Run `aidlc engine gen runners --check` to confirm the on-disk runner set matches the compiled stage set (the drift guard; the bootstrap initialization stages are excluded by design).
 
-4. **Verify the stage routes** — drive `aidlc __delegate orchestrate next` over a workflow whose scope includes the stage, and confirm the engine emits a `run-stage` directive naming your slug with the resolved `lead_agent`, gate, `consumes`, and `produces`.
+4. **Verify the stage routes** — drive `aidlc engine orchestrate next` over a workflow whose scope includes the stage, and confirm the engine emits a `run-stage` directive naming your slug with the resolved `lead_agent`, gate, `consumes`, and `produces`.
 
 5. **Update scope-aware and stage-aware documentation** — a new stage changes the stage count and the per-scope plans. Update `docs/guide/05-scopes-and-depth.md` (the Stage-by-Scope Matrix — its cells are drift-guarded by `tests/unit/t244-scope-matrix-doc-sync.test.ts`), `docs/reference/16-artifact-vocabulary.md` (the non-initialisation stage count), the Harness Engineer Guide's stage chapters, and any scope reference that enumerates the plan. Per the documentation policy at the end of this chapter, do it in the same PR.
 
@@ -301,11 +301,11 @@ Agent metadata (display name, example knowledge files) is read from each agent's
 
 2. **Verify the agent is discovered** — `bun -e "import { loadAgents } from 'core/tools/aidlc-lib.ts'; console.log(loadAgents().find(a => a.slug === '<slug>-agent'));"` should print the new agent's metadata.
 
-3. **Verify intent birth creates the space knowledge dir** — `aidlc __delegate utility intent-birth --scope poc --project-dir /tmp/agent-smoke` should create the empty space-level `aidlc/knowledge/` directory (a sibling of the space's `intents/`). Birth does not seed per-agent subdirectories or READMEs — the team creates `aidlc/knowledge/<slug>-agent/` itself when it has content.
+3. **Verify intent birth creates the space knowledge dir** — `aidlc engine intent birth --scope poc --project-dir /tmp/agent-smoke` should create the empty space-level `aidlc/knowledge/` directory (a sibling of the space's `intents/`). Birth does not seed per-agent subdirectories or READMEs — the team creates `aidlc/knowledge/<slug>-agent/` itself when it has content.
 
 4. **Verify the statusline renders** — seed a state file with `Active Agent: <slug>-agent` and invoke the statusline hook; the output should include the display name after the `--` separator.
 
-5. **Wire the agent into stages** — a new agent that should lead or support stages is named in each stage's frontmatter, in the `lead_agent` / `support_agents` fields of the stage `.md` files under `core/aidlc-common/stages/<phase>/`. Then run `aidlc __delegate graph compile` (and `compile --check` as the drift guard) to regenerate `tools/data/stage-graph.json` from that frontmatter. Do not hand-edit `stage-graph.json` — it is the compiled artifact, and the next `compile` overwrites any manual change. This is separate from discovery — `loadAgents()` makes the agent visible; the stage frontmatter (compiled into the graph) makes it active.
+5. **Wire the agent into stages** — a new agent that should lead or support stages is named in each stage's frontmatter, in the `lead_agent` / `support_agents` fields of the stage `.md` files under `core/aidlc-common/stages/<phase>/`. Then run `aidlc engine graph compile` (and `compile --check` as the drift guard) to regenerate `tools/data/stage-graph.json` from that frontmatter. Do not hand-edit `stage-graph.json` — it is the compiled artifact, and the next `compile` overwrites any manual change. This is separate from discovery — `loadAgents()` makes the agent visible; the stage frontmatter (compiled into the graph) makes it active.
 
 ### What validates automatically
 

@@ -138,7 +138,7 @@ are iterating on an already-installed tree, you can recompile that tree's graph
 directly:
 
 ```bash
-aidlc __delegate graph compile
+aidlc engine graph compile
 ```
 
 Either way the authoring flow is a one-way pipeline — edit YAML in `core/`, run
@@ -155,17 +155,17 @@ Confirm the new node compiled in and see where it runs:
 
 ```bash
 # Topological order of the full graph — your slug should appear
-aidlc __delegate graph topo
+aidlc engine graph topo
 
 # Who produces / consumes your stage's artifacts
-aidlc __delegate graph producers <artifact>
-aidlc __delegate graph consumers <artifact>
+aidlc engine graph producers <artifact>
+aidlc engine graph consumers <artifact>
 
 # The stages on a given scope's path — does your stage run for this scope?
-aidlc __delegate graph scope <scope-name>
+aidlc engine graph scope <scope-name>
 
 # Dependency sanity for a scope
-aidlc __delegate graph validate-scope <scope-name>
+aidlc engine graph validate-scope <scope-name>
 ```
 
 A brand-new stage does **not** automatically run in any scope. Scope
@@ -186,7 +186,7 @@ stage compiles into the graph (steps 2–4 above), it is immediately runnable on
 own, with no skill or registration required:
 
 ```bash
-aidlc __delegate orchestrate next --stage <your-slug> --single
+aidlc engine orchestrate next --stage <your-slug> --single
 ```
 
 The engine's `--single` mode runs that one stage in isolation. It emits a single
@@ -215,10 +215,10 @@ a stage, regenerate the runners:
 
 ```bash
 # Regenerate every runner dir from the compiled stage list
-aidlc __delegate runner-gen write
+aidlc engine gen runners
 
 # CI drift guard: exits 1 if the runner set != the compiled stage set
-aidlc __delegate runner-gen check
+aidlc engine gen runners --check
 ```
 
 A runner carries **no `hooks:` block** — the deterministic spine (audit, sensors,
@@ -256,7 +256,7 @@ the Developer Reference.
   typo can't ship a graph that 404s at run time. The reserved `orchestrator`
   slug (the conductor itself, used on the bootstrap initialization stages) is
   exempt — it has no agent file.
-- **CI drift guard.** `aidlc __delegate graph compile --check` exits
+- **CI drift guard.** `aidlc engine graph compile --check` exits
   `0` on a clean tree and exits `1` if any stage YAML was edited without
   recompiling the JSON. CI runs this, so a forgotten `compile` blocks the merge
   with a clear message rather than shipping a stale graph.
@@ -270,7 +270,7 @@ the Developer Reference.
   **not** decide which scopes run it. Until you add each scope name to the
   stage's own `scopes:` frontmatter list (and recompile so the transpose
   updates `scope-grid.json`), the new stage exists in the graph but runs
-  nowhere. Confirm with `aidlc __delegate graph scope <scope-name>` for each scope you
+  nowhere. Confirm with `aidlc engine graph scope <scope-name>` for each scope you
   care about.
 - **Body prose.** Only the frontmatter is parsed. The `## Steps` body is read by
   the lead agent when the stage activates — write it to match the other stage

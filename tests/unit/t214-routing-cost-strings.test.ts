@@ -141,14 +141,14 @@ describe("t214 birth print carries the cost parenthetical", () => {
     const d = directiveOf(runNext(proj, ["bugfix"]).out);
     expect(d.kind).toBe("print");
     const m = String(d.message);
-    expect(m).toContain("intent-birth --scope bugfix");
+    expect(m).toContain("intent birth --scope bugfix");
     const bf = counts(GRID.bugfix.stages);
     expect(m).toContain(`(${bf.execute} of ${bf.total} stages, ${bf.gates} approval gates`);
   });
 });
 
 describe("t214 scope-change stdout carries the Approval gates line", () => {
-  test("scope-change --scope mvp prints Stages in scope AND Approval gates", () => {
+  test("scope change --scope mvp prints Stages in scope AND Approval gates", () => {
     proj = createTestProject();
     seedStateFile(proj, MID_IDEATION);
     const r = runUtility(proj, ["scope-change", "--scope", "mvp"]);

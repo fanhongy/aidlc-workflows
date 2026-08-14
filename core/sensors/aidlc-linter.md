@@ -1,7 +1,7 @@
 ---
 id: linter
 kind: deterministic
-command: {{INVOKE}} __delegate sensor-linter
+command: {{INVOKE}} engine sensor-linter
 default_severity: advisory
 description: Wraps the project's configured linter (eslint by default for v0.5.0); fires on TS/JS code outputs
 category: code-quality

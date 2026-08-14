@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "opencode",
   "productName": "opencode",
-  "initNextStep": "run `opencode`, then `/aidlc --doctor`",
+  "configNextStep": "run `opencode`, then `/aidlc --doctor`",
   "harnessDir": ".aidlc",
   "managedDirectories": [
     ".aidlc",
@@ -26,7 +26,7 @@
       "marker": "agents",
       "legacySignatures": {
         "wholeFileHashes": [
-          "sha256:0b8b50fb0c6155d9f542bc1334308e0f9b016fd08e98bd3768c5025e33158261"
+          "sha256:d488fe9906bd81079aeb1e4c32ff0c8d1827844609f86f7906a325950502a91e"
         ]
       }
     },

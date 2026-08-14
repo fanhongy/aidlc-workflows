@@ -5,7 +5,7 @@
       "name": "aidlc-block",
       "trigger": "PreToolUse",
       "description": "Hard-blocks tool calls while an approval gate is open and no human acted since (human-presence floor).",
-      "action": { "type": "command", "command": "aidlc adapter kiro-ide block" }
+      "action": { "type": "command", "command": "aidlc engine adapter kiro-ide block" }
     }
   ]
 }

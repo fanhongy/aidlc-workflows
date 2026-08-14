@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex session-start"
+            "command": "aidlc engine adapter codex session-start"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex mint"
+            "command": "aidlc engine adapter codex mint"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex dispatch-rules"
+            "command": "aidlc engine adapter codex dispatch-rules"
           }
         ],
         "matcher": "spawn_agent"
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex state-transition-guard"
+            "command": "aidlc engine adapter codex state-transition-guard"
           }
         ]
       },
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex reviewer-scope"
+            "command": "aidlc engine adapter codex reviewer-scope"
           }
         ]
       },
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex review-freeze"
+            "command": "aidlc engine adapter codex review-freeze"
           }
         ]
       },
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex plan-approval-guard"
+            "command": "aidlc engine adapter codex plan-approval-guard"
           }
         ]
       }
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex audit-and-sensors"
+            "command": "aidlc engine adapter codex audit-and-sensors"
           }
         ],
         "matcher": "apply_patch"
@@ -77,7 +77,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex state-sync"
+            "command": "aidlc engine adapter codex state-sync"
           }
         ],
         "matcher": "update_plan"
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex runtime-compile"
+            "command": "aidlc engine adapter codex runtime-compile"
           }
         ],
         "matcher": "Bash"
@@ -97,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex validate-state"
+            "command": "aidlc engine adapter codex validate-state"
           }
         ]
       }
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex log-subagent"
+            "command": "aidlc engine adapter codex log-subagent"
           }
         ]
       }
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc adapter codex stop"
+            "command": "aidlc engine adapter codex stop"
           }
         ]
       }

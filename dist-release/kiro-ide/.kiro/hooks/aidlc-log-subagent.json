@@ -6,7 +6,7 @@
       "trigger": "PostToolUse",
       "matcher": "^(subagent_.+|invoke_sub_agent)$",
       "description": "Logs sub-agent completion to audit trail.",
-      "action": { "type": "command", "command": "aidlc adapter kiro-ide log-subagent" }
+      "action": { "type": "command", "command": "aidlc engine adapter kiro-ide log-subagent" }
     }
   ]
 }

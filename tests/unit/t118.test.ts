@@ -86,7 +86,7 @@
 //     `init --scope <scope>`) rather than relaying the old circular no-state
 //     error; the trio's cases:
 //       (1) `next bugfix` — bare KNOWN-SCOPE positional, NOT freeform: kind ===
-//           "print" AND message names `intent-birth --scope bugfix` (the engine
+//           "print" AND message names `intent birth --scope bugfix` (the engine
 //           recognises bugfix as the scope, finding 2, and emits the SAME
 //           workflow-birth print `next --scope bugfix` emits; pre-finding-2 it
 //           mis-read the literal scope as prose and emitted an `ask` defaulting
@@ -499,7 +499,7 @@ describe("t118 engine differential corpus — aidlc-orchestrate next (migrated f
       expect(r.directive.kind).toBe("print");
       // The print names the intent-birth move for the EXPLICITLY NAMED scope
       // (P4: --init retired; the engine NAMES the deterministic birth handler).
-      expect(r.directive.message ?? "").toContain("intent-birth --scope bugfix");
+      expect(r.directive.message ?? "").toContain("intent birth --scope bugfix");
       // Run-then-continue shape: the conductor births, then re-enters the loop.
       expect(r.directive.message ?? "").toContain("re-run `next` to continue");
       // STRONGER: a regression that mis-read bugfix as freeform would emit an
@@ -517,7 +517,7 @@ describe("t118 engine differential corpus — aidlc-orchestrate next (migrated f
       );
       expect(r.directive.kind).toBe("print");
       expect(r.directive.message ?? "").toContain(
-        "intent-birth --scope bugfix",
+        "intent birth --scope bugfix",
       );
       expect(r.directive.message ?? "").toContain(
         '--arguments "Fix duplicate todo persistence"',
@@ -575,8 +575,8 @@ describe("t118 engine differential corpus — aidlc-orchestrate next (migrated f
         "mvp",
       );
       expect(r.directive.kind).toBe("print");
-      expect(r.directive.message ?? "").toContain("intent-birth --scope mvp");
-      expect(r.directive.message ?? "").not.toContain("intent-birth --scope bugfix");
+      expect(r.directive.message ?? "").toContain("intent birth --scope mvp");
+      expect(r.directive.message ?? "").not.toContain("intent birth --scope bugfix");
       expect(r.directive.message ?? "").toContain(
         '--arguments "bugfix Fix duplicate todo"',
       );
@@ -596,7 +596,7 @@ describe("t118 engine differential corpus — aidlc-orchestrate next (migrated f
         "billing",
       );
       expect(r.directive.kind).toBe("print");
-      expect(r.directive.message ?? "").toContain("intent-birth --scope feature");
+      expect(r.directive.message ?? "").toContain("intent birth --scope feature");
       expect(r.directive.message ?? "").toContain(
         '--arguments "feature flags for billing"',
       );

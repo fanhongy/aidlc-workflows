@@ -11,7 +11,7 @@
 //     argv and their directive is injected; ambiguous freeform invocations
 //     stamp the exact argv in aidlc/.aidlc-forwarding-latch.
 //   pretool-block (preToolUse) — the hard floor: a TRULY BARE advancing
-//     `aidlc __delegate orchestrate next` while the latch is fresh-for-this-turn
+//     `aidlc engine orchestrate next` while the latch is fresh-for-this-turn
 //     (latch.turn === counter) → exit 2 (Kiro BLOCK). Any deliberate move
 //     (advancing flag), a stale latch, or no latch at all → exit 0 (inert). A
 //     fresh forwarding latch rejects changed/dropped first-next arguments and
@@ -23,7 +23,7 @@
 // <cwd>/aidlc/ and signals Kiro purely via stdout + exit code. In-process
 // testing would bypass the exact surface being contracted. No live LLM: the
 // verb-intercept args are recovered deterministically from the expanded prompt
-// body (the `aidlc __delegate orchestrate next <ARGS>` forwarding anchor), and
+// body (the `aidlc engine orchestrate next <ARGS>` forwarding anchor), and
 // pretool-block reads only the counter/latch files we seed.
 
 import { describe, expect, test } from "bun:test";
@@ -64,10 +64,10 @@ function runAdapter(
 }
 
 // Build an expanded-prompt body carrying the forwarding-loop anchor the seam
-// recovers args from: `… aidlc __delegate orchestrate next <ARGS>` inside a backtick
+// recovers args from: `… aidlc engine orchestrate next <ARGS>` inside a backtick
 // code span (exactly what Kiro substitutes $ARGUMENTS into).
 function promptWithNext(args: string): string {
-  return `Step 1: run \`aidlc __delegate orchestrate next ${args}\` and relay the output.`;
+  return `Step 1: run \`aidlc engine orchestrate next ${args}\` and relay the output.`;
 }
 
 const counterPath = (dir: string) => join(dir, "aidlc", ".aidlc-turn-counter");
@@ -86,7 +86,7 @@ describe("t180 verb-intercept turn-clock + read-only/nav latch", () => {
       source.indexOf("// --- plan-approval-guard"),
     );
     expect(branch).toContain("AIDLC_COMPILED_EXECUTABLE");
-    expect(branch).toContain('[executable, "hook", "state-transition-guard"]');
+    expect(branch).toContain('[executable, "engine", "hook", "state-transition-guard"]');
   });
 
   test("1: read-only flag (--status) bumps counter to 1 and stamps the read-only-flag latch", () => {
@@ -146,7 +146,7 @@ describe("t180 verb-intercept turn-clock + read-only/nav latch", () => {
       expect(r.code).toBe(0);
       expect(r.stdout).toContain("SYSTEM (deterministic argument forwarding)");
       expect(r.stdout).toContain(
-        `bun .kiro/tools/aidlc.ts __delegate orchestrate next ${raw}`,
+        `bun .kiro/tools/aidlc.ts engine orchestrate next ${raw}`,
       );
       expect(existsSync(counterPath(dir))).toBe(true);
       expect(readFileSync(counterPath(dir), "utf-8").trim()).toBe("1");
@@ -195,7 +195,7 @@ describe("t180 verb-intercept turn-clock + read-only/nav latch", () => {
       expect(r.stdout).toContain("SYSTEM (deterministic engine pre-dispatch)");
       expect(r.stdout).toContain('"kind":"print"');
       expect(r.stdout).toContain(
-        "aidlc-utility.ts intent-birth --scope feature",
+        "aidlc.ts engine intent birth --scope feature",
       );
       expect(existsSync(counterPath(dir))).toBe(true);
       expect(readFileSync(counterPath(dir), "utf-8").trim()).toBe("1");
@@ -257,7 +257,7 @@ describe("t180 pretool-block roll-forward backstop (exit-code contract)", () => 
       );
     }
   }
-  const BARE_NEXT = "aidlc __delegate orchestrate next";
+  const BARE_NEXT = "aidlc engine orchestrate next";
 
   function seedForwarding(
     dir: string,

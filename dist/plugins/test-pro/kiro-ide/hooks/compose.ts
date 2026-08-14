@@ -251,7 +251,7 @@ function selectCommandForPlugin(): string {
   names.add(PLUGIN_NAME);
   const selection = [...names].sort().join(",");
   return NATIVE_RUNTIME
-    ? `aidlc plugin select ${selection}`
+    ? `aidlc engine plugin select ${selection}`
     : `bun ${HARNESS_LEAF}/tools/aidlc-utility.ts select-plugins ${selection}`;
 }
 
@@ -265,11 +265,12 @@ function installedToolCommand(tool: "utility" | "graph" | "runner", args: string
     };
     return [process.execPath, join(HARNESS_DIR, "tools", files[tool]), ...args];
   }
-  if (tool === "utility") return [executable, "gen", ...args];
-  if (tool === "graph") return [executable, "graph", ...args];
-  if (args[0] === "write") return [executable, "gen", "runners", ...args.slice(1)];
-  if (args[0] === "scopes") return [executable, "gen", "runner-scopes", ...args.slice(1)];
-  if (args[0] === "list") return [executable, "gen", "runner-list", ...args.slice(1)];
+  if (tool === "utility") return [executable, "engine", "gen", ...args];
+  if (tool === "graph") return [executable, "engine", "graph", ...args];
+  if (args[0] === "write") return [executable, "engine", "gen", "runners", ...args.slice(1)];
+  if (args[0] === "check") return [executable, "engine", "gen", "runners", "--check", ...args.slice(1)];
+  if (args[0] === "scopes") return [executable, "engine", "gen", "runner-scopes", ...args.slice(1)];
+  if (args[0] === "list") return [executable, "engine", "gen", "runner-list", ...args.slice(1)];
   throw new Error(`No compiled dispatcher route for aidlc-runner-gen ${args.join(" ")}`);
 }
 

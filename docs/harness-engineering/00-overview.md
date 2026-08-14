@@ -133,7 +133,7 @@ bun scripts/package.ts --check
 ```
 
 Commit the `core/` edit and both regenerated roots together. When a recipe in
-the chapters below says to run `aidlc __delegate graph compile` (or another
+the chapters below says to run `aidlc engine graph compile` (or another
 tool), the installed command resolves that tool against the project's active
 harness tree. Generated copy-channel prose uses the Bun dispatcher and native
 prose uses `aidlc`; authors use the channel-neutral route. It is not where you

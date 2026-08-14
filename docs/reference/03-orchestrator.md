@@ -117,7 +117,7 @@ Overrides the test volume strategy (minimal, standard, comprehensive) independen
 
 ### Intent birth -- the Initialization phase
 
-Machine/project installation is separate: `aidlc init` installs or refreshes the
+Machine/project installation is separate: `aidlc config` installs or refreshes the
 generated harness projection and ownership baseline, but it does not birth a
 workflow intent. Inside the workflow there is no separate scaffold chat command.
 The three Initialization stages (workspace-scaffold, workspace-detection,
@@ -132,7 +132,7 @@ stage:
 2. Creates the empty space-level `aidlc/knowledge/` directory (a sibling of the space's `intents/`). It is free-form with no fixed file set — birth seeds no per-agent subdirectories and no READMEs; the team adds files itself.
 3. Scans the workspace and writes the intent's `aidlc-state.md` with the actual phase (e.g., `IDEATION` for `--scope feature`), the resolved scope, and the stage plan derived from the compiled scope grid (`scope-grid.json`, the transpose of each stage's `scopes:` frontmatter).
 4. Emits the full event sequence: `WORKFLOW_STARTED`, `WORKSPACE_SCAFFOLDED`, `WORKSPACE_SCANNED`, `WORKSPACE_INITIALISED`, `PHASE_STARTED` for the first executing phase, `STAGE_STARTED` + `STAGE_COMPLETED` for each Initialization stage, plus `PHASE_SKIPPED` events for any phases the scope skips.
-5. Auto-births only on a workspace with zero intents; with intents already present and no active cursor, the engine prompts the user to pick one (`/aidlc intent <slug>`) rather than birthing a duplicate. There is no workflow re-birth flag; this is unrelated to project-level `aidlc init`.
+5. Auto-births only on a workspace with zero intents; with intents already present and no active cursor, the engine prompts the user to pick one (`/aidlc intent <slug>`) rather than birthing a duplicate. There is no workflow re-birth flag; this is unrelated to project-level `aidlc config`.
 6. When birth was reached via the auto-birth print, the conductor re-runs `next` and continues into the first post-Initialization stage; the explicit `/aidlc-init` packaging stops after Initialization so the user invokes `/aidlc` again to begin interactively.
 
 ### Resume (State File Exists)
@@ -274,7 +274,7 @@ The scope determines which of the 32 stages execute and at what depth. Stages no
 
 ### Complete Mapping
 
-Authoritative data lives in the `.claude/scopes/aidlc-<name>.md` files plus each stage's `scopes:` frontmatter, compiled into `.claude/tools/data/scope-grid.json`. Run `aidlc __delegate utility scope-table` for the live compiled counts.
+Authoritative data lives in the `.claude/scopes/aidlc-<name>.md` files plus each stage's `scopes:` frontmatter, compiled into `.claude/tools/data/scope-grid.json`. Run `aidlc engine gen scope-table` for the live compiled counts.
 
 | Scope | Stages Included | EXECUTE / Total | Depth | Test Strategy |
 |---|---|---|---|---|
@@ -536,14 +536,14 @@ The orchestration engine owns every transition above. The conductor reports outc
 
 1. **Run completion verification** - check artifacts exist on disk, guardrails respected. This is a correctness check, not a state transition. This is also enforced deterministically: `approve` refuses a gated stage whose declared `produces` artifacts are missing (unless `AIDLC_SKIP_ARTIFACT_GUARD=1`), so a stage cannot be marked complete without its outputs (#366). Per-unit Construction stages are verified by the swarm referee instead.
 
-2. **Enter the gate**: `aidlc __delegate orchestrate report --stage <slug> --result awaiting-approval`. The engine marks `[-]` → `[?]`, emits `STAGE_AWAITING_APPROVAL`, and makes `/aidlc --status` show "Awaiting your approval on \<stage\>".
+2. **Enter the gate**: `aidlc engine orchestrate report --stage <slug> --result awaiting-approval`. The engine marks `[-]` → `[?]`, emits `STAGE_AWAITING_APPROVAL`, and makes `/aidlc --status` show "Awaiting your approval on \<stage\>".
 
 3. **Present the approval gate** (AskUserQuestion).
 
 4. **Record the user's response**:
-   - **Approve** -> `aidlc __delegate orchestrate report --stage <slug> --result approved --user-input "<exact choice>"`. Emits any missing gate row, then `GATE_APPROVED` + `STAGE_COMPLETED`, and advances. Refuses with a missing-produced-artifact error if the stage's `produces` outputs are absent.
-   - **Request Changes** → `aidlc __delegate orchestrate report --stage <slug> --result rejected --user-input "<text>"`. The engine emits `GATE_REJECTED` + `STAGE_REVISING`, marks `[?]` → `[R]`, and increments Revision Count.
-   - After re-running work for a `[R]` stage, call `aidlc __delegate orchestrate report --stage <slug> --result revised` to re-enter the gate (emits a fresh `STAGE_AWAITING_APPROVAL`, marks `[R]` → `[?]`).
+   - **Approve** -> `aidlc engine orchestrate report --stage <slug> --result approved --user-input "<exact choice>"`. Emits any missing gate row, then `GATE_APPROVED` + `STAGE_COMPLETED`, and advances. Refuses with a missing-produced-artifact error if the stage's `produces` outputs are absent.
+   - **Request Changes** → `aidlc engine orchestrate report --stage <slug> --result rejected --user-input "<text>"`. The engine emits `GATE_REJECTED` + `STAGE_REVISING`, marks `[?]` → `[R]`, and increments Revision Count.
+   - After re-running work for a `[R]` stage, call `aidlc engine orchestrate report --stage <slug> --result revised` to re-enter the gate (emits a fresh `STAGE_AWAITING_APPROVAL`, marks `[R]` → `[?]`).
 
 5. **Advance to the next stage**: the approval report in step 4 also advances. The engine derives the next in-scope stage from the state file's EXECUTE/SKIP suffix (set by `init`) plus the compiled scope grid (`scope-grid.json`). It marks `[x]` on completed, `[-]` on next, updates Current Stage / Lifecycle Phase / Active Agent / Next Stage / Last Completed Stage / Last Updated / Completed count, and emits `STAGE_STARTED` for the next stage. At a phase boundary it additionally emits `PHASE_COMPLETED` + `PHASE_VERIFIED` + `PHASE_STARTED` atomically.
 

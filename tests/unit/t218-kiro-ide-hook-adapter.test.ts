@@ -154,7 +154,7 @@ function runIdeStdin(
   return { stdout: r.stdout ?? "", code: r.status ?? -1 };
 }
 
-/** Exercise the public `aidlc adapter kiro-ide` dispatcher route rather than
+/** Exercise the hidden `aidlc engine adapter kiro-ide` dispatcher route rather than
  * invoking the adapter file directly. */
 function runIdeDispatcherStdin(
   projectDir: string,
@@ -165,7 +165,13 @@ function runIdeDispatcherStdin(
   delete (env as Record<string, string | undefined>).USER_PROMPT;
   const r = spawnSync(
     "bun",
-    [join(projectDir, ".kiro", "tools", "aidlc.ts"), "adapter", "kiro-ide", target],
+    [
+      join(projectDir, ".kiro", "tools", "aidlc.ts"),
+      "engine",
+      "adapter",
+      "kiro-ide",
+      target,
+    ],
     { cwd: projectDir, input: stdinPayload, encoding: "utf-8", env, timeout: 30_000 },
   );
   return { stdout: r.stdout ?? "", code: r.status ?? -1 };
@@ -492,7 +498,13 @@ async function runIdeDispatcherOpenStdin(
 ): Promise<OpenStdinRun> {
   return await runOpenStdinCommand(
     projectDir,
-    [join(projectDir, ".kiro", "tools", "aidlc.ts"), "adapter", "kiro-ide", target],
+    [
+      join(projectDir, ".kiro", "tools", "aidlc.ts"),
+      "engine",
+      "adapter",
+      "kiro-ide",
+      target,
+    ],
     userPrompt,
     killAfterMs,
     extraEnv,
@@ -721,7 +733,7 @@ describe("t218 IDE 1.x stdin channel (snake_case payload, USER_PROMPT empty)", (
     }
   }, 40_000);
 
-  test("N8: the public aidlc adapter dispatcher forwards the 1.x stdin payload", () => {
+  test("N8: the aidlc engine adapter dispatcher forwards the 1.x stdin payload", () => {
     const dir = scratchProject(true);
     try {
       const result = "**Reviewer:** aidlc-product-lead-agent\n\nVerdict: READY";

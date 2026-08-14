@@ -32,7 +32,7 @@ import emit from "./emit.ts";
 const manifest: HarnessManifest = {
   name: "opencode",
   productName: "opencode",
-  initNextStep: "run `opencode`, then `/aidlc --doctor`",
+  configNextStep: "run `opencode`, then `/aidlc --doctor`",
   harnessDir: ".aidlc",
   tierFlavor: "opencode",
   rootIntegrations: [

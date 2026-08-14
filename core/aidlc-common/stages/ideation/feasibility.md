@@ -80,7 +80,7 @@ The orchestrator will pass these artifacts to aidlc-aws-platform-agent for AWS l
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`{{INVOKE}} __delegate orchestrate report --stage feasibility --result <outcome>`.
+`{{INVOKE}} engine orchestrate report --stage feasibility --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval

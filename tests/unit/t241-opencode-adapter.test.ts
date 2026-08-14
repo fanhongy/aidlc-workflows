@@ -138,10 +138,10 @@ describe("t241 OpenCode adapter command boundary and transition filter", () => {
         { args: { command } },
       );
     await expect(
-      invoke("safe", "aidlc __delegate state approve"),
+      invoke("safe", "aidlc engine state approve"),
     ).resolves.toBeUndefined();
     await expect(
-      invoke("quoted", 'aidlc __delegate utility status "a && b"'),
+      invoke("quoted", 'aidlc engine status "a && b"'),
     ).resolves.toBeUndefined();
     await expect(
       invoke("unrelated", "echo ok && touch /tmp/example"),
@@ -149,19 +149,19 @@ describe("t241 OpenCode adapter command boundary and transition filter", () => {
     await expect(
       invoke(
         "compound",
-        "aidlc __delegate utility status && touch /tmp/example",
+        "aidlc engine status && touch /tmp/example",
       ),
     ).rejects.toThrow("one direct invocation");
     await expect(
       invoke("redirect", "aidlc hook stop > /tmp/example"),
     ).rejects.toThrow("one direct invocation");
     await expect(
-      invoke("unknown", "aidlc __delegate payload"),
+      invoke("unknown", "aidlc engine payload"),
     ).resolves.toBeUndefined();
     await expect(
       invoke(
         "quote-bypass",
-        "aidlc __delegate utility status 'a\\' ; touch /tmp/x #'",
+        "aidlc engine status 'a\\' ; touch /tmp/x #'",
       ),
     ).rejects.toThrow("one direct invocation");
   });
@@ -180,7 +180,7 @@ describe("t241 OpenCode adapter command boundary and transition filter", () => {
     const adapter = await createTestAdapter(client, root);
     await adapter["tool.execute.after"](
       postTool("bash", {
-        command: "aidlc __delegate state approve",
+        command: "aidlc engine state approve",
       }),
     );
 

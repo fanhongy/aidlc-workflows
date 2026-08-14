@@ -26,34 +26,27 @@ configs, hook wiring, activation) differs.
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness kiro
+  | bash
 cd your-project
-aidlc init
+aidlc config
 aidlc doctor
 ```
 
-The installer verifies the release metadata, executable, and Kiro data against
-the published SHA-256 checksums. The installed runtime does not require Bun,
-Node.js, or Git. This scripted example uses the literal `--harness` flag because
-automation requires it. In an interactive terminal, running the installer
-without arguments opens a harness picker that reads from `/dev/tty`, even when
-the script is piped.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`.
 
 On Windows, download `install.ps1` and run
-`& $installer --harness kiro`. An interactive run may omit the flag and use the
-picker; redirected input, `pwsh -NonInteractive`, `--yes`, `--json`, and
-`--quiet` require it. For an air-gapped package, use
-`install.sh --from <release-directory> --offline --harness kiro` on Unix or
-`& $installer -From <release-directory> -Offline --harness kiro` on Windows.
+`& $installer`. For an air-gapped package, use
+`install.sh --from <release-directory> --offline` on Unix or
+`& $installer -From <release-directory> -Offline` on Windows.
 
-`aidlc init` projects the Kiro shell before the first chat session. Then start
+`aidlc config` projects the Kiro shell before the first chat session. Then start
 Kiro from the project root:
 
 ```bash
 kiro-cli chat
 ```
 
-The native projection allows `aidlc *` engine commands. It also ships
+The native projection allows `aidlc engine *` engine commands. It also ships
 `.kiro/settings/cli.json` with `chat.defaultAgent: "aidlc"`, so `/aidlc` is
 active without an agent flag. Run `/aidlc --doctor` in chat before the first
 workflow.
@@ -83,7 +76,7 @@ of `.kiro/`, so copy it separately (or copy the whole `dist/kiro/` tree at once)
 `/aidlc --doctor` fails its "workspace shell ready" check if it is missing.
 
 This source/development channel requires Git and Bun. It does not use
-`aidlc init`; the copied tree already contains the workspace shell.
+`aidlc config`; the copied tree already contains the workspace shell.
 
 The install ships `.kiro/settings/cli.json` with `chat.defaultAgent: "aidlc"`,
 so the AI-DLC conductor agent is active by default — `/aidlc` just works.
@@ -106,16 +99,16 @@ per session with `/effort <level>` in chat or `kiro-cli chat --effort
 
 ## Refresh and version skew
 
-`aidlc upgrade` updates the machine runtime but leaves project files unchanged.
+`aidlc update` updates the machine runtime but leaves project files unchanged.
 `aidlc doctor` reports a project stamp that differs from the selected engine.
 Between workflows, preview and apply the refresh with:
 
 ```bash
-aidlc init --dry-run
-aidlc init
+aidlc config --dry-run
+aidlc config
 ```
 
-Init preserves user-owned content and reports local framework edits as
+Config preserves user-owned content and reports local framework edits as
 conflicts. It refuses refresh while any workflow is active; complete the
 workflow first. Upgrade and rollback remain safe during a workflow because
 they do not modify the project.
@@ -153,7 +146,7 @@ inside a disposable sandbox where blanket shell access is acceptable.
 | Construction swarm | Parallel `Task` floor, optional ultracode Workflow | Subagent fan-out only; `AIDLC_USE_SWARM=1` is announced as a no-op |
 | Session audit events | `SESSION_STARTED/RESUMED/ENDED`, `SESSION_COMPACTED` | `SESSION_STARTED` only (Kiro has no session-end / pre-compaction hooks) |
 | Forwarding-loop enforcement (Stop hook) | Interactive + headless | Interactive sessions only — `--no-interactive` runs do not honor the stop-hook block |
-| Permissions | `settings.json` allowlist | Copy channel: project-relative framework `bun .kiro/tools/<tool>.ts` calls and `date -u`; native channel: `aidlc *`. Other shell commands prompt. |
+| Permissions | `settings.json` allowlist | Copy channel: project-relative framework `bun .kiro/tools/<tool>.ts` calls and `date -u`; native channel: `aidlc engine *`. Other shell commands prompt. |
 | Welcome message | Rendered at session start from `settings.json` `companyAnnouncements` | None — Kiro has no welcome-render equivalent; the session-start hook injects resume context only |
 | MCP servers | Ships 5 (`.mcp.json`: `context7` + four AWS servers) | None shipped, and the Kiro MCP config mechanism is not yet documented here — Claude-only today in practice |
 

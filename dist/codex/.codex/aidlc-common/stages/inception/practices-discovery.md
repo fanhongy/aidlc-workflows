@@ -161,7 +161,7 @@ file. The lead alone updates the four declared artifacts:
 After integration, emit `PRACTICES_DISCOVERED`:
 
 ```bash
-bun .codex/tools/aidlc.ts __delegate state practices-event \
+bun .codex/tools/aidlc.ts engine state practices-event \
   --type discovered \
   --field "Sources Scanned: <list>" \
   --field "Drafts: team-practices.md, discovered-rules.md"
@@ -172,7 +172,7 @@ bun .codex/tools/aidlc.ts __delegate state practices-event \
 Run the section 13 learnings ritual, then:
 
 1. Open the gate before the question:
-   `bun .codex/tools/aidlc.ts __delegate orchestrate report --stage
+   `bun .codex/tools/aidlc.ts engine orchestrate report --stage
    practices-discovery --result awaiting-approval`.
 2. Do not log the affirmation gate with `aidlc-log.ts decision` or
    `aidlc-log.ts answer`; the lifecycle `report` calls own its audit events.
@@ -196,7 +196,7 @@ Run the section 13 learnings ritual, then:
 The orchestrator does not edit active-space memory directly. Run:
 
 ```bash
-bun .codex/tools/aidlc.ts __delegate state practices-promote \
+bun .codex/tools/aidlc.ts engine state practices-promote \
   --team-practices <record>/inception/practices-discovery/team-practices.md \
   --discovered-rules <record>/inception/practices-discovery/discovered-rules.md \
   --affirming-user "<user>"
@@ -224,7 +224,7 @@ After Step 7 prints `{"emitted":"PRACTICES_AFFIRMED",...}` and exits 0:
 
 1. Do not emit `PRACTICES_AFFIRMED` again.
 2. Commit the held approval:
-   `bun .codex/tools/aidlc.ts __delegate orchestrate report --stage
+   `bun .codex/tools/aidlc.ts engine orchestrate report --stage
    practices-discovery --result approved --user-input "Approve"`.
 
 Use the stage-protocol.md completion template:

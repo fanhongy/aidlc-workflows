@@ -270,7 +270,7 @@ describe("t148 dist/kiro file structure", () => {
     ]);
     const all = Object.values(hooks).flat();
     for (const h of all) {
-      expect(h.command).toContain("aidlc.ts adapter kiro");
+      expect(h.command).toContain("aidlc.ts engine adapter kiro");
     }
     const preMatchers = (hooks.preToolUse ?? []).map((h) => h.matcher).sort();
     expect(preMatchers).toEqual([
@@ -283,18 +283,18 @@ describe("t148 dist/kiro file structure", () => {
     ]);
     expect(
       (hooks.preToolUse ?? []).find((h) => h.matcher === "fs_write")?.command,
-    ).toContain("aidlc.ts adapter kiro review-freeze");
+    ).toContain("aidlc.ts engine adapter kiro review-freeze");
     expect(
       (hooks.preToolUse ?? []).filter((h) => h.matcher === "execute_bash")
-        .some((h) => h.command.includes("aidlc.ts adapter kiro review-freeze")),
+        .some((h) => h.command.includes("aidlc.ts engine adapter kiro review-freeze")),
     ).toBe(true);
     const subagentCommands = (hooks.preToolUse ?? [])
       .filter((h) => h.matcher === "subagent")
       .map((h) => h.command)
       .sort();
     expect(subagentCommands).toEqual([
-      "bun .kiro/tools/aidlc.ts adapter kiro dispatch-rules",
-      "bun .kiro/tools/aidlc.ts adapter kiro plan-approval-guard",
+      "bun .kiro/tools/aidlc.ts engine adapter kiro dispatch-rules",
+      "bun .kiro/tools/aidlc.ts engine adapter kiro plan-approval-guard",
     ]);
     const matchers = (hooks.postToolUse ?? []).map((h) => h.matcher).sort();
     expect(matchers).toEqual(["execute_bash", "fs_write", "subagent", "todo_list"]);

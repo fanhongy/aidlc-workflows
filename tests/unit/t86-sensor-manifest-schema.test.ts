@@ -146,7 +146,7 @@ describe("t86 sensor manifest schema (extended from t86-sensor-manifest-schema.s
       expect(obj.kind).toBe("deterministic");
       // .sh check 3: command points at the source-channel dispatcher.
       expect(obj.command).toBe(
-        `bun .claude/tools/aidlc.ts __delegate sensor-${name}`,
+        `bun .claude/tools/aidlc.ts engine sensor-${name}`,
       );
       // .sh check 4: applies_to ABSENT from the frontmatter bytes (pull
       // authoring removed it; scope lives on the stage side via stage.sensors[]).

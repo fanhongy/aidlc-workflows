@@ -5,7 +5,7 @@
       "name": "aidlc-mint",
       "trigger": "UserPromptSubmit",
       "description": "Records a human-turn event on prompt submit (human-presence gate).",
-      "action": { "type": "command", "command": "aidlc adapter kiro-ide mint" }
+      "action": { "type": "command", "command": "aidlc engine adapter kiro-ide mint" }
     }
   ]
 }

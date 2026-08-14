@@ -158,7 +158,7 @@ confirmation `[Answer]:` is blank.
 ### Step 7: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`{{INVOKE}} __delegate orchestrate report --stage intent-capture --result <outcome>`.
+`{{INVOKE}} engine orchestrate report --stage intent-capture --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 8: Present Completion & Request Approval

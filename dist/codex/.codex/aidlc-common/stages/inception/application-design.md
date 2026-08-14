@@ -132,7 +132,7 @@ When only one option is viable, state why and skip the block.
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .codex/tools/aidlc.ts __delegate orchestrate report --stage application-design --result <outcome>`.
+`bun .codex/tools/aidlc.ts engine orchestrate report --stage application-design --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval
@@ -147,7 +147,7 @@ Use stage-protocol.md completion template with completion emoji: :building_const
   - Add Units Generation (if it was skipped in execution plan)
 
 If "Add Units Generation" is selected, run
-`bun .codex/tools/aidlc.ts __delegate utility recompose --add units-generation`
+`bun .codex/tools/aidlc.ts engine recompose --add units-generation`
 before re-entering the approval flow.
 
 ## Sensors

@@ -108,8 +108,21 @@ export function readTarGz(
   return entries;
 }
 
-export function extractTarGz(path: string, destination: string): void {
+export function extractTarGz(
+  path: string,
+  destination: string,
+  options: { reservedTopLevelNames?: readonly string[] } = {},
+): void {
   const entries = readTarGz(path);
+  const reserved = new Set(
+    (options.reservedTopLevelNames ?? []).map((name) => name.toLowerCase()),
+  );
+  for (const entry of entries) {
+    const topLevel = entry.path.split("/", 1)[0].toLowerCase();
+    if (reserved.has(topLevel)) {
+      throw new Error(`archive entry uses reserved top-level name: ${entry.path}`);
+    }
+  }
   mkdirSync(destination, { recursive: true, mode: 0o700 });
   for (const entry of entries.filter((item) => item.type === "directory")) {
     mkdirSync(join(destination, entry.path), { recursive: true, mode: entry.mode & 0o777 });

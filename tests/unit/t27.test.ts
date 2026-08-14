@@ -406,7 +406,7 @@ describe("t27 aidlc-utility status", () => {
     state(["advance", "workspace-detection"], p);
     state(["advance", "state-init"], p);
     const current = state(["get", "Current Stage"], p).stdout.trim();
-    state(["gate-start", current], p);
+    state(["checkbox", `${current}=awaiting-approval`], p);
     const r = util(["status"], p);
     expect(r.stdout).toContain("Awaiting your approval");
   }, 30000);

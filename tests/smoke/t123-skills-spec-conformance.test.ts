@@ -149,7 +149,7 @@ describe("t123 (smoke) skills-spec conformance — every shipped skill set", () 
       expect(runner).toContain(
         `bun ${harness.manifest.harnessDir}/tools/aidlc-orchestrate.ts next`,
       );
-      expect(runner).not.toContain("\naidlc __delegate orchestrate next");
+      expect(runner).not.toContain("\naidlc engine orchestrate next");
       expect(runner).not.toContain("{{HARNESS_DIR}}");
       if (harness.manifest.skipRunnerGen) {
         expect(existsSync(join(harness.engineRoot, "skills"))).toBe(false);

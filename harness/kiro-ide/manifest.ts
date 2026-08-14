@@ -26,7 +26,7 @@ import onboardingFills from "./onboarding.fills.ts";
 const manifest: HarnessManifest = {
   name: "kiro-ide",
   productName: "Kiro IDE",
-  initNextStep: "open this project in Kiro IDE, then run `/aidlc --doctor`",
+  configNextStep: "open this project in Kiro IDE, then run `/aidlc --doctor`",
   harnessDir: ".kiro",
   tierFlavor: "kiro",
   rootIntegrations: [

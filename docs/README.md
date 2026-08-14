@@ -12,18 +12,16 @@ New here? Start with the native installer and project initializer:
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness claude
+  | bash
 cd your-project
-aidlc init
+aidlc config
 ```
 
-Replace `claude` with `kiro`, `kiro-ide`, `codex`, or `opencode` as needed.
 The installer verifies published SHA-256 checksums; the resulting runtime needs
-no Bun, Node.js, or Git. Interactive runs may omit `--harness` and use the
-controlling-terminal picker, while automation must pass the literal flag. This
-runtime statement does not remove host prerequisites: Codex project hook
+no Bun, Node.js, or Git, and includes every harness runtime. Harness selection
+happens later in `aidlc config`. This runtime statement does not remove host prerequisites: Codex project hook
 discovery requires the target project to be a Git repository.
-[Getting Started](guide/01-getting-started.md) covers init, harness handoff,
+[Getting Started](guide/01-getting-started.md) covers config, harness handoff,
 trust, refresh/version skew, Windows, and the source/development copy
 alternative. This page is the map of the documentation itself.
 
@@ -43,11 +41,11 @@ versus **shaping**.
 
 ## Running on a specific harness
 
-The guides are harness-neutral; each harness's post-init step, trust behavior,
+The guides are harness-neutral; each harness's post-config step, trust behavior,
 and the handful of runtime differences live in
 [Running on other harnesses](guide/harnesses/README.md) (Claude Code is covered
 throughout the User Guide, whose examples run on it). After an upgrade,
-`aidlc doctor` reports project/runtime skew and `aidlc init` refreshes a project
+`aidlc doctor` reports project/runtime skew and `aidlc config` refreshes a project
 between workflows; refresh is refused while a workflow is active.
 
 ## Building and contributing

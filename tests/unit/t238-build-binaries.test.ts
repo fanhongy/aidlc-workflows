@@ -103,7 +103,9 @@ function gate(result: TargetResult, name: string): GateResult {
 
 function stampedVersion(stdout: string): string {
   const trimmed = stdout.trim();
-  const prefixed = /^aidlc\s+([0-9]+\.[0-9]+\.[0-9]+)$/.exec(trimmed);
+  const prefixed =
+    /^aidlc\s+([0-9]+\.[0-9]+\.[0-9]+)(?:\s+\(runtime\s+[0-9]+\.[0-9]+\.[0-9]+\))?$/
+      .exec(trimmed);
   return prefixed?.[1] ?? trimmed;
 }
 
@@ -142,7 +144,7 @@ describe("t238 build-binaries release builder", () => {
       "utf-8",
     );
     expect(stagedRunner).toContain(
-      "aidlc __delegate orchestrate next --stage code-generation --single",
+      "aidlc engine orchestrate next --stage code-generation --single",
     );
     expect(stagedRunner).not.toContain("bun .claude/tools/aidlc-orchestrate.ts");
 
@@ -186,12 +188,11 @@ describe("t238 build-binaries release builder", () => {
       "adapter-codex-validate-state",
       "routed-project-dir",
       "bun-compiled-parity",
-      "final-layout-init-dry-run",
+      "final-layout-config-dry-run",
       "final-layout-doctor-json",
       "final-layout-versions-list",
       "final-layout-plugin-list",
       "final-layout-unix-completions",
-      "final-layout-package-verify",
     ]) {
       expect(gate(native, name).ok, name).toBe(true);
     }
@@ -220,7 +221,7 @@ describe("t238 build-binaries release builder", () => {
       writeFileSync(join(pluginFixture, "package.json"), "{}\n");
       writeFileSync(registry, '{"version":2,"plugins":{}}\n');
       writeFileSync(settings, '{"enabledPlugins":{}}\n');
-      const pluginSync = spawnSync(native.artifact, ["plugin", "sync"], {
+      const pluginSync = spawnSync(native.artifact, ["engine", "plugin", "sync"], {
         cwd: pluginFixture,
         encoding: "utf-8",
         env: {
@@ -279,6 +280,10 @@ describe("t238 build-binaries release builder", () => {
       status: "VERIFIED",
       mode: "full-runtime",
     }));
+    expect(releaseManifest.assets.filter((asset) => asset.kind === "runtime")).toEqual([
+      expect.objectContaining({ name: "aidlc-runtime.tar.gz" }),
+    ]);
+    expect(releaseManifest.assets.some((asset) => asset.kind === "data")).toBe(false);
 
     const installFixture = mkdtempSync(join(tmpdir(), "aidlc-t238-install-"));
     try {
@@ -302,7 +307,7 @@ describe("t238 build-binaries release builder", () => {
       mkdirSync(outsideProfileDir, { recursive: true });
       symlinkSync(relative(home, outsideProfileDir), linkedProfileDir);
       const escapedProfile = spawnSync(native.artifact, [
-        "__delegate",
+        "system",
         "lifecycle",
         "install-profile",
         "--profile",
@@ -328,8 +333,6 @@ describe("t238 build-binaries release builder", () => {
         "--from",
         RELEASE_DIR,
         "--offline",
-        "--harness",
-        "claude",
         "--quiet",
       ], {
         cwd: project,
@@ -345,29 +348,17 @@ describe("t238 build-binaries release builder", () => {
       expect(invalidDestination.stdout ?? "").toContain("AIDLC_BIN_DIR must be an absolute path");
       expect(existsSync(invalidRoot)).toBe(false);
 
-      const unknownHarnessRoot = join(installFixture, "unknown-harness-install");
-      const unknownHarness = spawnSync("sh", [
+      const obsoleteHarness = spawnSync("sh", [
         join(RELEASE_DIR, "install.sh"),
-        "--from",
-        RELEASE_DIR,
-        "--offline",
         "--harness",
-        "not-a-release-harness",
-        "--quiet",
+        "claude",
       ], {
         cwd: project,
         encoding: "utf-8",
         timeout: 60_000,
-        env: {
-          ...env,
-          AIDLC_INSTALL_ROOT: unknownHarnessRoot,
-        },
+        env,
       });
-      expect(unknownHarness.status).toBe(4);
-      expect(unknownHarness.stdout ?? "").toContain(
-        "release does not provide harness not-a-release-harness",
-      );
-      expect(existsSync(unknownHarnessRoot)).toBe(false);
+      expect(obsoleteHarness.status).toBe(2);
 
       const managerRoot = join(installFixture, "manager");
       const managerBin = join(managerRoot, "Cellar", "aidlc", "1.0.0", "bin");
@@ -391,8 +382,6 @@ describe("t238 build-binaries release builder", () => {
         "--from",
         RELEASE_DIR,
         "--offline",
-        "--harness",
-        "claude",
         "--quiet",
       ], {
         cwd: project,
@@ -409,8 +398,6 @@ describe("t238 build-binaries release builder", () => {
         "--from",
         RELEASE_DIR,
         "--offline",
-        "--harness",
-        "claude",
         "--profile",
         profile,
         "--json",
@@ -429,7 +416,7 @@ describe("t238 build-binaries release builder", () => {
         code: 0,
         data: expect.objectContaining({
           version: AIDLC_VERSION,
-          harnesses: ["claude"],
+          runtime: "all-harnesses",
           profile,
         }),
       }));
@@ -438,8 +425,6 @@ describe("t238 build-binaries release builder", () => {
         "--from",
         RELEASE_DIR,
         "--offline",
-        "--harness",
-        "claude",
         "--quiet",
         "--no-color",
         "--yes",
@@ -462,8 +447,6 @@ describe("t238 build-binaries release builder", () => {
         "--from",
         RELEASE_DIR,
         "--offline",
-        "--harness",
-        "claude",
         "--no-color",
         "--yes",
       ], {
@@ -477,7 +460,7 @@ describe("t238 build-binaries release builder", () => {
         `${humanInstall.stdout ?? ""}${humanInstall.stderr ?? ""}`,
       ).toBe(0);
       expect(humanInstall.stdout ?? "")
-        .toContain(`PASS installed AI-DLC ${AIDLC_VERSION} for Claude Code`);
+        .toContain(`PASS installed AI-DLC ${AIDLC_VERSION} with all harness runtimes`);
       expect(`${humanInstall.stdout ?? ""}${humanInstall.stderr ?? ""}`).not.toContain("\u001b[");
 
       const profileText = readFileSync(profile, "utf-8");
@@ -487,10 +470,12 @@ describe("t238 build-binaries release builder", () => {
       const installedBinary = join(binDir, "aidlc");
       expect(existsSync(installedBinary)).toBe(true);
 
-      const init = spawnSync(installedBinary, [
-        "init",
+      const config = spawnSync(installedBinary, [
+        "config",
         "--project-dir",
         project,
+        "--harness",
+        "claude",
         "--mcp",
         "none",
       ], {
@@ -499,7 +484,7 @@ describe("t238 build-binaries release builder", () => {
         timeout: 60_000,
         env,
       });
-      expect(init.status, `${init.stdout ?? ""}${init.stderr ?? ""}`).toBe(0);
+      expect(config.status, `${config.stdout ?? ""}${config.stderr ?? ""}`).toBe(0);
       expect(existsSync(join(project, ".claude", "tools", "data", "aidlc-manifest.json"))).toBe(true);
 
       const installedDoctor = spawnSync(installedBinary, [
@@ -554,7 +539,7 @@ describe("t238 build-binaries release builder", () => {
           "#!/usr/bin/env bun",
           "const verb = process.argv[2];",
           "if (verb === \"version\") {",
-          "  process.stdout.write(\"aidlc 0.0.0\\n\");",
+          "  process.stdout.write(\"aidlc 0.0.0 (runtime 0.0.0)\\n\");",
           "  process.exit(0);",
           "}",
           "if (verb === \"help\" || verb === undefined) {",

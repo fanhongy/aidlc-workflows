@@ -531,7 +531,7 @@ describe("t243 doctor --export diagnostic exporter (#575)", () => {
     expect(plain.status).toBe(0);
     const plainDir = JSON.parse((plain.stdout ?? "").trim());
     expect(plainDir.kind).toBe("print");
-    expect(plainDir.message).toContain("aidlc-utility.ts doctor");
+    expect(plainDir.message).toContain("bun .claude/tools/aidlc.ts doctor");
     expect(plainDir.message).not.toContain("--export");
   });
 

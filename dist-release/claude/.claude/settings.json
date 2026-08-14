@@ -11,12 +11,12 @@
       "Grep",
       "Task",
       "WebSearch",
-      "Bash(aidlc *)"
+      "Bash(aidlc engine *)"
     ]
   },
   "statusLine": {
     "type": "command",
-    "command": "aidlc statusline"
+    "command": "aidlc engine statusline"
   },
   "env": {
     "AWS_AIDLC_DEFAULT_SCOPE": "workshop",
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook fold-usage"
+            "command": "aidlc engine hook fold-usage"
           }
         ]
       },
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook dispatch-rules"
+            "command": "aidlc engine hook dispatch-rules"
           }
         ]
       },
@@ -54,15 +54,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook state-transition-guard"
+            "command": "aidlc engine hook state-transition-guard"
           },
           {
             "type": "command",
-            "command": "aidlc hook reviewer-scope"
+            "command": "aidlc engine hook reviewer-scope"
           },
           {
             "type": "command",
-            "command": "aidlc hook review-freeze"
+            "command": "aidlc engine hook review-freeze"
           }
         ]
       },
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook plan-approval-guard"
+            "command": "aidlc engine hook plan-approval-guard"
           }
         ]
       }
@@ -82,7 +82,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook mint-presence"
+            "command": "aidlc engine hook mint-presence"
           }
         ]
       }
@@ -93,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook session-start"
+            "command": "aidlc engine hook session-start"
           }
         ]
       }
@@ -104,7 +104,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook session-end"
+            "command": "aidlc engine hook session-end"
           }
         ]
       }
@@ -115,11 +115,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook audit-logger"
+            "command": "aidlc engine hook audit-logger"
           },
           {
             "type": "command",
-            "command": "aidlc hook sensor-fire"
+            "command": "aidlc engine hook sensor-fire"
           }
         ]
       },
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook sync-statusline"
+            "command": "aidlc engine hook sync-statusline"
           }
         ]
       },
@@ -137,7 +137,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook mint-presence"
+            "command": "aidlc engine hook mint-presence"
           }
         ]
       },
@@ -146,7 +146,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook runtime-compile"
+            "command": "aidlc engine hook runtime-compile"
           }
         ]
       },
@@ -155,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook fold-usage"
+            "command": "aidlc engine hook fold-usage"
           }
         ]
       }
@@ -166,7 +166,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook validate-state"
+            "command": "aidlc engine hook validate-state"
           }
         ]
       }
@@ -177,7 +177,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook log-subagent"
+            "command": "aidlc engine hook log-subagent"
           }
         ]
       }
@@ -188,7 +188,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "aidlc hook stop"
+            "command": "aidlc engine hook stop"
           }
         ]
       }

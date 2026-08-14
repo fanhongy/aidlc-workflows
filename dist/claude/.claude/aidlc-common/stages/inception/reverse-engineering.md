@@ -55,7 +55,7 @@ Read `<record>/aidlc-state.md` to confirm:
 - Project type is brownfield
 
 If the project is not brownfield, run
-`bun .claude/tools/aidlc.ts __delegate orchestrate report --stage reverse-engineering --result skipped --reason "<reason>"`.
+`bun .claude/tools/aidlc.ts engine orchestrate report --stage reverse-engineering --result skipped --reason "<reason>"`.
 The engine records the skip and advances to the next in-scope stage.
 
 #### Resolve the intent's repo set (multi-repo)
@@ -86,7 +86,7 @@ The codekb is a space-level store shared across intents; a rerun REPLACES it.
 For every repo in the resolved set, run the read-only check:
 
 ```
-bun .claude/tools/aidlc.ts __delegate utility codekb-scope-diff --repo <repo>
+bun .claude/tools/aidlc.ts engine workspace codekb-scope-diff --repo <repo>
 ```
 
 - **NO_STORE** - first scan for this repo. Proceed to Step 2; no question.
@@ -139,7 +139,7 @@ Only after every repository decision has been resolved:
 
 - If every repo is reused on an ordinary workflow run, report the stage as
   skipped exactly once:
-  `bun .claude/tools/aidlc.ts __delegate orchestrate report --stage reverse-engineering --result skipped --reason "codekb reuse: all resolved stores CURRENT, human chose reuse"`.
+  `bun .claude/tools/aidlc.ts engine orchestrate report --stage reverse-engineering --result skipped --reason "codekb reuse: all resolved stores CURRENT, human chose reuse"`.
 - If every repo is reused on an isolated run (`directive.single === true`), do
   NOT call the main-workflow skipped report. Return the reused-repositories
   summary to the orchestrator's isolated stage-runner branch; it owns the
@@ -194,14 +194,14 @@ Architect synthesizes scan results into 9 artifacts:
 9. **reverse-engineering-timestamp.md** - Records when reverse engineering was performed (date, commit hash if available) and MUST end with the structured `## Scope of Analysis` block from the re-artifacts.md template, filled from the developer's Scan Coverage - what the run ACTUALLY analyzed deeply, not what was aspired to. This is the freshness/staleness marker the Step 1 rerun guard reads. For the block's `fingerprint:` line, run the mint command with the analyzed paths (comma-separated) and paste its output verbatim:
 
    ```
-   bun .claude/tools/aidlc.ts __delegate utility codekb-scope-diff --repo <repo> --mint --paths <analyzed paths>
+   bun .claude/tools/aidlc.ts engine workspace codekb-scope-diff --repo <repo> --mint --paths <analyzed paths>
    ```
 
 **Resolve the write directory with the engine, do NOT compose the path yourself.**
 Run the read-only tool
 
 ```
-bun .claude/tools/aidlc.ts __delegate utility codekb-path --repo <repo>
+bun .claude/tools/aidlc.ts engine workspace codekb --repo <repo>
 ```
 
 (omit `--repo` for a single/unrecorded repo — the engine resolves the repo name).
@@ -215,7 +215,7 @@ repo; NOT the timestamp filename - record-dir placement checks key on the
 artifact stems) and run
 
 ```
-bun .claude/tools/aidlc.ts __delegate utility codekb-scope-diff --repo <repo> --compare <record>/inception/reverse-engineering/scope-draft-<repo>.md
+bun .claude/tools/aidlc.ts engine workspace codekb-scope-diff --repo <repo> --compare <record>/inception/reverse-engineering/scope-draft-<repo>.md
 ```
 
 Keep the output keyed by `<repo>` for Step 5's completion summary. This is the
@@ -235,7 +235,7 @@ prints.
 
 After every selected repo scan has completed, hand completion to
 `stage-protocol.md` exactly once via
-`bun .claude/tools/aidlc.ts __delegate orchestrate report --stage reverse-engineering --result <outcome>`.
+`bun .claude/tools/aidlc.ts engine orchestrate report --stage reverse-engineering --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 5: Present Completion & Request Approval

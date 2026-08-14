@@ -36,7 +36,7 @@ no standalone meaning.
    tool then falls back to the scope token):
 
    ```bash
-   bun .aidlc/tools/aidlc-utility.ts intent-birth --arguments "<description>" --label "<2-3 word essence>"
+   bun .aidlc/tools/aidlc.ts engine intent birth --arguments "<description>" --label "<2-3 word essence>"
    ```
 
    Pass `--scope <name>` **only if the user named one**; otherwise omit it and the engine picks the install's default scope. Omit `--arguments`

@@ -69,7 +69,7 @@ export type OnboardingSpec = {
 export type RootIntegration = {
   /** Project-root path emitted by this distribution. */
   path: string;
-  /** Merge policy used by `aidlc init`; never inferred from the filename. */
+  /** Merge policy used by `aidlc config`; never inferred from the filename. */
   policy: "managed-block" | "json-map" | "json-array" | "whole-file";
   /** Stable marker identity for managed-block integrations. */
   marker?: string;
@@ -78,7 +78,7 @@ export type RootIntegration = {
   /** Optional integrations may be omitted by an init mode such as --mcp none. */
   optional?: boolean;
   /**
-   * Exact historical signatures that `aidlc init` may adopt as framework-owned.
+   * Exact historical signatures that `aidlc config` may adopt as framework-owned.
    * Unknown or locally modified legacy content remains project-owned or conflicts.
    */
   legacySignatures?: {
@@ -99,11 +99,11 @@ export type HarnessManifest = {
   name: string;
   /** User-facing product name used by lifecycle output. */
   productName: string;
-  /** Exact host action printed after `aidlc init` completes. */
-  initNextStep: string;
+  /** Exact host action printed after `aidlc config` completes. */
+  configNextStep: string;
   /** The harness directory the token substitutes to (".claude" | ".kiro" | ".codex" | ".aidlc"). */
   harnessDir: string;
-  /** Explicit project-root reconciliation policies consumed by `aidlc init`. */
+  /** Explicit project-root reconciliation policies consumed by `aidlc config`. */
   rootIntegrations: RootIntegration[];
   /** Native-invocation-only project-root integrations such as host trust seeds. */
   nativeRootIntegrations?: NativeRootIntegration[];

@@ -77,7 +77,7 @@ describe("t143 explicit-scope workflow birth (/aidlc --scope bugfix, sdk live)",
         // verbatim stdout — deterministic, never the LLM's rewording.) P4: the
         // engine NAMES `intent-birth --scope <scope>` (the deterministic birth
         // handler) — the retired `init` alias is gone (aidlc-orchestrate.ts:302).
-        assertToolResultContains(r, "Bash", `intent-birth --scope ${SCOPE}`);
+        assertToolResultContains(r, "Bash", `intent birth --scope ${SCOPE}`);
 
         // (a, cont.) ... and ACTED on it: the named intent-birth tool ran and its
         // summary landed as a tool-result.

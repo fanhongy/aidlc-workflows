@@ -22,6 +22,7 @@ import {
   success,
   usage,
   valueAfter,
+  valuesAfter,
 } from "./aidlc-command.ts";
 import {
   type ProjectionDescriptor,
@@ -84,7 +85,7 @@ type PlannedAction = {
 };
 
 function stripVerb(argv: string[]): string[] {
-  return argv[0] === "init" ? argv.slice(1) : argv;
+  return argv[0] === "config" || argv[0] === "init" ? argv.slice(1) : argv;
 }
 
 function readBaseline(path: string): Baseline | null {
@@ -392,7 +393,7 @@ const HARNESS_IDENTITY_KEYS = new Set([
   "schemaVersion",
   "distribution",
   "productName",
-  "initNextStep",
+  "configNextStep",
   "harnessDir",
   "rulesSubdir",
 ]);
@@ -604,7 +605,7 @@ function assertRefreshSafe(projectDir: string): void {
   throw new Error(
     `refusing to refresh while ${activeWorkflows.length} workflow(s) are active: ${
       activeWorkflows.join(", ")
-    }. Complete the workflow before rerunning aidlc init; upgrade and rollback do not modify project files.`,
+    }. Complete the workflow before rerunning aidlc config; update and use do not modify project files.`,
   );
 }
 
@@ -729,7 +730,7 @@ function configuredDefaultHarness(): string | undefined {
   const value = readFileSync(path, "utf-8").trim();
   if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) {
     throw new Error(
-      `${path} contains an invalid harness name; run aidlc harness default clear`,
+      `${path} contains an invalid harness name; pass --harness <name>`,
     );
   }
   return value;
@@ -775,9 +776,9 @@ function selectSource(
     if (selected.length === 1) return { root: selected[0].root };
     throw new Error(
       requiredVersion && versionFiltered.length === 0
-        ? `project requires ${requiredVersion}, which is not installed; run aidlc versions install ${requiredVersion}`
+        ? `project requires ${requiredVersion}, which is not installed; run aidlc use ${requiredVersion}`
         : requiredVersion
-        ? `harness ${selectedName} is not installed in ${requiredVersion}; run aidlc versions install ${requiredVersion} --harness ${selectedName}`
+        ? `harness ${selectedName} is not installed in ${requiredVersion}; run aidlc use ${requiredVersion}`
         : `harness ${selectedName} is not installed`,
     );
   }
@@ -790,8 +791,8 @@ function selectSource(
     if (versionFiltered.length > 0) {
       throw new Error(
         requiredVersion
-          ? `configured default harness ${configuredDefault} is not installed in ${requiredVersion}; run aidlc versions install ${requiredVersion} --harness ${configuredDefault} or aidlc harness default clear`
-          : `configured default harness ${configuredDefault} is unavailable; install it or run aidlc harness default clear`,
+          ? `configured default harness ${configuredDefault} is not installed in ${requiredVersion}; run aidlc use ${requiredVersion}`
+          : `configured default harness ${configuredDefault} is unavailable; pass --harness <name>`,
       );
     }
   }
@@ -799,7 +800,7 @@ function selectSource(
   if (versionFiltered.length === 0) {
     throw new Error(
       requiredVersion
-        ? `project requires ${requiredVersion}, which is not installed; run aidlc versions install ${requiredVersion}`
+        ? `project requires ${requiredVersion}, which is not installed; run aidlc use ${requiredVersion}`
         : "no installed harness runtime is available",
     );
   }
@@ -1355,11 +1356,19 @@ function planRemovedRootIntegrations(
 export async function main(input: string[]): Promise<void> {
   const argv = stripVerb(input);
   const options = globalOptions(argv);
-  const requestedHarness = valueAfter(argv, "--harness");
+  const requestedHarnesses = valuesAfter(argv, "--harness");
+  const requestedHarness = requestedHarnesses[0];
   const from = valueAfter(argv, "--from");
   const mcpValue = valueAfter(argv, "--mcp");
   if (argv.includes("--harness") && !requestedHarness) {
     emitResult(usage("--harness requires a distribution name"), options);
+    return;
+  }
+  if (requestedHarnesses.length > 1) {
+    emitResult(
+      usage("multi-harness config is not supported yet; pass one --harness <name>"),
+      options,
+    );
     return;
   }
   if (mcpValue && mcpValue !== "defaults" && mcpValue !== "none") {
@@ -1375,12 +1384,12 @@ export async function main(input: string[]): Promise<void> {
     .some((entry) => existsSync(join(projectDir, entry)));
   if (!recognized && !explicitProject && !options.yes) {
     if (!process.stdin.isTTY) {
-      emitResult(usage("non-interactive init outside a recognized project requires --project-dir"), options);
+      emitResult(usage("non-interactive config outside a recognized project requires --project-dir"), options);
       return;
     }
     const answer = prompt(`Initialize AI-DLC in ${projectDir}? [y/N]:`);
     if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
-      emitResult(usage("initialization cancelled; pass --project-dir to select the target explicitly"), options);
+      emitResult(usage("configuration cancelled; pass --project-dir to select the target explicitly"), options);
       return;
     }
   }
@@ -1401,7 +1410,7 @@ export async function main(input: string[]): Promise<void> {
     if (existing.distribution) assertRefreshSafe(projectDir);
     if (regularFile(pinPath) && readFileSync(pinPath, "utf-8").trim() !== stamp.frameworkVersion) {
       throw new Error(
-        `project pin requires ${readFileSync(pinPath, "utf-8").trim()}, but source is ${stamp.frameworkVersion}; run aidlc versions install ${readFileSync(pinPath, "utf-8").trim()}`,
+        `project pin requires ${readFileSync(pinPath, "utf-8").trim()}, but source is ${stamp.frameworkVersion}; run aidlc use ${readFileSync(pinPath, "utf-8").trim()}`,
       );
     }
     const baselinePath = join(projectDir, descriptor.harnessDir, "tools", "data", "aidlc-manifest.json");
@@ -1466,9 +1475,9 @@ export async function main(input: string[]): Promise<void> {
       );
       emitResult({
         ...failure(
-          `${conflicts.length} init conflict(s): ${conflicts.map((item) => `${item.path} (${item.detail})`).join(", ")}`,
+          `${conflicts.length} config conflict(s): ${conflicts.map((item) => `${item.path} (${item.detail})`).join(", ")}`,
           EXIT.integrity,
-          "aidlc init --dry-run --verbose",
+          "aidlc config --dry-run --verbose",
         ),
         data: { projectDir, distribution: stamp.distribution, counts, actions },
       }, options);
@@ -1517,7 +1526,7 @@ export async function main(input: string[]): Promise<void> {
     const planToken = sha256Bytes(canonical(approvalPlan));
     if (argv.includes("--dry-run")) {
       emitResult(success(
-        `init plan for ${projectDir}: ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" ")}`,
+        `config plan for ${projectDir}: ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" ")}`,
         { projectDir, distribution: stamp.distribution, counts, actions, planToken },
       ), options);
       return;
@@ -1529,9 +1538,9 @@ export async function main(input: string[]): Promise<void> {
     }
     if (approvedToken && approvedToken !== planToken) {
       emitResult(failure(
-        "init plan changed after approval; run aidlc init --dry-run again",
+        "config plan changed after approval; run aidlc config --dry-run again",
         EXIT.integrity,
-        "aidlc init --dry-run --json",
+        "aidlc config --dry-run --json",
       ), options);
       return;
     }
@@ -1550,7 +1559,7 @@ export async function main(input: string[]): Promise<void> {
       executePlan(plan);
     }
     emitResult(success(
-      `initialized ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.initNextStep}`,
+      `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`,
       {
         projectDir,
         distribution: stamp.distribution,
@@ -1561,10 +1570,13 @@ export async function main(input: string[]): Promise<void> {
       },
     ), options);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     emitResult(failure(
-      error instanceof Error ? error.message : String(error),
-      EXIT.integrity,
-      from ? "aidlc init --from <valid-release-data>" : "aidlc harness add <name>",
+      message,
+      /pass (?:one )?--harness|--harness requires|multi-harness config/.test(message)
+        ? EXIT.usage
+        : EXIT.integrity,
+      from ? "aidlc config --from <valid-release-data>" : "aidlc config --harness <name>",
     ), options);
   } finally {
     if (prepared?.cleanup) rmSync(prepared.cleanup, { recursive: true, force: true });
@@ -1574,7 +1586,7 @@ export async function main(input: string[]): Promise<void> {
 
 if (import.meta.main) {
   main(process.argv.slice(2)).catch((error) => {
-    process.stderr.write(`aidlc init: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.stderr.write(`aidlc config: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = EXIT.failure;
   });
 }

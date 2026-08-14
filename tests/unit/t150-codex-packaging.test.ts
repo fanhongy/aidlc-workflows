@@ -237,7 +237,7 @@ describe("t150 dist/codex packaging parity + drift guard", () => {
       for (const g of groups) {
         for (const h of g.hooks) {
           expect(h.command).toMatch(
-            /^bun \.codex\/tools\/aidlc\.ts adapter codex [a-z-]+$/,
+            /^bun \.codex\/tools\/aidlc\.ts engine adapter codex [a-z-]+$/,
           );
         }
       }
@@ -267,7 +267,7 @@ describe("t150 dist/codex packaging parity + drift guard", () => {
     expect(bodyStart).toBeGreaterThan(-1);
     const header = shipped.slice(0, bodyStart);
     expect(header).toContain(
-      "projected `bun .codex/tools/aidlc.ts adapter codex ...`",
+      "projected `bun .codex/tools/aidlc.ts engine adapter codex ...`",
     );
     expect(header).toContain("replace the full set");
     expect(header).toContain("appending a second set creates invalid TOML");
@@ -285,7 +285,7 @@ describe("t150 dist/codex packaging parity + drift guard", () => {
     // — a concrete anchor so a silent recipe change can't pass by emitting a
     // self-consistent but wrong hash for every entry.
     expect(shippedBody).toContain(
-      'session_start:0:0"]\ntrusted_hash = "sha256:e1d4a8b79f7344c450f16770c7a47a292a1fdb8c5b4f00af285ff6500f1fee16"',
+      'session_start:0:0"]\ntrusted_hash = "sha256:92de9e3a0fc738d1645c02577f54f3c5ce9892ec8389c000bc5f14ba5cb3bee9"',
     );
   });
 
@@ -326,7 +326,7 @@ describe("t150 dist/codex packaging parity + drift guard", () => {
     // The common Unix form remains byte-identical to the historical output.
     expect(emitTrustEntries("/tmp/example-proj")).toStartWith(
       '[hooks.state."/tmp/example-proj/.codex/hooks.json:session_start:0:0"]\n' +
-        'trusted_hash = "sha256:c8b9f242882ebe6747e18f2f183814cf4bf48a3c53696912834009df3de7613e"\n\n',
+        'trusted_hash = "sha256:4e23fffc05a5ef77e420b7d09b59be712919558a2a532c689d78f639731788db"\n\n',
     );
   });
 

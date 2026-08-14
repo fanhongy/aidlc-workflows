@@ -78,7 +78,7 @@ Create SLO compliance report, AWS Cost Explorer analysis & optimization recommen
 ### Step 5: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage feedback-optimization --result <outcome>`.
+`bun .kiro/tools/aidlc.ts engine orchestrate report --stage feedback-optimization --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 6: Present Completion & Request Approval

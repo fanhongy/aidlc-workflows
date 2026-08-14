@@ -113,7 +113,6 @@ function fixture(version = AIDLC_VERSION): string {
     root,
     repoRoot: REPO_ROOT,
     version,
-    distributions: ["claude", "kiro"],
   });
   return root;
 }
@@ -131,9 +130,11 @@ describe("t244 machine configuration and update discovery", () => {
     const cwd = temp("aidlc-t241-config-cwd-");
     const env = envFor(machine);
     expect(run(DISPATCHER, [
-      "config", "set", "offline", "on", "--global",
+      "system",
+      "config", "global", "set", "offline", "on",
     ], cwd, env).status).toBe(0);
     expect(run(DISPATCHER, [
+      "system",
       "config", "global", "set", "release-base-url", "https://mirror.example/releases",
     ], cwd, env).status).toBe(0);
 
@@ -189,6 +190,7 @@ describe("t244 machine configuration and update discovery", () => {
     const cwd = temp("aidlc-t240-config-url-cwd-");
     const env = envFor(machine);
     const rejected = run(DISPATCHER, [
+      "system",
       "config",
       "global",
       "set",
@@ -413,27 +415,30 @@ describe("t244 machine configuration and update discovery", () => {
       })).state).toBe("offline");
       expect(server.requests).toHaveLength(0);
       expect(run(DISPATCHER, [
-        "config", "global", "set", "update-check", "off",
+      "system",
+      "config", "global", "set", "update-check", "off",
       ], REPO_ROOT, env).status).toBe(0);
       expect((await refreshUpdateState(50)).state).toBe("disabled");
       const disabledCheck = run(
         DISPATCHER,
-        ["upgrade", "--check"],
+        ["update", "--check"],
         REPO_ROOT,
         env,
       );
       expect(disabledCheck.status).toBe(1);
       expect(server.requests).toHaveLength(0);
       expect(run(DISPATCHER, [
-        "config", "global", "set", "update-check", "on",
+      "system",
+      "config", "global", "set", "update-check", "on",
       ], REPO_ROOT, env).status).toBe(0);
       expect(run(DISPATCHER, [
-        "config", "global", "set", "offline", "on",
+      "system",
+      "config", "global", "set", "offline", "on",
       ], REPO_ROOT, env).status).toBe(0);
       expect((await refreshUpdateState(50)).state).toBe("offline");
       const offlineCheck = run(
         DISPATCHER,
-        ["upgrade", "--check"],
+        ["update", "--check"],
         REPO_ROOT,
         env,
       );
@@ -456,6 +461,7 @@ describe("t244 management lifecycle", () => {
     const pinnedProject = temp("aidlc-t241-valid-pin-project-");
     const version = "9.8.7";
     mkdirSync(join(machine, "versions", version), { recursive: true });
+    writeFileSync(join(pinnedProject, ".aidlc-version"), `${version}\n`);
     writeFileSync(
       join(machine, "pins.json"),
       `${JSON.stringify({
@@ -499,7 +505,7 @@ describe("t244 management lifecycle", () => {
     };
     mkdirSync(join(project, ".git"));
     const installed = run(LIFECYCLE, [
-      "upgrade", "--version", AIDLC_VERSION, "--harness", "claude", "--from", release,
+      "update", "--version", AIDLC_VERSION, "--from", release,
     ], project, env);
     expect(installed.status, installed.stdout + installed.stderr).toBe(0);
 
@@ -594,112 +600,61 @@ describe("t244 management lifecycle", () => {
     }));
   }, 60_000);
 
-  test("harness add/list/default/remove stays on the active release", () => {
+  test("all harness runtimes install together and config selects one project harness", () => {
     const release = fixture();
-    const nextRelease = fixture(NEXT_VERSION);
-    const machine = temp("aidlc-t241-harness-");
-    const project = temp("aidlc-t241-harness-project-");
+    const machine = temp("aidlc-t241-all-harness-");
+    const project = temp("aidlc-t241-all-harness-project-");
+    mkdirSync(join(project, ".git"));
+    const env = envFor(machine);
+    const installed = run(LIFECYCLE, [
+      "update", "--version", AIDLC_VERSION, "--from", release,
+    ], project, env);
+    expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+    for (const harness of ["claude", "codex", "kiro", "kiro-ide", "opencode"]) {
+      expect(existsSync(join(machine, "versions", AIDLC_VERSION, "runtime", harness))).toBe(true);
+    }
+    for (const file of ["aidlc.bash", "_aidlc", "aidlc.fish", "aidlc.ps1"]) {
+      expect(existsSync(join(machine, "completions", file)), file).toBe(true);
+    }
+    expect(
+      existsSync(join(machine, "versions", AIDLC_VERSION, "plugins", "test-pro", "claude")),
+    ).toBe(true);
+    const missingChoice = run(DISPATCHER, [
+      "config", "--project-dir", project, "--mcp", "none",
+    ], project, env);
+    expect(missingChoice.status).toBe(2);
+    expect(missingChoice.stdout + missingChoice.stderr).toContain("--harness");
+    const configured = run(DISPATCHER, [
+      "config", "--project-dir", project, "--harness", "kiro", "--mcp", "none",
+    ], project, env);
+    expect(configured.status, configured.stdout + configured.stderr).toBe(0);
+    expect(existsSync(join(project, ".kiro"))).toBe(true);
+    const multi = run(DISPATCHER, [
+      "config", "--project-dir", temp("aidlc-t241-multi-project-"),
+      "--harness", "claude", "--harness", "kiro", "--mcp", "none",
+    ], project, env);
+    expect(multi.status).toBe(2);
+    expect(multi.stdout + multi.stderr).toContain("multi-harness config is not supported yet");
+  }, 60_000);
+
+  test("a missing declared runtime makes the retained version incomplete", () => {
+    const release = fixture();
+    const machine = temp("aidlc-t244-missing-runtime-");
+    const project = temp("aidlc-t244-missing-runtime-project-");
     mkdirSync(join(project, ".git"));
     const env = envFor(machine);
     expect(run(LIFECYCLE, [
-      "upgrade", "--version", AIDLC_VERSION, "--harness", "claude", "--from", release,
+      "update", "--version", AIDLC_VERSION, "--from", release,
     ], project, env).status).toBe(0);
-    expect(run(LIFECYCLE, [
-      "harness", "add", "kiro", "--from", release,
-    ], project, env).status).toBe(0);
-    expect(run(LIFECYCLE, ["harness", "default", "kiro"], project, env).status).toBe(0);
-
-    const list = run(LIFECYCLE, ["harness", "list", "--json"], project, env);
-    const data = JSON.parse(list.stdout).data as {
-      harnesses: Array<{ name: string; productName: string; default: boolean }>;
-    };
-    expect(data.harnesses).toEqual([
-      expect.objectContaining({ name: "claude", productName: "Claude Code", default: false }),
-      expect.objectContaining({ name: "kiro", productName: "Kiro CLI", default: true }),
-    ]);
-    const freshProject = temp("aidlc-t241-default-harness-project-");
-    mkdirSync(join(freshProject, ".git"));
-    const initialized = run(
-      DISPATCHER,
-      ["init", "--project-dir", freshProject, "--mcp", "none", "--json"],
-      freshProject,
-      env,
-    );
-    expect(initialized.status, initialized.stdout + initialized.stderr).toBe(0);
-    const initializedStamp = JSON.parse(
-      readFileSync(
-        join(
-          freshProject,
-          ".kiro",
-          "tools",
-          "data",
-          "aidlc-stamp.json",
-        ),
-        "utf-8",
-      ),
-    ) as { distribution: string };
-    expect(initializedStamp.distribution).toBe("kiro");
-    expect(run(LIFECYCLE, ["harness", "remove", "kiro"], project, env).status).toBe(2);
-    expect(run(LIFECYCLE, [
-      "harness", "remove", "kiro", "--yes",
-    ], project, env).status).toBe(0);
-    expect(existsSync(join(machine, "default-harness"))).toBe(false);
-    expect(existsSync(join(machine, "versions", AIDLC_VERSION, "runtime", "kiro"))).toBe(false);
-
-    writeFileSync(join(machine, "default-harness"), "kiro\n");
-    const staleDefaultProject = temp("aidlc-t241-stale-default-project-");
-    mkdirSync(join(staleDefaultProject, ".git"));
-    const staleDefault = run(
-      DISPATCHER,
-      ["init", "--project-dir", staleDefaultProject, "--mcp", "none"],
-      staleDefaultProject,
-      env,
-    );
-    expect(staleDefault.status).not.toBe(0);
-    expect(staleDefault.stdout + staleDefault.stderr).toContain(
-      "configured default harness kiro is unavailable",
-    );
-    expect(existsSync(join(staleDefaultProject, ".claude"))).toBe(false);
-
-    rmSync(join(machine, "default-harness"), { force: true });
-    expect(run(LIFECYCLE, [
-      "harness", "remove", "claude", "--yes",
-    ], project, env).status).toBe(0);
-    const empty = run(LIFECYCLE, ["harness", "list", "--json"], project, env);
-    expect(empty.status, empty.stdout + empty.stderr).toBe(0);
-    expect(JSON.parse(empty.stdout).data.harnesses).toEqual([]);
-    const doctor = run(
-      DISPATCHER,
-      ["doctor", "--json", "--project-dir", project],
-      project,
-      env,
-    );
-    expect(doctor.status).toBe(1);
-    expect(JSON.parse(doctor.stdout).data.checks).toContainEqual(
-      expect.objectContaining({
-        pass: false,
-        label: expect.stringContaining("has no harness installed"),
-      }),
-    );
-    const upgraded = run(LIFECYCLE, [
-      "upgrade", "--version", NEXT_VERSION, "--from", nextRelease,
-    ], project, env);
-    expect(upgraded.status, upgraded.stdout + upgraded.stderr).toBe(0);
-    expect(readFileSync(join(machine, "active-version"), "utf-8").trim())
-      .toBe(NEXT_VERSION);
-    expect(JSON.parse(
-      run(LIFECYCLE, ["harness", "list", "--json"], project, env).stdout,
-    ).data.harnesses).toEqual([]);
-    expect(run(LIFECYCLE, [
-      "harness", "add", "kiro", "--from", nextRelease,
-    ], project, env).status).toBe(0);
-    const recovered = run(LIFECYCLE, ["harness", "list", "--json"], project, env);
-    expect(JSON.parse(recovered.stdout).data.harnesses).toEqual([
-      expect.objectContaining({ name: "kiro", productName: "Kiro CLI" }),
-    ]);
+    rmSync(join(machine, "versions", AIDLC_VERSION, "runtime", "codex"), {
+      recursive: true,
+    });
+    const listed = run(LIFECYCLE, ["versions", "list", "--json"], project, env);
+    expect(listed.stdout).toContain('"complete":false');
+    expect(run(LIFECYCLE, ["use", AIDLC_VERSION], project, env).status).toBe(4);
   }, 60_000);
 
-  test("prune protects active, rollback, live pins, and stale pins", () => {
+  test("update retains the prior active and pinned versions while pruning older versions", () => {
     const release = fixture();
     const nextRelease = fixture(NEXT_VERSION);
     const livePinRelease = fixture(LIVE_PIN_VERSION);
@@ -712,19 +667,16 @@ describe("t244 management lifecycle", () => {
     mkdirSync(join(pinnedProject, ".git"));
     const env = envFor(machine);
     expect(run(LIFECYCLE, [
-      "upgrade", "--version", AIDLC_VERSION, "--harness", "claude", "--from", release,
+      "update", "--version", AIDLC_VERSION, "--from", release,
     ], project, env).status).toBe(0);
     expect(run(LIFECYCLE, [
-      "upgrade", "--version", NEXT_VERSION, "--harness", "claude", "--from", nextRelease,
+      "versions", "install", LIVE_PIN_VERSION, "--from", livePinRelease,
     ], project, env).status).toBe(0);
     expect(run(LIFECYCLE, [
-      "versions", "install", LIVE_PIN_VERSION, "--harness", "claude", "--from", livePinRelease,
+      "versions", "install", STALE_PIN_VERSION, "--from", stalePinRelease,
     ], project, env).status).toBe(0);
     expect(run(LIFECYCLE, [
-      "versions", "install", STALE_PIN_VERSION, "--harness", "claude", "--from", stalePinRelease,
-    ], project, env).status).toBe(0);
-    expect(run(LIFECYCLE, [
-      "versions", "install", REMOVABLE_VERSION, "--harness", "claude", "--from", removableRelease,
+      "versions", "install", REMOVABLE_VERSION, "--from", removableRelease,
     ], project, env).status).toBe(0);
     writeFileSync(
       join(machine, "pins.json"),
@@ -733,12 +685,13 @@ describe("t244 management lifecycle", () => {
         "/missing/stale-project": STALE_PIN_VERSION,
       }, null, 2)}\n`,
     );
-    const protectedResult = run(LIFECYCLE, ["versions", "prune", "--yes"], project, env);
-    expect(protectedResult.status, protectedResult.stdout + protectedResult.stderr).toBe(0);
-    expect(protectedResult.stdout).toContain(`${AIDLC_VERSION} (rollback)`);
-    expect(protectedResult.stdout).toContain(`${NEXT_VERSION} (active)`);
-    expect(protectedResult.stdout).toContain(`${LIVE_PIN_VERSION} (pinned by ${pinnedProject})`);
-    expect(protectedResult.stdout).toContain("stale pin /missing/stale-project");
+    writeFileSync(join(pinnedProject, ".aidlc-version"), `${LIVE_PIN_VERSION}\n`);
+    const updated = run(LIFECYCLE, [
+      "update", "--version", NEXT_VERSION, "--from", nextRelease,
+    ], project, env);
+    expect(updated.status, updated.stdout + updated.stderr).toBe(0);
+    expect(updated.stdout).toContain(`updated ${AIDLC_VERSION} -> ${NEXT_VERSION}`);
+    expect(updated.stdout).toContain(`pruned ${REMOVABLE_VERSION}`);
     for (const version of [AIDLC_VERSION, NEXT_VERSION, LIVE_PIN_VERSION, STALE_PIN_VERSION]) {
       expect(existsSync(join(machine, "versions", version))).toBe(true);
     }
@@ -753,7 +706,7 @@ describe("t244 management lifecycle", () => {
     writeFileSync(join(project, "keep.txt"), "project-owned\n");
     const env = envFor(machine);
     expect(run(LIFECYCLE, [
-      "upgrade", "--version", AIDLC_VERSION, "--harness", "claude", "--from", release,
+      "update", "--version", AIDLC_VERSION, "--from", release,
     ], project, env).status).toBe(0);
     const command = join(machine, "bin", "aidlc");
     const executable = join(machine, "versions", AIDLC_VERSION, "aidlc");
@@ -770,6 +723,7 @@ describe("t244 management lifecycle", () => {
     rmSync(command);
     symlinkSync(executable, command);
     expect(run(DISPATCHER, [
+      "system",
       "config", "global", "set", "offline", "on",
     ], project, env).status).toBe(0);
     writeFileSync(join(machine, "update-check.json"), "{}\n");
@@ -785,11 +739,9 @@ describe("t244 management lifecycle", () => {
     expect(readFileSync(join(project, "keep.txt"), "utf-8")).toBe("project-owned\n");
 
     expect(run(LIFECYCLE, [
-      "upgrade", "--version", AIDLC_VERSION, "--harness", "claude", "--from", release,
+      "update", "--version", AIDLC_VERSION, "--from", release,
     ], project, env).status).toBe(0);
-    expect(run(LIFECYCLE, [
-      "harness", "default", "claude",
-    ], project, env).status).toBe(0);
+    writeFileSync(join(machine, "default-harness"), "claude\n");
     expect(run(LIFECYCLE, ["uninstall", "--purge", "--yes"], project, env).status).toBe(0);
     for (
       const path of [
@@ -805,163 +757,35 @@ describe("t244 management lifecycle", () => {
   }, 60_000);
 });
 
-describe("t244 installer harness selection", () => {
-  test("Unix automation modes require literal --harness before release access", () => {
-    const script = readFileSync(INSTALL_SH, "utf-8");
-    expect(script).toContain("has_controlling_terminal");
-    expect(script).toContain("read -r choice </dev/tty");
-    expect(script).not.toContain("[ -t 0 ]");
-
-    for (const args of [["--yes"], ["--quiet"], ["--json"]]) {
-      const result = spawnSync("sh", [INSTALL_SH, ...args], {
-        cwd: REPO_ROOT,
-        encoding: "utf-8",
-        timeout: 10_000,
-        env: {
-          ...process.env,
-          AIDLC_RELEASE_BASE_URL: "http://non-loopback.invalid/releases",
-        },
-      });
-      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-      expect(result.status, output).toBe(2);
-      expect(output).toContain("--harness <name>");
-      expect(output).not.toContain("release URL must use HTTPS");
-    }
-
-    const json = spawnSync("sh", [INSTALL_SH, "--json"], {
-      cwd: REPO_ROOT,
-      encoding: "utf-8",
-      timeout: 10_000,
+describe("t244 installer has no machine-level harness selection", () => {
+  test("Unix and PowerShell installers reject the retired harness flag and never render a picker", () => {
+    const unix = readFileSync(INSTALL_SH, "utf-8");
+    const powershell = readFileSync(INSTALL_PS1, "utf-8");
+    expect(unix).not.toContain("Select the harness distribution to install:");
+    expect(unix).not.toContain("--harness <name>");
+    expect(powershell).not.toContain("Select the harness distribution to install:");
+    expect(powershell).not.toContain("[Alias('-harness')]");
+    const result = spawnSync("sh", [INSTALL_SH, "--harness", "claude"], {
+      cwd: REPO_ROOT, encoding: "utf-8", timeout: 10_000,
     });
-    expect(JSON.parse(json.stdout ?? "")).toEqual(expect.objectContaining({
-      ok: false,
-      code: 2,
-      status: "usage",
-      message: expect.stringContaining("--harness <name>"),
-    }));
+    expect(result.status).toBe(2);
   });
-
-  test.skipIf(process.platform !== "linux")(
-    "Unix install without a controlling terminal requires literal --harness",
-    () => {
-      const result = spawnSync("setsid", ["-w", "sh", INSTALL_SH], {
-        cwd: REPO_ROOT,
-        encoding: "utf-8",
-        timeout: 10_000,
-        env: {
-          ...process.env,
-          AIDLC_RELEASE_BASE_URL: "http://non-loopback.invalid/releases",
-        },
-      });
-      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-      expect(result.status, output).toBe(2);
-      expect(output).toContain("--harness <name>");
-      expect(output).not.toContain("release URL must use HTTPS");
-    },
-  );
-
-  test.skipIf(process.platform !== "linux")(
-    "piped Unix installer reads its picker response from the controlling terminal",
-    () => {
-      const release = fixture();
-      const machine = temp("aidlc-t244-piped-picker-");
-      const transcript = join(machine, "transcript.log");
-      const result = spawnSync("script", [
-        "-qec",
-        'cat "$AIDLC_TEST_INSTALLER" | sh -s -- --from "$AIDLC_TEST_RELEASE" --offline',
-        transcript,
-      ], {
-        cwd: REPO_ROOT,
-        input: "not-a-number\n",
-        encoding: "utf-8",
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          AIDLC_TEST_INSTALLER: INSTALL_SH,
-          AIDLC_TEST_RELEASE: release,
-          AIDLC_INSTALL_ROOT: join(machine, "install"),
-          AIDLC_BIN_DIR: join(machine, "bin"),
-        },
-      });
-      const output = `${result.stdout ?? ""}${result.stderr ?? ""}${
-        readFileSync(transcript, "utf-8")
-      }`;
-      expect(result.status, output).toBe(2);
-      expect(output).toContain("Select the harness distribution to install:");
-      expect(output).toContain("Harness [1-2]:");
-      expect(output).toContain("invalid harness selection");
-      expect(output).not.toContain("a harness is required in non-interactive installs");
-    },
-    60_000,
-  );
-
-  test("PowerShell advertises and binds the literal --harness spelling", () => {
-    const script = readFileSync(INSTALL_PS1, "utf-8");
-    expect(script).toContain("[Alias('-harness')]");
-    expect(script).toContain("[CmdletBinding(PositionalBinding = $false)]");
-    expect(script).toContain("[Parameter(ValueFromRemainingArguments = $true)]");
-    expect(script).toContain("$LiteralArguments[$index] -ne '--harness'");
-    expect(script).toContain("$HostNonInteractive");
-    expect(script).toContain(
-      "a harness is required in non-interactive installs; pass --harness <name>",
-    );
-    expect(script).not.toContain("pass -Harness <name>");
-    expect(script).toContain("Select the harness distribution to install:");
-  });
-
-  test.skipIf(process.platform !== "win32")(
-    "PowerShell executes literal --harness and rejects automation without it",
-    () => {
-      const env = { ...process.env, AIDLC_ALLOW_ADMIN_INSTALL: "1" };
-      const literal = spawnSync("pwsh", [
-        "-NoProfile",
-        "-File",
-        INSTALL_PS1,
-        "--harness",
-        "claude",
-        "-Offline",
-        "-Quiet",
-      ], { cwd: REPO_ROOT, encoding: "utf-8", timeout: 30_000, env });
-      expect(
-        literal.status,
-        `${literal.stdout ?? ""}${literal.stderr ?? ""}`,
-      ).toBe(3);
-      expect(`${literal.stdout ?? ""}${literal.stderr ?? ""}`).toContain(
-        "--Offline requires --From <release-directory>",
-      );
-
-      const missing = spawnSync("pwsh", [
-        "-NoProfile",
-        "-File",
-        INSTALL_PS1,
-        "-Yes",
-        "-Json",
-      ], { cwd: REPO_ROOT, encoding: "utf-8", timeout: 30_000, env });
-      expect(missing.status, `${missing.stdout ?? ""}${missing.stderr ?? ""}`).toBe(2);
-      expect(JSON.parse(missing.stdout ?? "")).toEqual(expect.objectContaining({
-        code: 2,
-        message: expect.stringContaining("--harness <name>"),
-      }));
-
-      const hostNonInteractive = spawnSync("pwsh", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-File",
-        INSTALL_PS1,
-      ], { cwd: REPO_ROOT, encoding: "utf-8", timeout: 30_000, env });
-      expect(
-        hostNonInteractive.status,
-        `${hostNonInteractive.stdout ?? ""}${hostNonInteractive.stderr ?? ""}`,
-      ).toBe(2);
-      expect(
-        `${hostNonInteractive.stdout ?? ""}${hostNonInteractive.stderr ?? ""}`,
-      ).toContain("--harness <name>");
-    },
-    60_000,
-  );
 });
 
 describe("t244 Windows and completion release surfaces", () => {
+  test("install-profile usage names the invoking user's shell profile", () => {
+    const result = run(
+      DISPATCHER,
+      ["system", "lifecycle", "install-profile"],
+      REPO_ROOT,
+    );
+    expect(result.status).toBe(2);
+    expect(result.stdout + result.stderr).toContain(
+      "install-profile writes the invoking user's shell profile",
+    );
+    expect(result.stdout + result.stderr).not.toContain("system PATH");
+  });
+
   test("strict Windows pointer accepts one versioned executable and rejects extra lines", () => {
     const machine = temp("aidlc-t241-pointer-");
     const saved = process.env.AIDLC_INSTALL_ROOT;
@@ -1154,41 +978,41 @@ describe("t244 Windows and completion release surfaces", () => {
     }
   });
 
-  test("four completion shells derive public commands from route metadata", () => {
+  test("installer completion generation remains under system while the public verb is absent", () => {
     for (const shell of ["bash", "zsh", "fish", "powershell"]) {
-      const first = run(DISPATCHER, ["completions", shell], REPO_ROOT);
-      const second = run(DISPATCHER, ["completions", shell], REPO_ROOT);
+      const first = run(DISPATCHER, ["system", "completions", shell], REPO_ROOT);
+      const second = run(DISPATCHER, ["system", "completions", shell], REPO_ROOT);
       expect(first.status, first.stdout + first.stderr).toBe(0);
       expect(first.stdout).toBe(second.stdout);
-      expect(first.stdout).toContain("versions");
-      expect(first.stdout).toContain("harness");
-      expect(first.stdout).toContain("prune");
+      for (const command of ["config", "doctor", "update", "use", "version", "uninstall"]) {
+        expect(first.stdout).toContain(command);
+      }
+      for (const retired of ["rollback", "versions", "harness", "package", "plugin", "completions"]) {
+        expect(first.stdout).not.toContain(` ${retired}`);
+      }
       expect(first.stdout).toContain(
         shell === "fish" ? "check-updates" : "--check-updates",
       );
-      expect(first.stdout).toContain("--completion-values");
-      expect(first.stdout).toContain("harness list");
-      expect(first.stdout).toContain("current");
-      expect(first.stdout).toContain("clear");
     }
     const powershell = run(
       DISPATCHER,
-      ["completions", "powershell"],
+      ["system", "completions", "powershell"],
       REPO_ROOT,
     );
     expect(powershell.stdout).not.toContain("-AsHashtable");
-    const bash = run(DISPATCHER, ["completions", "bash"], REPO_ROOT);
+    const bash = run(DISPATCHER, ["system", "completions", "bash"], REPO_ROOT);
     const syntax = spawnSync("bash", ["-n"], {
       input: bash.stdout,
       encoding: "utf-8",
     });
     expect(syntax.status, syntax.stderr).toBe(0);
-    const zsh = run(DISPATCHER, ["completions", "zsh"], REPO_ROOT);
+    const zsh = run(DISPATCHER, ["system", "completions", "zsh"], REPO_ROOT);
     const zshSyntax = spawnSync("zsh", ["-n"], {
       input: zsh.stdout,
       encoding: "utf-8",
     });
     expect(zshSyntax.status, zshSyntax.stderr).toBe(0);
+    expect(run(DISPATCHER, ["completions", "bash"], REPO_ROOT).status).toBe(2);
   });
 
   test("PowerShell installer is authenticated release content and delegates placement", () => {
@@ -1221,9 +1045,9 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(workflow).toContain("shellcheck scripts/install.sh");
     expect(workflow).toContain("Invoke-ScriptAnalyzer -Path scripts/install.ps1");
     expect(workflow).toContain("unix-lifecycle:");
-    expect(workflow).toContain("Exercise the piped interactive harness picker through a PTY");
+    expect(workflow).not.toContain("interactive harness picker");
     expect(workflow).toContain("install.ps1 -ReleaseBaseUrl");
-    expect(workflow).toContain("--harness claude -Quiet");
+    expect(workflow).not.toMatch(/install\.(?:sh|ps1)[^\n]*--harness/);
     expect(workflow).not.toMatch(/install\.ps1[^\n]*-Harness/);
     expect(workflow).toContain("name: release-candidate");
     expect(workflow).toContain(`build-results-\${{ matrix.directory }}.json`);

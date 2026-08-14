@@ -71,7 +71,7 @@ Create scope definition document (in/out boundary), prioritized intent backlog (
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`{{INVOKE}} __delegate orchestrate report --stage scope-definition --result <outcome>`.
+`{{INVOKE}} engine orchestrate report --stage scope-definition --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval

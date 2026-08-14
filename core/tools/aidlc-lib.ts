@@ -786,18 +786,17 @@ export function classifyTerminalCommand(args: string[]): TerminalCommand | null 
 // strings match, which is a pre-existing class shared with the old detectors.
 // That direction fails closed: over-detection nudges, never releases.
 
-// Authored methodology uses the native dispatcher's hidden tool route while the
-// public CLI keeps the shorter workflow grammar. Canonicalize only the engine
-// tools these detectors own so both spellings share one classification policy.
-// Other delegated tools remain untouched.
+// Authored methodology uses the native dispatcher's hidden engine namespace.
+// Canonicalize only the engine tools these detectors own so the Bun and native
+// spellings share one classification policy. Other engine tools remain untouched.
 function canonicalEngineCommand(text: string): string {
   return text
     .replace(
-      /\baidlc\s+__delegate\s+(orchestrate|state|jump|bolt|swarm)\b/g,
-      "aidlc $1",
+      /\baidlc\s+engine\s+orchestrate\s+help\b/g,
+      "aidlc help",
     )
     .replace(
-      /\baidlc\s+__delegate\s+utility\s+(status|doctor|version|help)\b/g,
+      /\baidlc\s+engine\s+(orchestrate|state|jump|bolt|swarm|scope|config|status|recompose)\b/g,
       "aidlc $1",
     );
 }
@@ -982,7 +981,7 @@ export function classifyRuntimeCompileCommand(
 ): "reject" | "fire" | "pass" {
   const canonical = canonicalEngineCommand(command);
   const invokesRuntime = shellCommandSegments(command).some((segment) =>
-    /^\s*aidlc\s+(?:__delegate\s+)?runtime\s+compile\b/.test(segment)
+    /^\s*aidlc\s+engine\s+runtime\s+compile\b/.test(segment)
   );
   if (runtimeCompileSelf.test(command) || invokesRuntime) {
     return "reject";
@@ -990,12 +989,12 @@ export function classifyRuntimeCompileCommand(
   if (
     runtimeCompileTool.test(canonical) ||
     runtimeCompileReport.test(canonical) ||
-    /\baidlc\s+(?:state|jump|bolt)\b|\baidlc\s+(?:status|doctor|version|help)\b|\baidlc\s+scope\s+change\b|\baidlc\s+config\s+set\b/.test(canonical) ||
+    /\baidlc\s+(?:state|jump|bolt|recompose)\b|\baidlc\s+(?:status|doctor|version|help)\b|\baidlc\s+scope\s+change\b|\baidlc\s+config\s+set\b/.test(canonical) ||
     /\baidlc\s+report\b|\baidlc\s+orchestrate\s+report\b|\baidlc\s+next\b.*\breport\b/.test(canonical)
   ) {
-    // Utility split rationale: the new grammar keeps D2 parity for the public
-    // one-shots (status/doctor/version/help fire, because the old regex catches
-    // ANY aidlc-utility.ts call), but deliberately does NOT fire for the new
+    // Semantic-route rationale: keep D2 parity for the public/read-only
+    // one-shots while the utility implementation remains the backing tool.
+    // Deliberately do not fire for the new
     // workspace/gen/sensor/intent/space nouns. Old-shape utility calls keep
     // firing via the retained old regex.
     return "fire";

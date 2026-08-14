@@ -3,7 +3,7 @@
 # layers at .codex/aidlc-rules/ (D-10 rename).
 #
 # Native runtime allowlist: framework commands invoke the self-contained binary.
-prefix_rule(pattern = ["aidlc"], decision = "allow")
+prefix_rule(pattern = ["aidlc", "engine"], decision = "allow")
 
 # Git allow-rules (S9d): workspace-write keeps .git read-only in-sandbox and
 # routes git writes through escalation; these prefix rules pre-approve the

@@ -96,7 +96,7 @@ function cacheState(cache: UpdateCache, now = Date.now()): UpdateState {
     checkedAt: cache.checkedAt,
     stale,
     message: behind
-      ? `binary ${AIDLC_VERSION}, latest ${cache.latestVersion} - run aidlc upgrade`
+      ? `binary ${AIDLC_VERSION}, latest ${cache.latestVersion} - run aidlc update`
       : stale
       ? `binary ${AIDLC_VERSION}; update cache is stale`
       : `binary ${AIDLC_VERSION} is latest`,
@@ -143,7 +143,7 @@ export function cachedUpdateState(): UpdateState {
 export function cachedUpdateNotice(): string | null {
   const state = cachedUpdateState();
   return state.state === "behind" && state.latestVersion
-    ? `Update available: aidlc ${state.latestVersion} (current ${AIDLC_VERSION}). Run: aidlc upgrade`
+    ? `Update available: aidlc ${state.latestVersion} (current ${AIDLC_VERSION}). Run: aidlc update`
     : null;
 }
 

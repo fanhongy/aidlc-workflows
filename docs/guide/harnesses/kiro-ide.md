@@ -37,27 +37,23 @@ hook wiring, activation) differs.
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness kiro-ide
+  | bash
 cd your-project
-aidlc init
+aidlc config
 aidlc doctor
 ```
 
-The installer verifies the release metadata, executable, and Kiro IDE data
-against the published SHA-256 checksums. The installed runtime does not require
-Bun, Node.js, or Git. The literal `--harness` flag is required in automation.
-An interactive run without it opens a controlling-terminal picker, including
-when the Unix script is piped.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`.
 
 On Windows, download `install.ps1` and run
-`& $installer --harness kiro-ide`. An interactive run may omit the flag;
+`& $installer`. An interactive run may omit the flag;
 redirected input, `pwsh -NonInteractive`, `--yes`, `--json`, and `--quiet`
 require it. For an air-gapped package, use
-`install.sh --from <release-directory> --offline --harness kiro-ide` on Unix or
-`& $installer -From <release-directory> -Offline --harness kiro-ide` on Windows.
+`install.sh --from <release-directory> --offline` on Unix or
+`& $installer -From <release-directory> -Offline` on Windows.
 
-`aidlc init` projects the IDE shell before the project is opened. It merges the
-native `aidlc *` trust entry into `.vscode/settings.json` without replacing
+`aidlc config` projects the IDE shell before the project is opened. It merges the
+native `aidlc engine *` trust entry into `.vscode/settings.json` without replacing
 user-owned settings. Open `your-project/` in Kiro IDE and run
 `/aidlc --doctor` in chat before the first workflow.
 
@@ -91,7 +87,7 @@ of `.kiro/`, so copy it separately (or copy the whole `dist/kiro-ide/` tree at
 once). `/aidlc --doctor` fails its "workspace shell ready" check if it is missing.
 
 This source/development channel requires Git and Bun. It does not use
-`aidlc init`; the copied tree already contains the workspace shell.
+`aidlc config`; the copied tree already contains the workspace shell.
 
 Open `your-project/` in Kiro IDE. The install ships:
 
@@ -115,22 +111,22 @@ Identical to the Claude Code harness: `/aidlc <description>` starts a
 workflow, `/aidlc --status` reports position, `/aidlc --doctor`, `--stage`,
 `--phase`, `--depth`, `--test-strategy` all work, and the
 per-stage (`/aidlc-application-design`) and per-scope (`/aidlc-feature`) runner
-skills are installed. A copy install needs no init command because the copied
-tree already contains the shell; a native install runs `aidlc init` once. The
+skills are installed. A copy install needs no config command because the copied
+tree already contains the shell; a native install runs `aidlc config` once. The
 first intent auto-births on your first `/aidlc` in either channel.
 
 ## Refresh and version skew
 
-`aidlc upgrade` updates the machine runtime without changing project files.
+`aidlc update` updates the machine runtime without changing project files.
 `aidlc doctor` reports project/runtime version skew. Between workflows, preview
 and apply a project refresh:
 
 ```bash
-aidlc init --dry-run
-aidlc init
+aidlc config --dry-run
+aidlc config
 ```
 
-Init preserves user-owned content and reports local framework edits as
+Config preserves user-owned content and reports local framework edits as
 conflicts. It refuses refresh while any workflow is active; complete the
 workflow first. Upgrade and rollback remain safe during a workflow because
 they do not touch the project.
@@ -141,7 +137,7 @@ Kiro IDE registers hooks through v2 hook JSON files
 (`{"version":"v1","hooks":[{name,trigger,matcher,action}]}`, PascalCase
 triggers) under `.kiro/hooks/` (a different mechanism from Kiro CLI, which
 reads a `hooks` block inside the agent JSON). Native hook commands route through
-`aidlc adapter kiro-ide`; source/development copies route through the projected
+`aidlc engine adapter kiro-ide`; source/development copies route through the projected
 `aidlc-kiro-adapter.ts` shim. Both normalize the IDE event into the shape the
 shared core hooks expect.
 

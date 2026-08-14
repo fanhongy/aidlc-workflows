@@ -16,6 +16,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { extractTarGz } from "./aidlc-archive.ts";
 import {
+  renderCompletion,
+  type Shell,
+} from "./aidlc-completions.ts";
+import {
   EXIT,
   type CommandResult,
   emitResult,
@@ -24,7 +28,6 @@ import {
   success,
   usage,
   valueAfter,
-  valuesAfter,
 } from "./aidlc-command.ts";
 import {
   projectionFiles,
@@ -57,11 +60,8 @@ import {
 } from "./aidlc-machine-config.ts";
 import {
   acquireRelease,
-  copyReleaseSubset,
   digest,
-  type ReleaseManifest,
   ReleaseUnavailableError,
-  verifyReleaseDirectory,
 } from "./aidlc-release.ts";
 import {
   executePlan,
@@ -69,7 +69,7 @@ import {
   transactionState,
   writeOperation,
 } from "./aidlc-transaction.ts";
-import { cachedUpdateNotice, refreshUpdateState } from "./aidlc-update.ts";
+import { refreshUpdateState } from "./aidlc-update.ts";
 import {
   recoverWindowsUninstallContinuations,
   scheduleWindowsUninstall as scheduleWindowsUninstallContinuation,
@@ -104,19 +104,19 @@ function requestedVersion(value: string): string {
   }
 }
 
-function stripVerb(argv: string[]): string[] {
-  return argv[0] === "update" ? ["upgrade", ...argv.slice(1)] : argv;
-}
-
 function offline(argv: readonly string[]): boolean | undefined {
   if (argv.includes("--offline") || process.env.AIDLC_OFFLINE === "1") return true;
   if (process.env.AIDLC_OFFLINE === "0") return false;
   return undefined;
 }
 
-function dataAsset(distribution: string): string {
-  return `aidlc-data-${distribution}.tgz`;
-}
+const RUNTIME_ASSET = "aidlc-runtime.tar.gz";
+const COMPLETION_FILES: Readonly<Record<Shell, string>> = {
+  bash: "aidlc.bash",
+  zsh: "_aidlc",
+  fish: "aidlc.fish",
+  powershell: "aidlc.ps1",
+};
 
 function binaryAsset(target = targetTriple()): string {
   return `aidlc-${target}${target.startsWith("windows-") ? ".exe" : ""}`;
@@ -152,13 +152,6 @@ function pathEntryExists(path: string): boolean {
   }
 }
 
-function safeHarness(value: string): string {
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(value)) {
-    commandError(`invalid harness name: ${value}`, EXIT.usage);
-  }
-  return value;
-}
-
 function requireConfirmation(argv: readonly string[], message: string): void {
   if (argv.includes("--yes")) return;
   if (!process.stdin.isTTY) {
@@ -168,22 +161,6 @@ function requireConfirmation(argv: readonly string[], message: string): void {
   if (!/^y(?:es)?$/i.test(answer?.trim() ?? "")) {
     commandError("operation cancelled", EXIT.failure);
   }
-}
-
-function installedManifest(version: string): ReleaseManifest {
-  const path = join(versionRoot(version), "version.json");
-  try {
-    return JSON.parse(readFileSync(path, "utf-8")) as ReleaseManifest;
-  } catch (error) {
-    throw new Error(
-      `${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function productName(manifest: ReleaseManifest, distribution: string): string {
-  return manifest.distributions.find((item) => item.name === distribution)?.productName ??
-    distribution;
 }
 
 function windowsLauncherOwnedByInstaller(): boolean {
@@ -208,7 +185,7 @@ function commandOwnedByInstaller(version: string): boolean {
   }
 }
 
-function registeredPins(strict = false): {
+function readPinRegistry(strict = false): {
   pins: Record<string, string>;
   warnings: string[];
 } {
@@ -238,6 +215,76 @@ function registeredPins(strict = false): {
   }
   if (strict && warnings.length > 0) commandError(warnings.join("; "), EXIT.integrity);
   return { pins, warnings };
+}
+
+function registeredPins(strict = false): {
+  pins: Record<string, string>;
+  warnings: string[];
+} {
+  const { pins: rawPins, warnings } = readPinRegistry(strict);
+  const pins: Record<string, string> = {};
+  for (const [project, version] of Object.entries(rawPins)) {
+    if (existsSync(project)) {
+      try {
+        const pinPath = join(project, ".aidlc-version");
+        if (
+          !existsSync(pinPath) ||
+          !statSync(pinPath).isFile() ||
+          readFileSync(pinPath, "utf-8").trim() !== version
+        ) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+    }
+    pins[project] = version;
+  }
+  return { pins, warnings };
+}
+
+function commitProjectPin(projectDir: string, version: string | null): void {
+  const project = existsSync(projectDir) ? realpathSync(projectDir) : resolve(projectDir);
+  const pinPath = join(projectDir, ".aidlc-version");
+  const registryPath = join(installRoot(), "pins.json");
+  const pins = readPinRegistry(true).pins;
+  if (version === null) delete pins[project];
+  else pins[project] = version;
+
+  const projectOperations = version === null
+    ? existsSync(pinPath)
+      ? [{
+          kind: "remove" as const,
+          path: ".aidlc-version",
+          expected: transactionState(pinPath) as string,
+        }]
+      : []
+    : [writeOperation(
+        ".aidlc-version",
+        `${version}\n`,
+        transactionState(pinPath),
+      )];
+
+  const root = machineTransactionRoot();
+  executePlan({
+    schemaVersion: 1,
+    root,
+    operations: [writeOperation(
+      relative(root, registryPath),
+      `${JSON.stringify(pins, null, 2)}\n`,
+      transactionState(registryPath),
+      0o600,
+    )],
+  }, {
+    validateCommitted: () => {
+      if (projectOperations.length === 0) return;
+      executePlan({
+        schemaVersion: 1,
+        root: projectDir,
+        operations: projectOperations,
+      });
+    },
+  });
 }
 
 function treesMatch(left: string, right: string): boolean {
@@ -285,6 +332,31 @@ function retainedVersions(): {
         .sort(),
     }));
   return { versions, pinWarnings: warnings };
+}
+
+function assertVersionsRemainPrunable(versions: readonly string[]): void {
+  const refreshed = retainedVersions();
+  if (refreshed.pinWarnings.length > 0) {
+    commandError(
+      `prune cancelled because pin registry changed: ${refreshed.pinWarnings.join("; ")}`,
+      EXIT.integrity,
+    );
+  }
+  const current = new Map(refreshed.versions.map((item) => [item.version, item]));
+  const protectedVersions = versions.filter((version) => {
+    const item = current.get(version);
+    return !item ||
+      item.active ||
+      item.rollback ||
+      item.pinPaths.length > 0 ||
+      item.stalePinPaths.length > 0;
+  });
+  if (protectedVersions.length > 0) {
+    commandError(
+      `prune cancelled because version protection changed: ${protectedVersions.join(", ")}`,
+      EXIT.failure,
+    );
+  }
 }
 
 function projectDistribution(projectDir: string): string | null {
@@ -366,6 +438,16 @@ export function activate(version: string, options: { failAfter?: number } = {}):
           target,
           expected: transactionState(commandPath()),
         }]),
+    ...(Object.entries(COMPLETION_FILES) as Array<[Shell, string]>)
+      .map(([shell, file]) => {
+        const path = join(installRoot(), "completions", file);
+        return writeOperation(
+          relative(root, path),
+          renderCompletion(shell),
+          transactionState(path),
+          0o644,
+        );
+      }),
   ];
   executePlan({
     schemaVersion: 1,
@@ -387,7 +469,7 @@ export function activate(version: string, options: { failAfter?: number } = {}):
         stderr: "pipe",
       });
       const output = Buffer.from(probe.stdout ?? new Uint8Array()).toString("utf-8").trim();
-      if (probe.exitCode !== 0 || output !== `aidlc ${version}`) {
+      if (probe.exitCode !== 0 || output !== `aidlc ${version} (runtime ${version})`) {
         throw new Error(
           `command pointer validation failed for ${version}: version probe returned ${
             probe.exitCode ?? "no exit"
@@ -440,21 +522,16 @@ function windowsShimHelper(): string {
 
 async function installVersion(options: {
   version?: string;
-  distributions: string[];
   from?: string;
   offline?: boolean;
   activate: boolean;
   dryRun: boolean;
-  allowNoDistributions?: boolean;
   baseUrl?: string;
   caBundle?: string;
 }): Promise<{ version: string; distributions: string[] }> {
   const wantedVersion = options.version ? requestedVersion(options.version) : undefined;
-  if (options.distributions.length === 0 && !options.allowNoDistributions) {
-    commandError("at least one --harness is required", EXIT.usage);
-  }
   const target = targetTriple();
-  const required = [binaryAsset(target), ...options.distributions.map(dataAsset)];
+  const required = [binaryAsset(target), RUNTIME_ASSET];
   const release = await acquireRelease({
     version: wantedVersion,
     from: options.from,
@@ -475,12 +552,15 @@ async function installVersion(options: {
     );
     writeFileSync(candidateExecutable, readFileSync(binarySource), { mode: 0o755 });
     if (process.platform !== "win32") chmodSync(candidateExecutable, 0o755);
-    for (const distribution of options.distributions) {
-      const destination = join(candidate, "runtime", distribution);
-      extractTarGz(join(release.directory, dataAsset(distribution)), destination);
-      const { stamp } = projectionFiles(destination);
+    extractTarGz(join(release.directory, RUNTIME_ASSET), candidate, {
+      reservedTopLevelNames: ["aidlc", "aidlc.exe"],
+    });
+    const distributions = release.manifest.distributions.map((item) => item.name).sort();
+    for (const distribution of distributions) {
+      const root = join(candidate, "runtime", distribution);
+      const { stamp } = projectionFiles(root);
       if (stamp.frameworkVersion !== version || stamp.distribution !== distribution) {
-        throw new Error(`${distribution} archive stamp does not match release ${version}`);
+        throw new Error(`${distribution} runtime stamp does not match release ${version}`);
       }
     }
     writeFileSync(
@@ -492,7 +572,7 @@ async function installVersion(options: {
       if (existsSync(destination)) {
         const priorManifestPath = join(destination, "version.json");
         if (!existsSync(priorManifestPath)) {
-          throw new Error(`existing ${version} install has no release manifest`);
+          commandError(`existing ${version} install has no release manifest`, EXIT.integrity);
         }
         const priorManifest = JSON.parse(readFileSync(priorManifestPath, "utf-8")) as {
           assets?: Array<{ name: string; sha256: string }>;
@@ -500,54 +580,30 @@ async function installVersion(options: {
         const expectedAssets = new Map(
           release.manifest.assets.map((asset) => [asset.name, asset.sha256]),
         );
-        const missing = options.distributions.filter(
-          (distribution) => !existsSync(join(destination, "runtime", distribution)),
-        );
         for (const assetName of required) {
           const prior = priorManifest.assets?.find((asset) => asset.name === assetName);
-          const missingDataAsset = assetName.startsWith("aidlc-data-") &&
-            missing.some((distribution) => assetName === dataAsset(distribution));
-          if ((!prior && !missingDataAsset) || (prior && prior.sha256 !== expectedAssets.get(assetName))) {
-            throw new Error(`existing ${version} install came from a different ${assetName}`);
+          if (!prior || prior.sha256 !== expectedAssets.get(assetName)) {
+            commandError(
+              `existing ${version} install came from a different ${assetName}`,
+              EXIT.integrity,
+            );
           }
         }
         if (digest(installedExecutablePath(version)) !== expectedAssets.get(binaryAsset(target))) {
-          throw new Error(`existing ${version} binary does not match the verified release`);
+          commandError(
+            `existing ${version} binary does not match the verified release`,
+            EXIT.integrity,
+          );
         }
-        for (const distribution of options.distributions) {
-          const installed = join(destination, "runtime", distribution);
-          if (
-            existsSync(installed) &&
-            !treesMatch(installed, join(candidate, "runtime", distribution))
-          ) {
-            throw new Error(`existing ${version} ${distribution} runtime does not match the verified release`);
-          }
+        if (!treesMatch(join(destination, "runtime"), join(candidate, "runtime"))) {
+          commandError(
+            `existing ${version} runtime does not match the verified release`,
+            EXIT.integrity,
+          );
         }
-        const mergedAssets = [
-          ...(priorManifest.assets ?? []),
-          ...release.manifest.assets.filter(
-            (asset) => !(priorManifest.assets ?? []).some((prior) => prior.name === asset.name),
-          ),
-        ];
-        executePlan({
-          schemaVersion: 1,
-          root: machineTransactionRoot(),
-          operations: [
-            ...missing.map((distribution) => ({
-              kind: "tree" as const,
-              path: relative(machineTransactionRoot(), join(destination, "runtime", distribution)),
-              source: join(candidate, "runtime", distribution),
-              sourceHash: transactionSourceHash(join(candidate, "runtime", distribution)),
-              expected: "absent" as const,
-            })),
-            writeOperation(
-              relative(machineTransactionRoot(), join(destination, "version.json")),
-              `${JSON.stringify({ ...release.manifest, assets: mergedAssets }, null, 2)}\n`,
-              transactionState(join(destination, "version.json")),
-            ),
-          ],
-        });
-        if (!completeVersion(version)) throw new Error(`existing ${version} install is incomplete`);
+        if (!completeVersion(version)) {
+          commandError(`existing ${version} install is incomplete`, EXIT.integrity);
+        }
       } else {
         executePlan({
           schemaVersion: 1,
@@ -563,7 +619,7 @@ async function installVersion(options: {
       }
       if (options.activate) activate(version);
     }
-    return { version, distributions: options.distributions };
+    return { version, distributions };
   } finally {
     rmSync(temporary, { recursive: true, force: true });
     if (release.cleanup) rmSync(release.cleanup, { recursive: true, force: true });
@@ -660,6 +716,9 @@ async function versionsCommand(argv: string[]): Promise<ReturnType<typeof succes
         path: relative(root, versionRoot(item.version)),
         expected: transactionState(versionRoot(item.version)) as string,
       })),
+    }, {
+      validateLocked: () =>
+        assertVersionsRemainPrunable(removable.map((item) => item.version)),
     });
     return success(
       `pruned ${removable.map((item) => item.version).join(", ")}${
@@ -668,18 +727,12 @@ async function versionsCommand(argv: string[]): Promise<ReturnType<typeof succes
       { removed: removable.map((item) => item.version), protected: protectedVersions },
     );
   }
-  if (verb !== "install") return usage("usage: aidlc versions <list|install|prune>");
+  if (verb !== "install") return usage("usage: aidlc system versions <list|install|prune>");
   const version = argv[2];
   if (!version || version.startsWith("--")) return usage("versions install requires a strict version");
-  const projectDir = projectDirFrom(argv);
-  const distributions = valuesAfter(argv, "--harness");
-  if (distributions.length === 0) {
-    const project = projectDistribution(projectDir);
-    if (project) distributions.push(project);
-  }
+  if (argv.includes("--harness")) return usage("unknown argument: --harness");
   const result = await installVersion({
     version,
-    distributions,
     from: valueAfter(argv, "--from"),
     offline: offline(argv),
     activate: false,
@@ -693,198 +746,35 @@ async function versionsCommand(argv: string[]): Promise<ReturnType<typeof succes
   );
 }
 
-async function harnessCommand(argv: string[]): Promise<CommandResult> {
-  const verb = argv[1];
-  const version = activeVersion();
-  if (!version || !completeVersion(version)) {
-    if (verb === "list" && argv.includes("--completion-values")) {
-      return success("");
-    }
-    return failure("no complete active AI-DLC version is installed", EXIT.unavailable);
-  }
-  const manifest = installedManifest(version);
-  const installed = installedDistributions(version);
-  if (verb === "list") {
-    if (argv.includes("--completion-values")) {
-      return success(installed.join("\n"));
-    }
-    const selectedDefault = existsSync(defaultHarnessPath())
-      ? readFileSync(defaultHarnessPath(), "utf-8").trim()
-      : null;
-    const harnesses = installed.map((distribution) => ({
-      name: distribution,
-      productName: productName(manifest, distribution),
-      version,
-      path: join(runtimeRoot(version), distribution),
-      default: distribution === selectedDefault,
-    }));
-    const notice = process.stdout.isTTY &&
-        globalOptions(argv).mode === "human"
-      ? cachedUpdateNotice()
-      : null;
-    return success(
-      harnesses.map((item) =>
-        `${item.productName} (${item.name}) ${item.version} ${item.path}${item.default ? " default" : ""}`
-      ).join("\n") + (notice ? `\n${notice}` : "") || "no installed harnesses",
-      { harnesses },
+function pruneUnprotectedVersions(): string[] {
+  const { versions, pinWarnings } = retainedVersions();
+  if (pinWarnings.length > 0) {
+    commandError(
+      `cannot prune while pin registry is invalid: ${pinWarnings.join("; ")}`,
+      EXIT.integrity,
     );
   }
-  if (verb === "default") {
-    const value = argv[2];
-    if (!value) return usage("harness default requires <name|clear>");
-    const path = defaultHarnessPath();
-    const root = machineTransactionRoot();
-    if (value === "clear") {
-      if (existsSync(path)) {
-        executePlan({
-          schemaVersion: 1,
-          root,
-          operations: [{
-            kind: "remove",
-            path: relative(root, path),
-            expected: transactionState(path) as string,
-          }],
-        });
-      }
-      return success("cleared the default harness", { default: null });
-    }
-    const distribution = safeHarness(value);
-    if (!installed.includes(distribution)) {
-      return failure(`${distribution} is not installed in active version ${version}`, EXIT.unavailable);
-    }
-    executePlan({
-      schemaVersion: 1,
-      root,
-      operations: [writeOperation(
-        relative(root, path),
-        `${distribution}\n`,
-        transactionState(path),
-        0o600,
-      )],
-    });
-    return success(
-      `default harness set to ${productName(manifest, distribution)}`,
-      { default: distribution },
-    );
-  }
-  const rawName = argv[2];
-  if (!rawName || rawName.startsWith("--")) {
-    return usage(`harness ${verb ?? "<verb>"} requires a harness name`);
-  }
-  const distribution = safeHarness(rawName);
-  if (verb === "add") {
-    if (installed.includes(distribution)) {
-      return success(
-        `${productName(manifest, distribution)} is already installed in ${version}`,
-        { version, distribution, changed: false },
-      );
-    }
-    const assetName = dataAsset(distribution);
-    const release = await acquireRelease({
-      version,
-      from: valueAfter(argv, "--from"),
-      names: [assetName],
-      offline: offline(argv),
-      baseUrl: valueAfter(argv, "--release-base-url"),
-      caBundle: valueAfter(argv, "--ca-bundle"),
-    });
-    const temporary = mkdtempSync(join(tmpdir(), `aidlc-harness-${distribution}-`));
-    try {
-      const candidate = join(temporary, distribution);
-      extractTarGz(join(release.directory, assetName), candidate);
-      const { stamp } = projectionFiles(candidate);
-      if (stamp.frameworkVersion !== version || stamp.distribution !== distribution) {
-        throw new Error(`${distribution} archive stamp does not match release ${version}`);
-      }
-      const asset = release.manifest.assets.find((item) => item.name === assetName);
-      if (!asset) throw new Error(`release does not provide ${assetName}`);
-      const manifestPath = join(versionRoot(version), "version.json");
-      const nextManifest = {
-        ...manifest,
-        assets: [...manifest.assets.filter((item) => item.name !== assetName), asset],
-      };
-      const root = machineTransactionRoot();
-      executePlan({
-        schemaVersion: 1,
-        root,
-        operations: [
-          {
-            kind: "tree",
-            path: relative(root, join(runtimeRoot(version), distribution)),
-            source: candidate,
-            sourceHash: transactionSourceHash(candidate),
-            expected: "absent",
-          },
-          writeOperation(
-            relative(root, manifestPath),
-            `${JSON.stringify(nextManifest, null, 2)}\n`,
-            transactionState(manifestPath),
-          ),
-        ],
-      }, {
-        validateCommitted: () => {
-          if (!inspectInstalledVersion(version, distribution).complete) {
-            throw new Error(`installed ${distribution} runtime is incomplete`);
-          }
-        },
-      });
-      return success(
-        `installed ${productName(release.manifest, distribution)} for ${version}`,
-        { version, distribution, changed: true },
-      );
-    } finally {
-      rmSync(temporary, { recursive: true, force: true });
-      if (release.cleanup) rmSync(release.cleanup, { recursive: true, force: true });
-    }
-  }
-  if (verb !== "remove") return usage("usage: aidlc harness <add|remove|list|default>");
-  if (!installed.includes(distribution)) {
-    return failure(`${distribution} is not installed in active version ${version}`, EXIT.unavailable);
-  }
-  requireConfirmation(
-    argv,
-    `Remove ${productName(manifest, distribution)} from active aidlc ${version}? Existing projects will not be changed.`,
+  const removable = versions.filter((item) =>
+    !item.active &&
+    !item.rollback &&
+    item.pinPaths.length === 0 &&
+    item.stalePinPaths.length === 0
   );
-  const runtimePath = join(runtimeRoot(version), distribution);
-  const manifestPath = join(versionRoot(version), "version.json");
-  const defaultPath = defaultHarnessPath();
-  const nextManifest = {
-    ...manifest,
-    assets: manifest.assets.filter((item) => item.name !== dataAsset(distribution)),
-  };
+  if (removable.length === 0) return [];
   const root = machineTransactionRoot();
   executePlan({
     schemaVersion: 1,
     root,
-    operations: [
-      {
-        kind: "remove",
-        path: relative(root, runtimePath),
-        expected: transactionState(runtimePath) as string,
-      },
-      writeOperation(
-        relative(root, manifestPath),
-        `${JSON.stringify(nextManifest, null, 2)}\n`,
-        transactionState(manifestPath),
-      ),
-      ...(existsSync(defaultPath) &&
-          readFileSync(defaultPath, "utf-8").trim() === distribution
-        ? [{
-            kind: "remove" as const,
-            path: relative(root, defaultPath),
-            expected: transactionState(defaultPath) as string,
-          }]
-        : []),
-    ],
+    operations: removable.map((item) => ({
+      kind: "remove" as const,
+      path: relative(root, versionRoot(item.version)),
+      expected: transactionState(versionRoot(item.version)) as string,
+    })),
   }, {
-    validateCommitted: () => {
-      if (!completeVersion(version)) throw new Error(`active version ${version} became incomplete`);
-    },
+    validateLocked: () =>
+      assertVersionsRemainPrunable(removable.map((item) => item.version)),
   });
-  return success(
-    `removed ${productName(manifest, distribution)} from ${version}`,
-    { version, distribution },
-  );
+  return removable.map((item) => item.version);
 }
 
 function uninstallCommand(argv: string[]): CommandResult {
@@ -983,16 +873,17 @@ function scheduleWindowsUninstall(purge: boolean): CommandResult {
   );
 }
 
-async function upgradeCommand(argv: string[]): Promise<CommandResult> {
+async function updateCommand(argv: string[]): Promise<CommandResult> {
   const manager = packageManagerForExecutable(process.execPath);
   if (manager) {
     return failure(
-      `AI-DLC is installed via ${manager.name}; self-upgrade is disabled`,
+      `AI-DLC is installed via ${manager.name}; self-update is disabled`,
       EXIT.failure,
       manager.remediation,
     );
   }
   const current = activeVersion();
+  if (argv.includes("--harness")) return usage("unknown argument: --harness");
   if (argv.includes("--check")) {
     let state: Awaited<ReturnType<typeof refreshUpdateState>>;
     try {
@@ -1028,24 +919,24 @@ async function upgradeCommand(argv: string[]): Promise<CommandResult> {
     }
     return success(state.message, state);
   }
-  const distributions = current ? installedDistributions(current) : valuesAfter(argv, "--harness");
   const dryRun = argv.includes("--dry-run");
   const result = await installVersion({
     version: valueAfter(argv, "--version"),
-    distributions,
     from: valueAfter(argv, "--from"),
     offline: offline(argv),
     activate: true,
     dryRun,
-    allowNoDistributions: current !== null,
     baseUrl: valueAfter(argv, "--release-base-url"),
     caBundle: valueAfter(argv, "--ca-bundle"),
   });
+  const pruned = dryRun ? [] : pruneUnprotectedVersions();
   return success(
     dryRun
-      ? `upgrade plan: ${current ?? "none"} -> ${result.version} [${result.distributions.join(",")}]`
-      : `upgraded ${current ?? "new install"} -> ${result.version}`,
-    result,
+      ? `update plan: ${current ?? "none"} -> ${result.version} [${result.distributions.join(",")}]`
+      : `updated ${current ?? "new install"} -> ${result.version}${
+        pruned.length > 0 ? `; pruned ${pruned.join(", ")}` : ""
+      }`,
+    { ...result, pruned },
   );
 }
 
@@ -1064,7 +955,7 @@ function rollbackCommand(argv: string[]): ReturnType<typeof success> {
   const target = valueAfter(argv, "--version") ||
     (existsSync(rollbackVersionPath()) ? readFileSync(rollbackVersionPath(), "utf-8").trim() : "");
   if (!target) {
-    commandError("no rollback version is recorded; run aidlc rollback --list", EXIT.failure);
+    commandError("no prior version is recorded; run aidlc use <version>", EXIT.failure);
   }
   if (valueAfter(argv, "--version")) {
     requestedVersion(target);
@@ -1089,140 +980,56 @@ function rollbackCommand(argv: string[]): ReturnType<typeof success> {
   return success(`rolled back to ${target}`, { version: target });
 }
 
-function useCommand(argv: string[]): ReturnType<typeof success> {
+async function useCommand(argv: string[]): Promise<ReturnType<typeof success>> {
   const value = argv[1];
-  if (!value) return usage("usage: aidlc use <version|current>");
+  if (!value || value.startsWith("--")) return usage("usage: aidlc use <version> [--pin]");
   const projectDir = projectDirFrom(argv);
-  const pinPath = join(projectDir, ".aidlc-version");
-  const pins = registeredPins(true).pins;
-  const project = existsSync(projectDir) ? realpathSync(projectDir) : resolve(projectDir);
+  if (argv.includes("--harness")) return usage("unknown argument: --harness");
   if (value === "current") {
-    if (existsSync(pinPath)) {
-      executePlan({
-        schemaVersion: 1,
-        root: projectDir,
-        operations: [{
-          kind: "remove",
-          path: ".aidlc-version",
-          expected: transactionState(pinPath),
-        }],
-      });
-    }
-    delete pins[project];
-    executePlan({
-      schemaVersion: 1,
-      root: machineTransactionRoot(),
-      operations: [writeOperation(
-        relative(machineTransactionRoot(), join(installRoot(), "pins.json")),
-        `${JSON.stringify(pins, null, 2)}\n`,
-        transactionState(join(installRoot(), "pins.json")),
-      )],
-    });
-    return success("project now follows the active AI-DLC version");
+    commitProjectPin(projectDir, null);
+    return success(
+      "Removed this project's AI-DLC version pin; it now follows the active machine version.",
+      { projectDir, version: activeVersion(), pinned: false },
+    );
   }
   const version = requestedVersion(value);
+  if (existsSync(versionRoot(version)) && !completeVersion(version)) {
+    const reason = inspectInstalledVersion(version).reason ?? "integrity validation failed";
+    commandError(`retained version ${version} is incomplete: ${reason}`, EXIT.integrity);
+  }
   if (!completeVersion(version)) {
-    commandError(`${version} is not installed completely`, EXIT.unavailable);
+    await installVersion({
+      version,
+      from: valueAfter(argv, "--from"),
+      offline: offline(argv),
+      activate: false,
+      dryRun: false,
+      baseUrl: valueAfter(argv, "--release-base-url"),
+      caBundle: valueAfter(argv, "--ca-bundle"),
+    });
+  }
+  if (!argv.includes("--pin")) {
+    activate(version);
+    return success(`active AI-DLC version set to ${version}`, { version, pinned: false });
   }
   const distribution = projectDistribution(projectDir);
   if (distribution && !inspectInstalledVersion(version, distribution).complete) {
-    commandError(
-      `${version} does not contain this project's ${distribution} runtime`,
-      EXIT.usage,
-    );
+    commandError(`${version} does not contain this project's ${distribution} runtime`, EXIT.usage);
   }
-  pins[project] = version;
-  executePlan({
-    schemaVersion: 1,
-    root: machineTransactionRoot(),
-    operations: [writeOperation(
-      relative(machineTransactionRoot(), join(installRoot(), "pins.json")),
-      `${JSON.stringify(pins, null, 2)}\n`,
-      transactionState(join(installRoot(), "pins.json")),
-    )],
-  });
-  executePlan({
-    schemaVersion: 1,
-    root: projectDir,
-    operations: [writeOperation(
-      ".aidlc-version",
-      `${version}\n`,
-      transactionState(pinPath),
-    )],
-  });
-  return success(`project pinned to AI-DLC ${version}`, { projectDir, version });
-}
-
-async function packageCommand(argv: string[]): Promise<ReturnType<typeof success>> {
-  if (argv[1] === "verify") {
-    const directory = argv[2];
-    if (!directory) return usage("package verify requires a directory");
-    let manifest: ReleaseManifest;
-    try {
-      manifest = verifyReleaseDirectory(directory);
-    } catch (error) {
-      commandError(
-        error instanceof Error ? error.message : String(error),
-        EXIT.integrity,
-      );
-    }
-    return success(`verified release package ${manifest.version} (${manifest.assets.length} assets)`, manifest);
-  }
-  if (argv[1] !== "create") return usage("usage: aidlc package <create|verify>");
-  const output = valueAfter(argv, "--output");
-  if (!output) return usage("package create requires --output <directory>");
-  const distributions = valuesAfter(argv, "--harness");
-  const targets = valuesAfter(argv, "--target");
-  if (distributions.length === 0 || targets.length === 0) {
-    return usage("package create requires at least one --harness and --target");
-  }
-  const versionValue = valueAfter(argv, "--version");
-  const version = versionValue ? requestedVersion(versionValue) : undefined;
-  const names = [
-    ...targets.map(binaryAsset),
-    ...distributions.map(dataAsset),
-    "install.sh",
-    "install.ps1",
-  ];
-  const release = await acquireRelease({
-    version,
-    from: valueAfter(argv, "--from"),
-    names,
-    offline: offline(argv),
-    baseUrl: valueAfter(argv, "--release-base-url"),
-    caBundle: valueAfter(argv, "--ca-bundle"),
-  });
-  const destination = isAbsolute(output) ? output : resolve(process.cwd(), output);
-  const temporary = mkdtempSync(join(tmpdir(), "aidlc-package-"));
-  try {
-    if (existsSync(destination) && readdirSync(destination).length > 0) {
-      throw new Error(`package output must be empty: ${destination}`);
-    }
-    const candidate = join(temporary, "package");
-    const manifest = copyReleaseSubset(release.directory, candidate, names);
-    executePlan({
-      schemaVersion: 1,
-      root: dirname(destination),
-      operations: [{
-        kind: "tree",
-        path: basename(destination),
-        source: candidate,
-        sourceHash: transactionSourceHash(candidate),
-        expected: existsSync(destination) ? "empty-directory" : "absent",
-      }],
-    });
-    return success(`created offline package ${manifest.version} at ${destination}`, manifest);
-  } finally {
-    rmSync(temporary, { recursive: true, force: true });
-    if (release.cleanup) rmSync(release.cleanup, { recursive: true, force: true });
-  }
+  commitProjectPin(projectDir, version);
+  return success(
+    `Pinned this project to aidlc ${version}. Commit .aidlc-version to share the pin.`,
+    { projectDir, version, pinned: true },
+  );
 }
 
 function installProfileCommand(argv: string[]): CommandResult {
   const profileValue = valueAfter(argv, "--profile");
   const binValue = valueAfter(argv, "--bin-dir");
   if (!profileValue || !binValue) {
-    return usage("install-profile requires --profile <path> and --bin-dir <path>");
+    return usage(
+      "install-profile writes the invoking user's shell profile; requires --profile <path> and --bin-dir <path>",
+    );
   }
   const profile = resolve(profileValue);
   const bin = resolve(binValue);
@@ -1295,22 +1102,18 @@ function installProfileCommand(argv: string[]): CommandResult {
 }
 
 export async function main(input: string[]): Promise<void> {
-  const argv = stripVerb(input);
+  const argv = input;
   const options = globalOptions(argv);
   try {
     const command = argv[0];
     const result = command === "versions"
       ? await versionsCommand(argv)
-      : command === "upgrade"
-      ? await upgradeCommand(argv)
+      : command === "update"
+      ? await updateCommand(argv)
       : command === "rollback"
       ? rollbackCommand(argv)
       : command === "use"
-      ? useCommand(argv)
-      : command === "package"
-      ? await packageCommand(argv)
-      : command === "harness"
-      ? await harnessCommand(argv)
+      ? await useCommand(argv)
       : command === "uninstall"
       ? uninstallCommand(argv)
       : command === "install-profile"
@@ -1319,7 +1122,6 @@ export async function main(input: string[]): Promise<void> {
       ? success(
           `installed ${(await installVersion({
             version: valueAfter(argv, "--version"),
-            distributions: valuesAfter(argv, "--harness"),
             from: valueAfter(argv, "--from"),
             offline: true,
             activate: true,
@@ -1336,6 +1138,10 @@ export async function main(input: string[]): Promise<void> {
       ? error.exitCode
       : error instanceof ReleaseUnavailableError
       ? EXIT.unavailable
+      : valueAfter(argv, "--from") &&
+          /(checksum|version\.json|checksums\.txt|release is missing|invalid asset|size mismatch)/i
+            .test(message)
+      ? EXIT.integrity
       : EXIT.failure;
     emitResult(failure(
       message,

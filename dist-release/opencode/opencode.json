@@ -10,7 +10,7 @@
     },
     "bash": {
       "*": "ask",
-      "aidlc *": "allow"
+      "aidlc engine *": "allow"
     }
   }
 }

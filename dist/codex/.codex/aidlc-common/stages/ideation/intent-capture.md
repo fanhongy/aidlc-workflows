@@ -158,7 +158,7 @@ confirmation `[Answer]:` is blank.
 ### Step 7: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .codex/tools/aidlc.ts __delegate orchestrate report --stage intent-capture --result <outcome>`.
+`bun .codex/tools/aidlc.ts engine orchestrate report --stage intent-capture --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 8: Present Completion & Request Approval

@@ -69,7 +69,7 @@ on the stage side via the stage's frontmatter `sensors:` field (see
 ---
 id: required-sections                       # required
 kind: deterministic                          # required
-command: aidlc __delegate sensor-required-sections   # required
+command: aidlc engine sensor-required-sections   # required
 default_severity: advisory                   # required
 description: Checks that stage output ...    # required
 category: document-shape                     # optional
@@ -92,7 +92,7 @@ timeout_seconds: 5                           # optional
 |---|---|---|---|
 | `id` | ✓ | kebab-case string | Equals filename stem minus `aidlc-` prefix; cross-referenced from rule files' `pairing:` field (see [Rule System](08-rule-system.md)). |
 | `kind` | ✓ | enum | Only `deterministic` is accepted today; `llm` reserved for the v0.11.0 LLM-dispatch chapter. See [`kind` enum](#kind-enum) below. |
-| `command` | ✓ | string | Canonical invocation prefix. Shipped sensors use a native delegate such as `aidlc __delegate sensor-required-sections`; third-party sensors may declare another runtime. The sensor dispatcher appends `--stage <slug>` plus `--output-path <path>` for document sensors or `--file-path <path>` for code sensors. |
+| `command` | ✓ | string | Canonical invocation prefix. Shipped sensors use a native delegate such as `aidlc engine sensor-required-sections`; third-party sensors may declare another runtime. The sensor dispatcher appends `--stage <slug>` plus `--output-path <path>` for document sensors or `--file-path <path>` for code sensors. |
 | `default_severity` | ✓ | enum | Only `advisory` is accepted today; `blocking` reserved for the future ralph-driver work. |
 | `description` | ✓ | string | One-line human description. |
 | `category` | optional | string | Free-form descriptive label (the shipped manifests use `document-provenance`, `document-shape`, and `code-quality`; not a closed enum). |
@@ -255,14 +255,14 @@ sensors (`linter`, `type-check`):
 So a manifest with:
 
 ```yaml
-command: aidlc __delegate sensor-required-sections
+command: aidlc engine sensor-required-sections
 ```
 
 invoked against `requirements-analysis` writing the requirements artifact in the
 intent's record dir is dispatched as:
 
 ```
-aidlc __delegate sensor-required-sections \
+aidlc engine sensor-required-sections \
   --stage requirements-analysis \
   --output-path aidlc/spaces/default/intents/260624-inventory-api/inception/requirements-analysis/requirements.md
 ```
@@ -279,7 +279,7 @@ deterministic tool (`aidlc-learnings.ts`) and the conductor (the live
 `/aidlc` session) has two legs, with a knowledge step and a judgement
 step between them:
 
-1. **`surface` (stdout).** `aidlc __delegate learnings surface
+1. **`surface` (stdout).** `aidlc engine learnings surface
    --slug <stage-slug>` reads the stage's `memory.md` and prints structured
    JSON: `candidates[]` (one per non-blank Interpretation / Deviation /
    Tradeoff entry, each carrying `id`, `source_heading`, `ts`, `summary`,
@@ -305,7 +305,7 @@ step between them:
    proceed. Sensor manifests have no org-section analogue and skip the check.
 4. **`persist` (selections-file in).** The conductor writes the kept
    selections to `<record>/.aidlc-learnings/<slug>-selections.json` (in the intent's record dir)
-   (gitignored) and calls `aidlc __delegate learnings persist
+   (gitignored) and calls `aidlc engine learnings persist
    --slug <slug> --selections-json <path>`. The tool is the deterministic
    writer — it never judges conflicts; it routes each learning as a practice to
    `aidlc/spaces/<active-space>/memory/{project,team}.md` and, for a sensor selection, does the

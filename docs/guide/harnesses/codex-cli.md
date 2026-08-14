@@ -31,27 +31,23 @@ never hand-edit it (the drift guard fails CI).
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness codex
+  | bash
 cd your-project
-aidlc init
+aidlc config
 aidlc doctor
 codex
 ```
 
-The installer verifies the release metadata, executable, and Codex data against
-the published SHA-256 checksums. The installed AI-DLC runtime does not require
-Bun, Node.js, or Git. This scripted example uses the literal `--harness` flag
-because automation requires it. An interactive run without the flag opens a
-controlling-terminal picker, including when the Unix script is piped.
+The installer verifies the release metadata, executable, and all-harness runtime archive against the published SHA-256 checksums. The installed runtime does not require Bun, Node.js, or Git. Harness selection happens in `aidlc config`.
 
 On Windows, download `install.ps1` and run
-`& $installer --harness codex`. An interactive run may omit the flag;
+`& $installer`. An interactive run may omit the flag;
 redirected input, `pwsh -NonInteractive`, `--yes`, `--json`, and `--quiet`
 require it. For an air-gapped package, use
-`install.sh --from <release-directory> --offline --harness codex` on Unix or
-`& $installer -From <release-directory> -Offline --harness codex` on Windows.
+`install.sh --from <release-directory> --offline` on Unix or
+`& $installer -From <release-directory> -Offline` on Windows.
 
-`aidlc init` projects the Codex shell, merges the AI-DLC blocks in `.gitignore`
+`aidlc config` projects the Codex shell, merges the AI-DLC blocks in `.gitignore`
 and `AGENTS.md`, and writes `.codex/config.toml`, hooks, permission rules, and
 the matching `.codex/trust-seed.toml`. Codex requires one project-specific hook
 trust action before those hooks run:
@@ -143,27 +139,27 @@ git checkout v2
    ```
 
 This source/development channel requires Git and Bun. It does not use
-`aidlc init`; the copied tree already contains the project shell. Its
+`aidlc config`; the copied tree already contains the project shell. Its
 source-checkout trust generator is specific to Bun-shaped hook commands and is
 not used by the native channel.
 
 ## Refresh and version skew
 
-`aidlc upgrade` updates the machine runtime but does not rewrite projects.
+`aidlc update` updates the machine runtime but does not rewrite projects.
 `aidlc doctor` compares the project runtime stamp with the selected engine.
 Between workflows, preview and apply the project refresh:
 
 ```bash
-aidlc init --dry-run
-aidlc init
+aidlc config --dry-run
+aidlc config
 ```
 
-Init preserves user-owned content and reports local framework edits as
+Config preserves user-owned content and reports local framework edits as
 conflicts. It refuses refresh while any workflow is active; complete the
 workflow first. Upgrade and rollback remain safe during a workflow because
 they do not touch project files. A refresh can change Codex hook identities, so
 approve the new trust dialog or replace the matching trust-seed entries after
-init when Codex requests it.
+config when Codex requests it.
 
 ## Use
 

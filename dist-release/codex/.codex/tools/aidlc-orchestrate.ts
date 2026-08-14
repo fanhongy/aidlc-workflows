@@ -151,6 +151,8 @@ import {
 // and utility never imports this module - no cycle).
 import { inferScopeFromText } from "./aidlc-utility.ts";
 import {
+  aidlcDispatcherInvocation,
+  aidlcInvocation,
   aidlcToolInvocation,
   resolveHarnessPath,
   resolveHarnessRoot,
@@ -234,10 +236,10 @@ function toolPath(file: string): string {
 function toolCommand(toolFile: string, args: string[]): string[] {
   if (IS_COMPILED) {
     if (toolFile === "aidlc-utility.ts" && args[0] === "resolve-env-scope") {
-      return [process.execPath, "scope", "resolve-env", ...args.slice(1)];
+      return [process.execPath, "engine", "scope", "resolve-env", ...args.slice(1)];
     }
     if (toolFile === "aidlc-jump.ts") {
-      return [process.execPath, "jump", ...args];
+      return [process.execPath, "engine", "jump", ...args];
     }
     throw new Error(`No compiled dispatcher route for ${toolFile} ${args.join(" ")}`);
   }
@@ -491,7 +493,7 @@ function parseNextFlags(args: string[]): ParsedFlags {
 // directives. The harness dir is resolved through harnessDir() so the directive
 // names the right tree on every harness (.claude/.kiro/.codex).
 function birthPrintDirective(scope: string, flags: ParsedFlags, description?: string): PrintDirective {
-  const cmd = [`intent-birth --scope ${scope}`];
+  const cmd = [`--scope ${scope}`];
   let labelHint = "";
   if (description && description.length > 0) {
     // Shell-quote the freeform description so multi-word intents survive intact.
@@ -512,7 +514,7 @@ function birthPrintDirective(scope: string, flags: ParsedFlags, description?: st
   const clause = costClause(scope);
   const cost = clause ? ` (${clause})` : "";
   return printDirective(
-    `Run \`${aidlcToolInvocation("utility")} ${cmd.join(" ")}\` to start the workflow${cost}, then re-run \`next\` to continue.${labelHint}`,
+    `Run \`${aidlcDispatcherInvocation("intent birth")} ${cmd.join(" ")}\` to start the workflow${cost}, then re-run \`next\` to continue.${labelHint}`,
   );
 }
 
@@ -540,8 +542,8 @@ function composeDispatchDirective(
         (flags.intent ? ` for: "${flags.intent}".` : "."),
       "The composer reads the live state file's Stage Progress, re-estimates the entropy components from what completed stages resolved, validates the flipped grid with --strict, and proposes SKIP/un-SKIP flips for PENDING, ahead-of-cursor stages only (completed [x], in-progress [-], and skipped [S] stages are frozen; an ADD whose required producer is skipped or behind the cursor is rejected, not proposed).",
       "BEFORE presenting the gate, write the pending-proposal marker `aidlc/.aidlc-compose-pending` (any content) so the turn can end at the gate; on approve run `" +
-        aidlcToolInvocation("utility") +
-        " recompose --skip <slugs> --add <slugs>` (comma-separated) and DELETE the marker; on reject/edit-then-resolve delete the marker too.",
+        aidlcDispatcherInvocation("recompose") +
+        " --skip <slugs> --add <slugs>` (comma-separated) and DELETE the marker; on reject/edit-then-resolve delete the marker too.",
     );
   } else {
     parts.push(
@@ -559,7 +561,7 @@ function composeDispatchDirective(
     }
   }
   parts.push(
-    `The composer runs \`${aidlcToolInvocation("utility")} detect --json\` (read-only scan + scope-registry paths), estimates the five entropy components (intent ambiguity, structural uncertainty, verification entropy, risk, unresolved assumptions) per its persona, and returns a structured proposal: mode matched|custom, scopeName, an ars block (the five component scores with method codekb|fallback), an arsRationale, the per-stage EXECUTE/SKIP grid, a per-SKIP rationale, a summary the validator computed, and two pre-rendered markdown tables (ARS scores with bands; per-stage decisions with reasoning).`,
+    `The composer runs \`${aidlcDispatcherInvocation("workspace detect")} --json\` (read-only scan + scope-registry paths), estimates the five entropy components (intent ambiguity, structural uncertainty, verification entropy, risk, unresolved assumptions) per its persona, and returns a structured proposal: mode matched|custom, scopeName, an ars block (the five component scores with method codekb|fallback), an arsRationale, the per-stage EXECUTE/SKIP grid, a per-SKIP rationale, a summary the validator computed, and two pre-rendered markdown tables (ARS scores with bands; per-stage decisions with reasoning).`,
     "Render the proposal to the human as THREE blocks before the approve/edit/reject gate (see the composer block in SKILL.md): (1) the validator's summary line formatted \"<execute> stages EXECUTE / <skip> SKIP, <gates> approval gates\" plus scopeName and mode - use the validator's numbers verbatim, never recount by hand; (2) the composer's ARS score table verbatim, with its method line and arsRationale; (3) the composer's stage-decision table verbatim, with any fold advisories beneath it. Relay the composer's tables and numbers as returned - never recompute, collapse into prose, or drop them. Do NOT write any file and do NOT advance any stage before an explicit approval.",
   );
   return printDirective(parts.join(" "));
@@ -2077,8 +2079,13 @@ function handleNext(args: string[], projectDir: string | undefined): void {
     const extra = flags.readOnlyArgs && flags.readOnlyArgs.length > 0
       ? ` ${flags.readOnlyArgs.join(" ")}`
       : "";
+    const command = sub === "status"
+      ? aidlcDispatcherInvocation("status")
+      : sub === "help"
+      ? aidlcDispatcherInvocation("orchestrate help")
+      : `${aidlcInvocation()} ${sub}`;
     emit(printDirective(
-      `Run \`${aidlcToolInvocation("utility")} ${sub}${extra}\`, print its output verbatim, then stop. This is a read-only utility, NOT workflow work: do NOT run \`next\` and do NOT advance, resume, or run any workflow stage.`,
+      `Run \`${command}${extra}\`, print its output verbatim, then stop. This is a read-only utility, NOT workflow work: do NOT run \`next\` and do NOT advance, resume, or run any workflow stage.`,
     ));
     return;
   }
@@ -2105,9 +2112,18 @@ function handleNext(args: string[], projectDir: string | undefined): void {
       return;
     }
     const [verb, ...tail] = argv;
+    const route = verb === "intent-birth"
+      ? "intent birth"
+      : verb === "space-create"
+      ? "space create"
+      : verb === "intent"
+      ? `intent ${tail[0] && !tail[0].startsWith("--") ? tail.shift() : "list"}`
+      : verb === "space"
+      ? `space ${tail[0] && !tail[0].startsWith("--") ? tail.shift() : "list"}`
+      : verb;
     const suffix = tail.length > 0 ? ` ${tail.map(shellArg).join(" ")}` : "";
     emit(printDirective(
-      `Run \`${aidlcToolInvocation("utility")} ${verb}${suffix}\`, print its output verbatim, then stop.`,
+      `Run \`${aidlcDispatcherInvocation(route)}${suffix}\`, print its output verbatim, then stop.`,
     ));
     return;
   }
@@ -2348,11 +2364,11 @@ function handleNext(args: string[], projectDir: string | undefined): void {
       validScopes().has(flags.scope) &&
       flags.scope !== currentStateScope
     ) {
-      const parts = [`scope-change --scope ${flags.scope}`];
+      const parts = [`--scope ${flags.scope}`];
       if (flags.depth) parts.push(`--depth ${flags.depth}`);
       if (flags.testStrategy) parts.push(`--test-strategy ${flags.testStrategy}`);
       emit(printDirective(
-        `Run \`${aidlcToolInvocation("utility")} ${parts.join(" ")}\` to change scope, then print its output verbatim and stop.`,
+        `Run \`${aidlcDispatcherInvocation("scope change")} ${parts.join(" ")}\` to change scope, then print its output verbatim and stop.`,
       ));
       return;
     }
@@ -2360,11 +2376,14 @@ function handleNext(args: string[], projectDir: string | undefined): void {
     // Gate it on the absence of a scope flag so a `--scope X --depth Y` combo
     // routes through scope-change above (which carries the depth), not here.
     if (!flags.scope && (flags.depth || flags.testStrategy)) {
-      const parts = ["config-change"];
-      if (flags.depth) parts.push(`--depth ${flags.depth}`);
-      if (flags.testStrategy) parts.push(`--test-strategy ${flags.testStrategy}`);
+      const route = flags.depth
+        ? `config set depth ${flags.depth}`
+        : `config set test-strategy ${flags.testStrategy}`;
+      const extra = flags.depth && flags.testStrategy
+        ? ` --test-strategy ${flags.testStrategy}`
+        : "";
       emit(printDirective(
-        `Run \`${aidlcToolInvocation("utility")} ${parts.join(" ")}\` to update the configuration, then print its output verbatim and stop.`,
+        `Run \`${aidlcDispatcherInvocation(route)}${extra}\` to update the configuration, then print its output verbatim and stop.`,
       ));
       return;
     }
@@ -3629,7 +3648,7 @@ function spawnState(
   subArgs: string[],
 ): { exitCode: number; stdout: string; stderr: string } {
   const command = IS_COMPILED
-    ? [process.execPath, "state", ...subArgs, "--project-dir", projectDir]
+    ? [process.execPath, "engine", "state", ...subArgs, "--project-dir", projectDir]
     : [
         process.execPath,
         fileURLToPath(new URL("./aidlc-state.ts", import.meta.url)),
@@ -3665,6 +3684,7 @@ function spawnAuditAppendBatch(
   const command = IS_COMPILED
     ? [
         process.execPath,
+        "engine",
         "audit",
         "append-batch",
         JSON.stringify(entries),

@@ -61,8 +61,8 @@ Ad-hoc AI coding works until the project gets real. Then context drifts between 
 
 The deterministic engine, state machine, audit log, and transaction layer are
 shared across every harness; only the host shell and trust integration differ.
-The installer keeps the binary and selected harness runtime at the same
-version, while `aidlc init` projects that runtime safely into a project.
+The installer keeps the binary and every harness runtime at the same version,
+while `aidlc config` selects and projects the runtime a project uses.
 For source/development copies, the matching complete projections remain under
 `dist/claude/`, `dist/kiro/`, `dist/kiro-ide/`, `dist/codex/`, and
 `dist/opencode/`.
@@ -92,7 +92,7 @@ macOS and Linux:
 
 ```bash
 curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh \
-  | bash -s -- --harness claude
+  | bash
 ```
 
 Windows PowerShell:
@@ -100,44 +100,40 @@ Windows PowerShell:
 ```powershell
 $installer = Join-Path $env:TEMP install-aidlc.ps1
 irm https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.ps1 -OutFile $installer
-& $installer --harness claude
+& $installer
 ```
 
-Replace `claude` with `kiro`, `kiro-ide`, `codex`, or `opencode`. Passing no
-harness opens the same numbered picker when a controlling terminal is
-available, including a piped shell installer. Automation, `--yes`, `--quiet`,
-and `--json` runs must pass `--harness`.
-
 The installer verifies authenticated release metadata and SHA-256 checksums,
-installs the binary and selected runtime side by side with retained versions,
+installs the binary and all harness runtimes side by side with retained versions,
 links `aidlc` into a user bin directory, and prints the PATH command when that
 directory is not visible. It never requires a root, Administrator, or
 system-wide install.
 
-### 3. Initialize your project
+### 3. Configure your project
 
 ```bash
 cd your-project
-aidlc init --dry-run --verbose
-aidlc init
+aidlc config --dry-run --verbose
+aidlc config
 aidlc doctor
 ```
 
-`aidlc init` creates the complete harness projection and workspace shell,
+`aidlc config` creates the complete harness projection and workspace shell,
 merges declared root integrations without replacing project-owned content, and
 records an ownership baseline for future refreshes. It is offline and
-transactional. In automation, pass `--harness <name>`, `--project-dir <path>`,
+transactional. In automation, pass `--harness <name>` to `aidlc config`,
+plus `--project-dir <path>`,
 and, for Claude Code, `--mcp defaults` or `--mcp none` explicitly.
 
-Refresh projects between workflows after an upgrade:
+Refresh projects between workflows after an update:
 
 ```bash
-aidlc upgrade
+aidlc update
 cd your-project
-aidlc init
+aidlc config
 ```
 
-Upgrade and rollback only change the machine's active runtime. Init refuses to
+`update` and `use` only change machine version selection. `config` refuses to
 refresh while any workflow is active so an in-flight workflow cannot silently
 change stage definitions.
 
@@ -171,7 +167,7 @@ cp -R dist/claude/. /path/to/your-project/
 Substitute another harness directory as needed. Copy the entire distribution
 root, not only `.claude/`, `.kiro/`, `.codex/`, or `.aidlc/`: the sibling
 `aidlc/` workspace shell and root integrations are part of the install. A raw
-copy can overwrite project root files, so use `aidlc init` for existing
+copy can overwrite project root files, so use `aidlc config` for existing
 projects unless you are prepared to merge those files manually. See
 [Install and Lifecycle](docs/guide/18-install-and-lifecycle.md#copy-channel)
 for the channel boundary and each harness guide for host-specific trust.
@@ -287,8 +283,8 @@ Most first-run trouble is one of these; each harness guide covers the rest.
 | --- | --- | --- |
 | `aidlc: command not found` after install | native channel | Add the installer-reported bin directory to `PATH` (`$HOME/.local/bin` by default; `%LOCALAPPDATA%\aidlc\bin` on Windows), then open a new shell. |
 | `which bun` works in your terminal, but the harness can't find bun | copy channel | Bun is missing from the non-interactive PATH. Copy the `BUN_INSTALL`/`PATH` export into `~/.zshenv` (zsh) or `~/.bashrc` (bash/Git Bash). |
-| Doctor reports project/runtime version skew | native channel | Complete every active or parked workflow, then run `aidlc init` in the project to refresh its projection. |
-| `aidlc init` refuses because a workflow is active | native channel | Complete every listed workflow first. Upgrade and rollback are still safe because they do not change project files. |
+| Doctor reports project/runtime version skew | native channel | Complete every active or parked workflow, then run `aidlc config` in the project to refresh its projection. |
+| `aidlc config` refuses because a workflow is active | native channel | Complete every listed workflow first. `update` and `use` remain safe because they do not change project files. |
 | `/aidlc --doctor` reports a Codex CLI version below 0.145.0 | Codex | Upgrade to Codex CLI 0.145.0 or later. Older releases either delay compact-session workflow-context restoration or break subagent attribution and hyphenated agent TOML resolution. |
 | Bedrock calls fail with `AccessDenied` or a model-not-found error | Claude, Codex | Enable model access for the harness's configured models in your AWS account and put working credentials on your SDK chain. Confirm `AWS_REGION` is a region where you enabled them. |
 | Hooks never fire (no audit rows, no gates) | Codex | Apply the generated Codex trust entries described in the [Codex guide](docs/guide/harnesses/codex-cli.md), or start one TUI session and choose "Trust all." Untrusted hooks never run. |

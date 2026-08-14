@@ -71,7 +71,7 @@ function updateCheck(state: UpdateState): DoctorCheck {
       ? undefined
       : "warn",
     label: `Update: ${state.message}`,
-    fix: state.state === "behind" ? "run `aidlc upgrade`" : undefined,
+    fix: state.state === "behind" ? "run `aidlc update`" : undefined,
   };
 }
 
@@ -95,7 +95,7 @@ function pluginCheck(projectDir: string, verbose: boolean): DoctorCheck {
       pass: false,
       severity: "warn",
       label: `Plugins: ${drift.length} require sync${detail}`,
-      fix: "run `aidlc plugin sync`",
+      fix: "run `aidlc config`",
     };
   }
   return {

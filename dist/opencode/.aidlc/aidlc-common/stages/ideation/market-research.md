@@ -66,7 +66,7 @@ Create competitive analysis, market trends report, build-vs-buy assessment, and 
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .aidlc/tools/aidlc.ts __delegate orchestrate report --stage market-research --result <outcome>`.
+`bun .aidlc/tools/aidlc.ts engine orchestrate report --stage market-research --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval

@@ -78,7 +78,7 @@ All diagrams follow ASCII diagram standards from stage-protocol.md.
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`{{INVOKE}} __delegate orchestrate report --stage rough-mockups --result <outcome>`.
+`{{INVOKE}} engine orchestrate report --stage rough-mockups --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Present Completion & Request Approval

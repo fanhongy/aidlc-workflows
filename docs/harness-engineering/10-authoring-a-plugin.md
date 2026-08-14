@@ -298,7 +298,7 @@ codex plugin add test-pro@<marketplace>                      # Codex
 ```
 
 A **SessionStart hook** (bundled in the emitted plugin) calls the same
-transactional sync implementation as `aidlc plugin sync` for its injected
+transactional sync implementation as `aidlc engine plugin sync` for its injected
 current root. It merges the plugin's subtrees and contributions, validates the
 result, compiles the stage graph + scope grid, and writes a version/source-hash
 composition stamp. The orchestrator routes entirely off that compiled graph, so
@@ -320,9 +320,9 @@ Composition installs a plugin's bytes; selection controls which installed
 stages, scopes, runners, and contributions are active:
 
 ```bash
-aidlc plugin select aidlc,test-pro
-aidlc plugin list
-aidlc plugin sync
+aidlc engine plugin select aidlc,test-pro
+aidlc engine plugin list
+aidlc engine plugin sync
 ```
 
 `plugin select` stages disabled-contribution removal, graph/grid compilation,
@@ -341,7 +341,7 @@ selection.
 cp -r dist/plugins/<name>/kiro/. <project>/
 # preferred when aidlc is on PATH:
 AIDLC_PLUGIN_ROOT="<plugin-root>" AIDLC_PROJECT_DIR="<project>" \
-  AIDLC_HARNESS_DIR=.kiro aidlc plugin sync
+  AIDLC_HARNESS_DIR=.kiro aidlc engine plugin sync
 
 # fallback: run the composer explicitly:
 AIDLC_PLUGIN_ROOT="<plugin-root>" AIDLC_PROJECT_DIR="<project>" \
@@ -350,7 +350,7 @@ AIDLC_PLUGIN_ROOT="<plugin-root>" AIDLC_PROJECT_DIR="<project>" \
 ```
 
 > **Kiro note.** The emitted `.kiro.hook` still depends on host support for
-> plugin-root env vars. Use `aidlc plugin sync` with `AIDLC_PLUGIN_ROOT` when the binary is available, or
+> plugin-root env vars. Use `aidlc engine plugin sync` with `AIDLC_PLUGIN_ROOT` when the binary is available, or
 > the explicit `bun compose.ts` invocation above as the fallback.
 
 ### Trust

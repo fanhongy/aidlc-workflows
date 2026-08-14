@@ -59,7 +59,7 @@ import { AIDLC_SRC } from "../harness/fixtures.ts";
 // here is the TS port of that same path (fixtures.ts:42).
 const SKILL_PATH = join(AIDLC_SRC, "skills", "aidlc", "SKILL.md");
 const SKILL = readFileSync(SKILL_PATH, "utf-8");
-const ORCHESTRATE_INVOKE = "bun .claude/tools/aidlc.ts __delegate orchestrate";
+const ORCHESTRATE_INVOKE = "bun .claude/tools/aidlc.ts engine orchestrate";
 
 describe("t41 SKILL.md forwarding-loop contract (migrated from t41-jump-flag-validation.sh, plan 15)", () => {
   test("SKILL.md exists and is non-empty (precondition)", () => {

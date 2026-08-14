@@ -28,7 +28,7 @@ MUST still be presented through the annex-defined mechanism.
 ### Critical Compliance Checklist (most commonly missed steps)
 Before and during EVERY stage, verify:
 1. [ ] **Use the engine for every lifecycle transition** — before the prompt, `aidlc-orchestrate.ts report --stage <slug> --result awaiting-approval`; after the response, report `approved` or `rejected`; after revision work, report `revised`. When the active stage's own condition proves it does not apply, report `skipped --reason "<reason>"`. Never call lifecycle verbs on `aidlc-state.ts` directly. The engine emits the correct audit events and routes only on approval, completion, or a justified skip. Do NOT call `aidlc-audit.ts append` separately. (§2)
-2. [ ] **Log non-gate questions via `aidlc-log.ts`** — before presenting a structured question that is not an approval gate: `bun .kiro/tools/aidlc.ts __delegate log decision --stage <slug> --decision "<summary>" --options "<csv>"`. After response: `bun .kiro/tools/aidlc.ts __delegate log answer --stage <slug> --details "<exact choice>"`. Approval choices go only through `aidlc-orchestrate.ts report`. (§2, §3)
+2. [ ] **Log non-gate questions via `aidlc-log.ts`** — before presenting a structured question that is not an approval gate: `bun .kiro/tools/aidlc.ts engine log decision --stage <slug> --decision "<summary>" --options "<csv>"`. After response: `bun .kiro/tools/aidlc.ts engine log answer --stage <slug> --details "<exact choice>"`. Approval choices go only through `aidlc-orchestrate.ts report`. (§2, §3)
 3. [ ] **Never summarize User Input** — use exact option labels. (§2, §3)
 4. [ ] **Task transitions + state sync** — Mark previous task `completed`, then `TaskUpdate({ ..., status: "in_progress", activeForm: "Running [Stage] [slug]" })`. The `[slug]` suffix triggers the PostToolUse hook that syncs the state file. `aidlc-orchestrate.ts report --stage <slug> --result approved --user-input "<exact choice>"` auto-advances to the next in-scope stage (or completes the workflow on the final stage) — do NOT call `advance` separately after approval. (§4)
 5. [ ] **Stage ritual is ATOMIC** — once a stage starts, EVERY step in its protocol fires: questions → artifact → reviewer (if declared) → learnings → gate. No step is skippable based on inferred user intent. "Skip to stage X" means skip INTERMEDIATE stages, NOT shortcut the TARGET stage's ritual. If a user jumps forward from a stage at its gate, the current stage's learnings ritual (§13) MUST fire before the jump executes.
@@ -146,7 +146,7 @@ When a Bolt's code-generation returns failure, **always halt and present the hal
 - Skip: mark `[S]` in state with reason, proceed to next batch. Worktree at `<path>` is preserved.
 - Abort: stop Construction; user can resume later. Worktree at `<path>` is preserved.
 
-The orchestrator runs `bun .kiro/tools/aidlc.ts __delegate worktree info --slug <slug>` to obtain the worktree `<path>` and `<branch_name>` deterministically before composing the halt-and-ask question. See `SKILL.md` § "Halt-and-ask failure handling" for the full tool-call sequence and the `worktree-info-schema.md` knowledge file for the JSON contract.
+The orchestrator runs `bun .kiro/tools/aidlc.ts engine worktree info --slug <slug>` to obtain the worktree `<path>` and `<branch_name>` deterministically before composing the halt-and-ask question. See `SKILL.md` § "Halt-and-ask failure handling" for the full tool-call sequence and the `worktree-info-schema.md` knowledge file for the JSON contract.
 
 ```question
 prompt: "Bolt [Z] failed during code generation: [short error]. Worktree at [path] on branch [branch_name]. How would you like to proceed?"
@@ -170,11 +170,11 @@ Every stage ends with this 5-part structure:
 ### Part 0: Enter the approval gate (mandatory — the engine records the held gate before the human answers it)
 Entering the gate:
 1. Render Parts 1-2 (announcement, summary), then run the §13 learnings ritual as its own human turn — END YOUR TURN at its question. Its logged `QUESTION_ANSWERED` row must precede the gate's `STAGE_AWAITING_APPROVAL` (§13 step 3 is the contract; the gate is never opened in the same message as the learnings question).
-2. After the learnings answer is logged: `bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage <slug> --result awaiting-approval` — the engine marks `[-]` → `[?]` and emits `STAGE_AWAITING_APPROVAL`. `/aidlc --status` now truthfully shows the held gate.
+2. After the learnings answer is logged: `bun .kiro/tools/aidlc.ts engine orchestrate report --stage <slug> --result awaiting-approval` — the engine marks `[-]` → `[?]` and emits `STAGE_AWAITING_APPROVAL`. `/aidlc --status` now truthfully shows the held gate.
 3. Present Part 3 (the approval question). This is a lifecycle gate, not an interview question: do not call `aidlc-log.ts decision` or `aidlc-log.ts answer` for it.
 4. Based on the user response:
-   - **Approve** → `bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage <slug> --result approved --user-input "<exact choice>"`. The engine emits any missing `STAGE_AWAITING_APPROVAL`, then `GATE_APPROVED` + `STAGE_COMPLETED`, and auto-advances to the next in-scope stage (or completes the workflow on the final stage). No separate `advance` call required.
-   - **Request Changes** → `bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage <slug> --result rejected --user-input "<feedback>"`. The engine emits `GATE_REJECTED` + `STAGE_REVISING`, marks `[?]` → `[R]`, and increments Revision Count. When the feedback already names what to change, revise immediately; ask a clarifying question first ONLY when the feedback is genuinely ambiguous, and ask it as a structured question with concrete options drawn from the artifact (never an open-ended freeform prompt — a driver or scripted session that answers only structured questions must be able to progress the revision loop). When the revision changed a `produces[]` artifact and the directive carries a reviewer, re-run the §12a reviewer step before reporting revised — fresh dispatch record, fresh `## Review` verdict replacing the stale one; the NOT-READY lead-alone loop and its iteration budget apply as at first entry. (The §13 learnings ritual runs once per stage and is not re-run.) Then call `bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage <slug> --result revised` to emit a fresh `STAGE_AWAITING_APPROVAL` and mark `[R]` → `[?]` — always re-present the gate after the revision; never leave the stage parked in `[R]` waiting on further conversation.
+   - **Approve** → `bun .kiro/tools/aidlc.ts engine orchestrate report --stage <slug> --result approved --user-input "<exact choice>"`. The engine emits any missing `STAGE_AWAITING_APPROVAL`, then `GATE_APPROVED` + `STAGE_COMPLETED`, and auto-advances to the next in-scope stage (or completes the workflow on the final stage). No separate `advance` call required.
+   - **Request Changes** → `bun .kiro/tools/aidlc.ts engine orchestrate report --stage <slug> --result rejected --user-input "<feedback>"`. The engine emits `GATE_REJECTED` + `STAGE_REVISING`, marks `[?]` → `[R]`, and increments Revision Count. When the feedback already names what to change, revise immediately; ask a clarifying question first ONLY when the feedback is genuinely ambiguous, and ask it as a structured question with concrete options drawn from the artifact (never an open-ended freeform prompt — a driver or scripted session that answers only structured questions must be able to progress the revision loop). When the revision changed a `produces[]` artifact and the directive carries a reviewer, re-run the §12a reviewer step before reporting revised — fresh dispatch record, fresh `## Review` verdict replacing the stale one; the NOT-READY lead-alone loop and its iteration budget apply as at first entry. (The §13 learnings ritual runs once per stage and is not re-run.) Then call `bun .kiro/tools/aidlc.ts engine orchestrate report --stage <slug> --result revised` to emit a fresh `STAGE_AWAITING_APPROVAL` and mark `[R]` → `[?]` — always re-present the gate after the revision; never leave the stage parked in `[R]` waiting on further conversation.
    - **Accept as-is** (after 3 rejection cycles) → same as Approve; include `--user-input "Accept as-is after N cycles"`.
 
 ### Part 1: Announcement (mandatory)
@@ -218,8 +218,8 @@ in-scope progress with overall shown parenthetically:
 Progress: [X]/[S] in-scope stages complete ([N]/32 overall) | [phase-N]/[phase-total] [Phase]. Next: [Next Stage Name]
 ```
 Where `S` = total `EXECUTE` stages for the current scope, derived from the
-compiled scope grid. Use `bun .kiro/tools/aidlc.ts __delegate utility
-scope-table` when you need the current totals; never carry a hand-maintained
+compiled scope grid. Use `bun .kiro/tools/aidlc.ts engine gen scope-table`
+when you need the current totals; never carry a hand-maintained
 per-scope count table in this protocol.
 
 Example (full-scope): "Progress: 13/32 overall | 3/7 IDEATION stages complete. Next: Approval & Handoff"
@@ -323,7 +323,7 @@ Log the user's mode choice to `<record>/audit/<host>-<clone>.md` using the Quest
   letter, chat number, punctuation, or option description before writing;
   `[Answer]: A. Looks correct` and `[Answer]: 1. Looks correct` are invalid.
   Before presenting it, record the checkpoint prompt:
-  `bun .kiro/tools/aidlc.ts __delegate log decision --stage <slug>
+  `bun .kiro/tools/aidlc.ts engine log decision --stage <slug>
   --checkpoint summary-confirmation --questions-file "<questions-path>"
   --decision "Does this all look correct before I generate the artifact?"
   --options "Looks correct,Request changes"`; add `--unit "<directive.unit>"`
@@ -332,7 +332,7 @@ Log the user's mode choice to `<record>/audit/<host>-<clone>.md` using the Quest
 
   After the human responds, first write the exact choice to the confirmation
   `[Answer]:` tag, then record the human-backed receipt with
-  `bun .kiro/tools/aidlc.ts __delegate log answer --stage <slug>
+  `bun .kiro/tools/aidlc.ts engine log answer --stage <slug>
   --checkpoint summary-confirmation --questions-file "<questions-path>"
   --details "<exact choice>"` using the same `--unit` / `--single` identity.
   The tool refuses a self-selected answer, a response without a matching prompt
@@ -490,14 +490,14 @@ Rules:
 The PostToolUse hook auto-logs file writes as `ARTIFACT_CREATED` / `ARTIFACT_UPDATED`. Conversation events (questions, approvals, user responses) are NOT hook-logged and MUST be recorded via the thin `aidlc-log` / `aidlc-state` tools. Those tools own audit emission — do NOT call `aidlc-audit.ts append` by hand for these events.
 
 At each approval gate — see §2 Part 0 for the full flow. Summary:
-1. BEFORE presenting the approval question: `bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage <slug> --result awaiting-approval`.
+1. BEFORE presenting the approval question: `bun .kiro/tools/aidlc.ts engine orchestrate report --stage <slug> --result awaiting-approval`.
 2. AFTER user response: report `approved --user-input "<choice>"` or `rejected --user-input "<feedback>"`. After revision work, report `revised` before re-presenting. Never call lifecycle verbs on `aidlc-state.ts` directly.
 
 These `report` calls are the approval gate's only logging path. Never call `aidlc-log.ts decision` or `aidlc-log.ts answer` for an approval choice.
 
 At each non-gate question interaction:
-1. BEFORE presenting the question: `bun .kiro/tools/aidlc.ts __delegate log decision --stage <slug> --decision "<summary>" --options "<A,B,C>"` (emits `DECISION_RECORDED`).
-2. AFTER response: `bun .kiro/tools/aidlc.ts __delegate log answer --stage <slug> --details "<summary of answers>"` (emits `QUESTION_ANSWERED`).
+1. BEFORE presenting the question: `bun .kiro/tools/aidlc.ts engine log decision --stage <slug> --decision "<summary>" --options "<A,B,C>"` (emits `DECISION_RECORDED`).
+2. AFTER response: `bun .kiro/tools/aidlc.ts engine log answer --stage <slug> --details "<summary of answers>"` (emits `QUESTION_ANSWERED`).
 
 ### Stage progress notation
 - `[ ]` — Not started
@@ -505,7 +505,7 @@ At each non-gate question interaction:
 - `[x]` — Completed (approved by user)
 - `[S]` — Skipped via `--stage` or `--phase` jump (not executed, excluded from progress counts)
 
-**Enforcement:** State file updates happen automatically via the PostToolUse hook when `TaskUpdate` sets a stage task to `in_progress` with a `[slug]` suffix in `activeForm`. At stage END, `bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage <slug> --result approved --user-input "<exact choice>"` marks the completed stage `[x]`, auto-advances to the next in-scope stage, and handles completion bookkeeping. Do not skip the intermediate `[-]` state by going directly from `[ ]` to `[x]`.
+**Enforcement:** State file updates happen automatically via the PostToolUse hook when `TaskUpdate` sets a stage task to `in_progress` with a `[slug]` suffix in `activeForm`. At stage END, `bun .kiro/tools/aidlc.ts engine orchestrate report --stage <slug> --result approved --user-input "<exact choice>"` marks the completed stage `[x]`, auto-advances to the next in-scope stage, and handles completion bookkeeping. Do not skip the intermediate `[-]` state by going directly from `[ ]` to `[x]`.
 
 **`[S]` behavior:**
 - Set by the Stage/Phase Jump handler (`aidlc-jump.ts execute`) for in-scope stages before the jump target, or by `aidlc-orchestrate.ts report --result skipped` when the active stage's own applicability check justifies a skip
@@ -553,7 +553,7 @@ Fields managed by the tools (matching state template format `- **Field**: value`
 own applicability check proves that it cannot run, call:
 
 ```bash
-bun .kiro/tools/aidlc.ts __delegate orchestrate report \
+bun .kiro/tools/aidlc.ts engine orchestrate report \
   --stage "<current-slug>" --result skipped --reason "<specific reason>"
 ```
 
@@ -566,10 +566,10 @@ cannot use this routing outcome.
 
 **Stage graph lookups** (no state file needed):
 ```bash
-bun .kiro/tools/aidlc.ts __delegate state lookup phase-of SLUG          # → phase name
-bun .kiro/tools/aidlc.ts __delegate state lookup next-stage SLUG SCOPE   # → next in-scope slug
-bun .kiro/tools/aidlc.ts __delegate state lookup agent-for SLUG          # → lead agent name
-bun .kiro/tools/aidlc.ts __delegate state lookup validate-stage SLUG     # → JSON with slug, phase, number, valid
+bun .kiro/tools/aidlc.ts engine state lookup phase-of SLUG          # → phase name
+bun .kiro/tools/aidlc.ts engine state lookup next-stage SLUG SCOPE   # → next in-scope slug
+bun .kiro/tools/aidlc.ts engine state lookup agent-for SLUG          # → lead agent name
+bun .kiro/tools/aidlc.ts engine state lookup validate-stage SLUG     # → JSON with slug, phase, number, valid
 ```
 
 ### MANDATORY: Plan-Level Checkbox Enforcement
@@ -740,8 +740,8 @@ Create exactly the detail needed — no more, no less. Depth adapts to scope and
 ### Scope-to-depth mapping
 The active scope file declares the default `depth` (the rows below mirror the
 shipped scope files' `depth:` frontmatter - name and depth only, no stage
-counts), and the compiled scope grid declares which stages execute. Use `bun
-.kiro/tools/aidlc-utility.ts scope-table` for the current
+counts), and the compiled scope grid declares which stages execute. Use
+`bun .kiro/tools/aidlc.ts engine gen scope-table` for the current
 scope/depth/count table - never copy stage counts into this protocol.
 
 | Scope | Default Depth |
@@ -1027,7 +1027,7 @@ If the `run-stage` directive includes a `reviewer` field (non-null), the orchest
    When the current unit's design explicitly names an integration point in a sibling unit's file, resolve that single owning file via the shared contracts and append its path to `exempt` - the record is where the spot-check carve-out is granted. The `stage` field appears verbatim in any `REVIEWER_SCOPE_BLOCKED` audit row; use the current stage slug. The reviewer-scope PreToolUse hook reads this record to enforce the read-scope bound deterministically while the review is in flight; on a NOT-READY re-invoke (step 3 back to step 1), write a fresh record. Single-stage reviews (no `directive.unit`) write no record. On a harness without reviewer-scope enforcement (Kiro IDE today), do not write the record; the reviewer read-scope bound remains mandatory prose in the delegated task and reviewer persona.
 
    Immediately before every reviewer dispatch, record the request:
-   `bun .kiro/tools/aidlc.ts __delegate log review --stage "<directive.stage>" --reviewer "<directive.reviewer>" --iteration <n>`; add `--unit "<directive.unit>"` on a per-unit stage and `--single` on an isolated stage run.
+   `bun .kiro/tools/aidlc.ts engine log review --stage "<directive.stage>" --reviewer "<directive.reviewer>" --iteration <n>`; add `--unit "<directive.unit>"` on a per-unit stage and `--single` on an isolated stage run.
 
 2. **Reviewer executes.** The review runs under the **adversarial review contract**:
 
@@ -1122,7 +1122,7 @@ Trigger after Step N-1 (completion message rendered) and before Step N (approval
 
 2. **Surface candidates (the tool reads memory.md).** Run:
    ```bash
-   bun .kiro/tools/aidlc.ts __delegate learnings surface --slug <stage-slug>
+   bun .kiro/tools/aidlc.ts engine learnings surface --slug <stage-slug>
    ```
    The tool parses memory.md and emits structured JSON: one candidate per non-blank entry under **Interpretations / Deviations / Tradeoffs** (surfaced verbatim — no paraphrase, no "interesting" filtering), plus a read-only `parked_open_questions[]` list. Open questions are research items, not learnings to install — they never become candidates. Most runs surface nothing worth keeping; that's the most common outcome.
 
@@ -1132,7 +1132,7 @@ Trigger after Step N-1 (completion message rendered) and before Step N (approval
 
 5. **Persist (the tool writes + emits audit).** Build the selections file and call:
    ```bash
-   bun .kiro/tools/aidlc.ts __delegate learnings persist --slug <stage-slug> --selections-json <path>
+   bun .kiro/tools/aidlc.ts engine learnings persist --slug <stage-slug> --selections-json <path>
    ```
    The tool, inside one `withAuditLock` transaction (decide-inside-lock, content-presence idempotency via a `<!-- cid:<slug>:<id> -->` marker so a crashed run recovers without double-appending):
    - **Learning** → appends a practice line under the orchestrator-routed heading in `<scope>.md` (scope ∈ {project, team}): `- <text> (learned YYYY-MM-DD) <!-- cid:... -->`. Ensure-exists the heading first, so a routed heading the file doesn't yet carry is created rather than throwing. Emits `RULE_LEARNED` (with `Source: orchestrator | user_addition`, `Heading: <routed>`).
@@ -1192,7 +1192,7 @@ When a stage detects existing output artifacts in its artifact directory:
 **Audit logging**: After the user's choice, call the state tool (maps the "Redo from scratch" option to `--decision redo`):
 
 ```bash
-bun .kiro/tools/aidlc.ts __delegate state reuse-artifact <stage-slug> \
+bun .kiro/tools/aidlc.ts engine state reuse-artifact <stage-slug> \
   --decision <keep|modify|redo> \
   --artifacts "<comma-separated list of existing artifacts found>"
 ```

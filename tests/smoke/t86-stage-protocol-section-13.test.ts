@@ -200,11 +200,11 @@ describe("t86 stage-protocol §13 + MEMORY_EMPTY + SKILL.md gate wiring (migrate
     expect(body.includes("Never ask for this confirmation as bare prose")).toBe(true);
     expect(
       body.includes(
-        "bun .claude/tools/aidlc.ts __delegate log decision --stage <slug>\n  --checkpoint summary-confirmation --questions-file",
+        "bun .claude/tools/aidlc.ts engine log decision --stage <slug>\n  --checkpoint summary-confirmation --questions-file",
       ),
     ).toBe(true);
     expect(
-      body.includes("bun .claude/tools/aidlc.ts __delegate log answer --stage <slug>"),
+      body.includes("bun .claude/tools/aidlc.ts engine log answer --stage <slug>"),
     ).toBe(true);
     expect(body.includes('**"What should change?"**')).toBe(true);
     expect(body.includes("Editing the source file does not waive")).toBe(true);
@@ -274,10 +274,10 @@ describe("t86 stage-protocol §13 + MEMORY_EMPTY + SKILL.md gate wiring (migrate
     const span = gateBranchSpan(read(SKILL));
     expect(span.length).toBeGreaterThan(0); // the heading must exist
     expect(
-      /bun \.claude\/tools\/aidlc\.ts __delegate learnings surface/.test(span),
+      /bun \.claude\/tools\/aidlc\.ts engine learnings surface/.test(span),
     ).toBe(true);
     expect(
-      /bun \.claude\/tools\/aidlc\.ts __delegate learnings persist/.test(span),
+      /bun \.claude\/tools\/aidlc\.ts engine learnings persist/.test(span),
     ).toBe(true);
     // The ritual is now UNCONDITIONAL: the test-run guard was removed per #369.
   });

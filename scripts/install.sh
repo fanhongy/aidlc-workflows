@@ -6,9 +6,7 @@ VERSION=
 FROM=
 OFFLINE=0
 CA_BUNDLE=${AIDLC_CA_BUNDLE:-}
-HARNESSES=
 MODE=human
-YES=0
 PROFILE=
 PROGRESS_ACTIVE=0
 
@@ -75,16 +73,11 @@ fail() {
 }
 
 usage_text() {
-  echo "Usage: install.sh --harness <name> [--harness <name>...] [--version <x.y.z>] [--from <dir>] [--offline] [--profile <startup-file>] [--json|--quiet] [--no-color] [--yes]"
+  echo "Usage: install.sh [--version <x.y.z>] [--from <dir>] [--offline] [--profile <startup-file>] [--json|--quiet] [--no-color] [--yes]"
 }
 
 usage() {
   fail 2 usage "${1:-invalid arguments}" "$(usage_text)"
-}
-
-has_controlling_terminal() {
-  ( : </dev/tty ) 2>/dev/null &&
-    ( : >/dev/tty ) 2>/dev/null
 }
 
 output_scan_expects_value=0
@@ -94,7 +87,7 @@ for arg in "$@"; do
     continue
   fi
   case "$arg" in
-    --harness|--version|--from|--release-base-url|--ca-bundle|--profile)
+    --version|--from|--release-base-url|--ca-bundle|--profile)
       output_scan_expects_value=1
       ;;
     --json) MODE=json ;;
@@ -104,14 +97,6 @@ done
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --harness)
-      [ "$#" -ge 2 ] || usage
-      case "$2" in
-        ""|-*|*[!a-z0-9-]*) usage "invalid harness name: $2" ;;
-      esac
-      HARNESSES="$HARNESSES $2"
-      shift 2
-      ;;
     --version) [ "$#" -ge 2 ] || usage; VERSION=$2; shift 2 ;;
     --from) [ "$#" -ge 2 ] || usage; FROM=$2; OFFLINE=1; shift 2 ;;
     --offline) OFFLINE=1; shift ;;
@@ -121,17 +106,12 @@ while [ "$#" -gt 0 ]; do
     --json) MODE=json; shift ;;
     --quiet) [ "$MODE" = "json" ] || MODE=quiet; shift ;;
     --no-color) shift ;;
-    --yes) YES=1; shift ;;
+    --yes) shift ;;
     -h|--help) usage_text; exit 0 ;;
     *) usage "unknown argument: $1" ;;
   esac
 done
 
-if [ -z "$HARNESSES" ]; then
-  harness_required="a harness is required in non-interactive installs; pass --harness <name>"
-  { [ "$MODE" = "human" ] && [ "$YES" -eq 0 ]; } || usage "$harness_required"
-  has_controlling_terminal || usage "$harness_required"
-fi
 [ "$(id -u)" -ne 0 ] || fail 4 failed "refusing a root install; run as the target user"
 if [ -n "$VERSION" ] && ! printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
   usage "invalid --version: $VERSION"
@@ -330,49 +310,9 @@ actual_manifest=$(sha256_file "$TMP/version.json")
 
 [ -n "$VERSION" ] || VERSION=$(sed -n 's/.*"version":[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "$TMP/version.json" | head -n 1)
 [ -n "$VERSION" ] || fail 4 failed "version.json has no valid version."
-choices=$(awk '
-  /"distributions":[[:space:]]*\[/ { section=1; next }
-  section && /"assets":[[:space:]]*\[/ { section=0 }
-  section && /"name":[[:space:]]*"/ {
-    value=$0
-    sub(/^.*"name":[[:space:]]*"/, "", value)
-    sub(/".*$/, "", value)
-    name=value
-  }
-  section && /"productName":[[:space:]]*"/ {
-    value=$0
-    sub(/^.*"productName":[[:space:]]*"/, "", value)
-    sub(/".*$/, "", value)
-    if (name != "") print name "|" value
-    name=""
-  }
-' "$TMP/version.json")
-[ -n "$choices" ] || fail 4 failed "version.json contains no harness distributions."
-if [ -z "$HARNESSES" ]; then
-  {
-    echo "Select the harness distribution to install:"
-    printf '%s\n' "$choices" | awk -F '|' '{ printf "  %d) %-10s - %s\n", NR, $1, $2 }'
-    choice_count=$(printf '%s\n' "$choices" | awk 'END { print NR }')
-    printf 'Harness [1-%s]: ' "$choice_count"
-  } >/dev/tty
-  if ! IFS= read -r choice </dev/tty; then
-    usage "unable to read harness selection from the controlling terminal"
-  fi
-  case "$choice" in ""|*[!0-9]*) usage "invalid harness selection" ;; esac
-  selected=$(printf '%s\n' "$choices" | sed -n "${choice}p" | cut -d '|' -f 1)
-  [ -n "$selected" ] || usage "invalid harness selection"
-  HARNESSES=" $selected"
-else
-  for harness in $HARNESSES; do
-    printf '%s\n' "$choices" |
-      awk -F '|' -v wanted="$harness" '$1 == wanted { found=1 } END { exit(found ? 0 : 1) }' ||
-      fail 4 failed "release does not provide harness $harness"
-  done
-fi
 BINARY="aidlc-$TARGET"
-ASSETS="$BINARY"
+ASSETS="$BINARY aidlc-runtime.tar.gz"
 [ -z "$FROM" ] || ASSETS="$ASSETS install.sh"
-for harness in $HARNESSES; do ASSETS="$ASSETS aidlc-data-$harness.tgz"; done
 
 for asset in $ASSETS; do
   if [ -n "$FROM" ]; then
@@ -388,16 +328,13 @@ for asset in $ASSETS; do
 done
 
 chmod 755 "$TMP/$BINARY"
-args=
-for harness in $HARNESSES; do args="$args --harness $harness"; done
-# shellcheck disable=SC2086
-"$TMP/$BINARY" __delegate lifecycle install-apply --from "$TMP" --version "$VERSION" $args \
+"$TMP/$BINARY" system lifecycle install-apply --from "$TMP" --version "$VERSION" \
   --quiet >"$TMP/apply.out" ||
   fail 4 failed "$(sed -n '1p' "$TMP/apply.out")" "rerun the installer after correcting the reported release error"
 
 profile_message=
 if [ -n "$PROFILE" ]; then
-  "$TMP/$BINARY" __delegate lifecycle install-profile \
+  "$TMP/$BINARY" system lifecycle install-profile \
     --profile "$PROFILE" --bin-dir "$BIN_DIR" --quiet >"$TMP/profile.out" ||
     fail 4 failed "$(sed -n '1p' "$TMP/profile.out")"
   profile_message=$(sed -n '1p' "$TMP/profile.out")
@@ -414,13 +351,8 @@ case ":$PATH:" in
 esac
 
 if [ "$MODE" = "json" ]; then
-  json_harnesses=
-  for harness in $HARNESSES; do
-    [ -z "$json_harnesses" ] || json_harnesses="$json_harnesses,"
-    json_harnesses="$json_harnesses\"$harness\""
-  done
-  printf '{"schemaVersion":1,"ok":true,"code":0,"status":"ok","message":"installed AI-DLC %s","data":{"version":"%s","harnesses":[%s],"binDir":"%s","pathCommand":' \
-    "$(json_escape "$VERSION")" "$(json_escape "$VERSION")" "$json_harnesses" "$(json_escape "$BIN_DIR")"
+  printf '{"schemaVersion":1,"ok":true,"code":0,"status":"ok","message":"installed AI-DLC %s","data":{"version":"%s","runtime":"all-harnesses","binDir":"%s","pathCommand":' \
+    "$(json_escape "$VERSION")" "$(json_escape "$VERSION")" "$(json_escape "$BIN_DIR")"
   if [ -n "$path_command" ]; then
     printf '"%s"' "$(json_escape "$path_command")"
   else
@@ -440,37 +372,11 @@ elif [ "$MODE" = "quiet" ]; then
     printf 'installed AI-DLC %s\n' "$VERSION"
   fi
 else
-  products=
-  for harness in $HARNESSES; do
-    product=$(awk -v wanted="$harness" '
-      /"distributions":[[:space:]]*\[/ { section=1; next }
-      section && /"assets":[[:space:]]*\[/ { section=0 }
-      section && /"name":[[:space:]]*"/ {
-        value=$0
-        sub(/^.*"name":[[:space:]]*"/, "", value)
-        sub(/".*$/, "", value)
-        name=value
-      }
-      section && /"productName":[[:space:]]*"/ {
-        value=$0
-        sub(/^.*"productName":[[:space:]]*"/, "", value)
-        sub(/".*$/, "", value)
-        if (name == wanted) {
-          print value
-          exit
-        }
-        name=""
-      }
-    ' "$TMP/version.json")
-    [ -n "$product" ] || product=$harness
-    [ -z "$products" ] || products="$products, "
-    products="$products$product"
-  done
-  printf 'PASS installed AI-DLC %s for %s\n' "$VERSION" "$products"
+  printf 'PASS installed AI-DLC %s with all harness runtimes\n' "$VERSION"
   [ -z "$profile_message" ] || printf '%s\n' "$profile_message"
   if [ -n "$path_command" ]; then
-    printf 'Add AI-DLC to PATH for this shell:\n  %s\nThen run: aidlc init\n' "$path_command"
+    printf 'Add AI-DLC to PATH for this shell:\n  %s\nThen run: aidlc config\n' "$path_command"
   else
-    printf 'Next: aidlc init\n'
+    printf 'Next: aidlc config\n'
   fi
 fi

@@ -57,6 +57,7 @@ export type TransactionOptions = {
   failAfter?: number;
   failAt?: string;
   allowPendingWindowsUninstall?: boolean;
+  validateLocked?: () => void;
   validateCandidates?: (candidateRoot: string) => void;
   validateCommitted?: () => void;
 };
@@ -417,6 +418,7 @@ export function executePlan(
       );
     }
     quarantineOrphanStaging(root, staging);
+    options.validateLocked?.();
     failpoint(options, "before-plan-validation");
     verifyPlan(plan, root);
     failpoint(options, "after-plan-validation");

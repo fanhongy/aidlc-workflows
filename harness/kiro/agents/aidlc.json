@@ -62,70 +62,70 @@
   "hooks": {
     "agentSpawn": [
       {
-        "command": "{{INVOKE}} adapter kiro session-start"
+        "command": "{{INVOKE}} engine adapter kiro session-start"
       }
     ],
     "userPromptSubmit": [
       {
-        "command": "{{INVOKE}} adapter kiro verb-intercept",
+        "command": "{{INVOKE}} engine adapter kiro verb-intercept",
         "timeout_ms": 30000
       }
     ],
     "preToolUse": [
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} adapter kiro state-transition-guard",
+        "command": "{{INVOKE}} engine adapter kiro state-transition-guard",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} adapter kiro pretool-block",
+        "command": "{{INVOKE}} engine adapter kiro pretool-block",
         "timeout_ms": 15000
       },
       {
         "matcher": "fs_write",
-        "command": "{{INVOKE}} adapter kiro review-freeze",
+        "command": "{{INVOKE}} engine adapter kiro review-freeze",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} adapter kiro review-freeze",
+        "command": "{{INVOKE}} engine adapter kiro review-freeze",
         "timeout_ms": 15000
       },
       {
         "matcher": "subagent",
-        "command": "{{INVOKE}} adapter kiro dispatch-rules",
+        "command": "{{INVOKE}} engine adapter kiro dispatch-rules",
         "timeout_ms": 15000
       },
       {
         "matcher": "subagent",
-        "command": "{{INVOKE}} adapter kiro plan-approval-guard",
+        "command": "{{INVOKE}} engine adapter kiro plan-approval-guard",
         "timeout_ms": 15000
       }
     ],
     "postToolUse": [
       {
         "matcher": "fs_write",
-        "command": "{{INVOKE}} adapter kiro audit-and-sensors",
+        "command": "{{INVOKE}} engine adapter kiro audit-and-sensors",
         "timeout_ms": 120000
       },
       {
         "matcher": "execute_bash",
-        "command": "{{INVOKE}} adapter kiro runtime-compile",
+        "command": "{{INVOKE}} engine adapter kiro runtime-compile",
         "timeout_ms": 45000
       },
       {
         "matcher": "todo_list",
-        "command": "{{INVOKE}} adapter kiro state-sync"
+        "command": "{{INVOKE}} engine adapter kiro state-sync"
       },
       {
         "matcher": "subagent",
-        "command": "{{INVOKE}} adapter kiro log-subagent"
+        "command": "{{INVOKE}} engine adapter kiro log-subagent"
       }
     ],
     "stop": [
       {
-        "command": "{{INVOKE}} adapter kiro stop",
+        "command": "{{INVOKE}} engine adapter kiro stop",
         "timeout_ms": 30000
       }
     ]

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "distribution": "kiro-ide",
   "productName": "Kiro IDE",
-  "initNextStep": "open this project in Kiro IDE, then run `/aidlc --doctor`",
+  "configNextStep": "open this project in Kiro IDE, then run `/aidlc --doctor`",
   "harnessDir": ".kiro",
   "managedDirectories": [
     ".kiro",
@@ -34,7 +34,7 @@
           "sha256:c5d2188b046cd75d8cb7214f32faa85cbc1539cddda4a0fae9bfe8fad90c237c",
           "sha256:dead4d5ea47849f489e05baeae418d5d26efc6cd14dd2201351a474376f8efde",
           "sha256:e01ac1caf52a59d25faf859a03cfb65b803853c99298bbcbc80ef565e7628de6",
-          "sha256:d4e8494cdee5e151b1e2bf699ad41990efa77e3727b65940870540fef55683ce"
+          "sha256:ee9aab4a7b3817be3b54e9f43a0f45a84559d323648ca4d824728acd925b2f38"
         ]
       }
     }

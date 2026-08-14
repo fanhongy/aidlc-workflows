@@ -315,7 +315,7 @@ under `tools/data/`:
   `whole-file`). Optional integrations and exact legacy hashes are declared
   here; an unclassified top-level entry makes packaging or loading fail.
 
-`aidlc init` validates the stamp and descriptor before planning. It writes a
+`aidlc config` validates the stamp and descriptor before planning. It writes a
 fourth file, `aidlc-manifest.json`, into the installed harness as the
 project-specific ownership baseline: upstream version, per-file hashes, root
 contributions, and the selected optional-integration mode. Refresh uses that

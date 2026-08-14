@@ -25,7 +25,7 @@ export type ProjectionDescriptor = {
   schemaVersion: 1;
   distribution: string;
   productName: string;
-  initNextStep: string;
+  configNextStep: string;
   harnessDir: string;
   managedDirectories: string[];
   legacyManagedFileHashes?: Record<string, string[]>;
@@ -76,8 +76,8 @@ function validateDescriptor(root: string, stamp: ProjectionStamp, descriptor: Pr
     !/^[a-z0-9][a-z0-9-]*$/.test(stamp.distribution) ||
     typeof descriptor.productName !== "string" ||
     descriptor.productName.trim().length === 0 ||
-    typeof descriptor.initNextStep !== "string" ||
-    descriptor.initNextStep.trim().length === 0
+    typeof descriptor.configNextStep !== "string" ||
+    descriptor.configNextStep.trim().length === 0
   ) {
     throw new Error(`${root}: projection identity is invalid`);
   }

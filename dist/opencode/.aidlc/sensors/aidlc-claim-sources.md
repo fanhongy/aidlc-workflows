@@ -1,7 +1,7 @@
 ---
 id: claim-sources
 kind: deterministic
-command: bun .aidlc/tools/aidlc.ts __delegate sensor-claim-sources
+command: bun .aidlc/tools/aidlc.ts engine sensor-claim-sources
 default_severity: advisory
 description: Checks Intent Capture claims carry source tags that resolve to the stage's confirmed source register and answers
 category: document-provenance

@@ -136,7 +136,7 @@ export function aidlcInvocation(): string {
 }
 
 export function aidlcDispatcherInvocation(route: string): string {
-  return `${aidlcInvocation()} __delegate ${route}`;
+  return `${aidlcInvocation()} engine ${route}`;
 }
 
 export function aidlcToolInvocation(

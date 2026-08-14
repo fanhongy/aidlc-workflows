@@ -155,7 +155,7 @@ intents, all decisions are resolved before one stage-level lifecycle report.
    `.claude/knowledge/aidlc-architect-agent/` in the delegation prompt. Pass
    the complete developer scan results as context. Include workspace state from
    `aidlc-state.md`. Resolve the repository's output directory with
-   `aidlc workspace codekb --repo <repo>` and pass that exact path to the
+   `aidlc engine workspace codekb --repo <repo>` and pass that exact path to the
    architect.
 
    The architect synthesizes scan results into the 9 output artifacts (see
@@ -459,7 +459,7 @@ large scope with significant unknowns.
     **If User Stories is set to SKIP in the execution state:** 3-option gate:
     Approve / Request Changes / Add User Stories (include the currently
     skipped User Stories stage). If "Add User Stories" is selected, run
-    `aidlc recompose --add user-stories`; do not edit the checkbox directly.
+    `aidlc engine recompose --add user-stories`; do not edit the checkbox directly.
 
     **If User Stories is NOT set to SKIP:** Standard 2-option gate: Approve /
     Request Changes.
@@ -847,7 +847,7 @@ upstream reference, documented in SKILL.md's "Deliberate Deviations" section.
    architectural decisions highlighted, and review path. 3-option approval
    gate: Approve / Request Changes / Add Units Generation (if it was skipped
    in execution plan). Selecting Add Units Generation runs
-   `aidlc recompose --add units-generation`; it never edits the state checkbox
+   `aidlc engine recompose --add units-generation`; it never edits the state checkbox
    directly.
 
 ### Outputs

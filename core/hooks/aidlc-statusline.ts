@@ -1,6 +1,6 @@
 // Status line: Display aidlc workflow position in the terminal status area
 // Registered via statusLine setting in settings.json
-// Invoked via: {{INVOKE}} statusline
+// Invoked via: {{INVOKE}} engine statusline
 import { existsSync, readFileSync } from "node:fs";
 import {
   activeIntent,

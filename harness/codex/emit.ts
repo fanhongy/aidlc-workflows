@@ -54,7 +54,7 @@ const HOOK_WIRING: Array<{ event: string; matcher?: string; target: string }> = 
 ];
 
 const adapterCmd = (harnessName: string, target: string) =>
-  `{{INVOKE}} adapter ${harnessName} ${target}`;
+  `{{INVOKE}} engine adapter ${harnessName} ${target}`;
 
 function emitHooksJson(
   substituteToken: (value: string) => string,
@@ -140,7 +140,7 @@ status_line = ["model-with-reasoning", "git-branch", "task-progress", "context-u
 export function emitDefaultRules(harnessDir: string, invoke = "aidlc"): string {
   const runtimeRules = invoke === "aidlc"
     ? `# Native runtime allowlist: framework commands invoke the self-contained binary.
-prefix_rule(pattern = ["aidlc"], decision = "allow")`
+prefix_rule(pattern = ["aidlc", "engine"], decision = "allow")`
     : `# Bun copy-channel allowlist: deterministic framework tools stay under the harness tree.
 prefix_rule(pattern = ["bun", "${harnessDir}/tools/"], decision = "allow")`;
   return `# dist/codex shipped permission rules (Starlark) — ${harnessDir}/rules/ is
@@ -231,7 +231,7 @@ export function emitTrustSeed(
   harnessName = "codex",
   invoke = "aidlc",
 ): string {
-  const recipe = `# This template hashes the projected \`${invoke} adapter ${harnessName} ...\`
+  const recipe = `# This template hashes the projected \`${invoke} engine adapter ${harnessName} ...\`
 # commands in hooks.json. Start one interactive Codex session and choose
 # "Trust all and continue" to register the project-specific hook identities.
 `;

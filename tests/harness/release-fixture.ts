@@ -81,7 +81,7 @@ export function writeReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
     join(options.root, binaryName),
     [
       "#!/bin/sh",
-      `if [ "$1" = "version" ]; then printf 'aidlc %s\\n' '${reportedVersion}'; exit 0; fi`,
+      `if [ "$1" = "version" ]; then printf 'aidlc %s (runtime %s)\\n' '${reportedVersion}' '${reportedVersion}'; exit 0; fi`,
       "exit 0",
       "",
     ].join("\n"),
@@ -98,6 +98,7 @@ export function writeReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
   );
 
   const distributionRows: Array<{ name: string; productName: string }> = [];
+  const runtimeEntries: ArchiveEntry[] = [];
   const scratch = mkdtempSync(join(tmpdir(), "aidlc-release-fixture-"));
   try {
     for (const distribution of distributions) {
@@ -114,19 +115,38 @@ export function writeReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
         "aidlc-stamp.json",
       );
       writeFileSync(stampPath, `${JSON.stringify({ ...stamp, frameworkVersion: version }, null, 2)}\n`);
-      writeFileSync(
-        join(options.root, `aidlc-data-${distribution}.tgz`),
-        createTarGz(archiveEntries(projection)),
-      );
+      runtimeEntries.push(...archiveEntries(projection).map((entry) => ({
+        ...entry,
+        path: `runtime/${distribution}/${entry.path}`,
+      })));
       distributionRows.push({ name: distribution, productName: descriptor.productName });
     }
+    const pluginsRoot = join(repoRoot, "dist", "plugins");
+    if (existsSync(pluginsRoot)) {
+      for (const plugin of readdirSync(pluginsRoot).sort()) {
+        const pluginRoot = join(pluginsRoot, plugin);
+        if (!statSync(pluginRoot).isDirectory()) continue;
+        for (const harness of readdirSync(pluginRoot).sort()) {
+          const harnessRoot = join(pluginRoot, harness);
+          if (!statSync(harnessRoot).isDirectory()) continue;
+          runtimeEntries.push(...archiveEntries(harnessRoot).map((entry) => ({
+            ...entry,
+            path: `plugins/${plugin}/${harness}/${entry.path}`,
+          })));
+        }
+      }
+    }
+    writeFileSync(
+      join(options.root, "aidlc-runtime.tar.gz"),
+      createTarGz(runtimeEntries),
+    );
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 
   const names = [
     binaryName,
-    ...distributions.map((distribution) => `aidlc-data-${distribution}.tgz`),
+    "aidlc-runtime.tar.gz",
     "install.sh",
     "install.ps1",
   ];
@@ -134,14 +154,12 @@ export function writeReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
     name,
     sha256: digest(join(options.root, name)),
     bytes: statSync(join(options.root, name)).size,
-    kind: name.endsWith(".tgz")
-      ? "data" as const
+    kind: name === "aidlc-runtime.tar.gz"
+      ? "runtime" as const
       : name === "install.sh" || name === "install.ps1"
       ? "installer" as const
       : "binary" as const,
-    ...(name.endsWith(".tgz")
-      ? { distribution: name.slice("aidlc-data-".length, -".tgz".length) }
-      : name === "install.sh" || name === "install.ps1"
+    ...(name === "install.sh" || name === "install.ps1" || name === "aidlc-runtime.tar.gz"
       ? {}
       : { target }),
   }));
@@ -172,7 +190,7 @@ export function writeReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
     const malformed = join(options.hostileRoot, "malformed-gzip.tgz");
     writeFileSync(malformed, "not a gzip stream\n");
     hostileArchives.push(malformed);
-    const safeArchive = join(options.root, `aidlc-data-${distributions[0]}.tgz`);
+    const safeArchive = join(options.root, "aidlc-runtime.tar.gz");
     const safeBytes = readFileSync(safeArchive);
     const truncated = join(options.hostileRoot, "truncated-archive.tgz");
     writeFileSync(truncated, safeBytes.subarray(0, Math.max(1, Math.floor(safeBytes.length / 2))));
@@ -291,7 +309,7 @@ export async function checkLiveReleaseContract(
   const expected = [
     "install.sh",
     "install.ps1",
-    ...manifest.distributions.map((distribution) => `aidlc-data-${distribution.name}.tgz`),
+    "aidlc-runtime.tar.gz",
   ];
   for (const name of expected) {
     if (!assetNames.includes(name)) throw new Error(`live release is missing ${name}`);

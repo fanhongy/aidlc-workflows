@@ -19,7 +19,7 @@
   "toolsSettings": {
     "execute_bash": {
       "allowedCommands": [
-        "aidlc .*",
+        "aidlc engine .*",
         "date -u( .*)?"
       ],
       "deniedCommands": [
@@ -62,70 +62,70 @@
   "hooks": {
     "agentSpawn": [
       {
-        "command": "aidlc adapter kiro session-start"
+        "command": "aidlc engine adapter kiro session-start"
       }
     ],
     "userPromptSubmit": [
       {
-        "command": "aidlc adapter kiro verb-intercept",
+        "command": "aidlc engine adapter kiro verb-intercept",
         "timeout_ms": 30000
       }
     ],
     "preToolUse": [
       {
         "matcher": "execute_bash",
-        "command": "aidlc adapter kiro state-transition-guard",
+        "command": "aidlc engine adapter kiro state-transition-guard",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "aidlc adapter kiro pretool-block",
+        "command": "aidlc engine adapter kiro pretool-block",
         "timeout_ms": 15000
       },
       {
         "matcher": "fs_write",
-        "command": "aidlc adapter kiro review-freeze",
+        "command": "aidlc engine adapter kiro review-freeze",
         "timeout_ms": 15000
       },
       {
         "matcher": "execute_bash",
-        "command": "aidlc adapter kiro review-freeze",
+        "command": "aidlc engine adapter kiro review-freeze",
         "timeout_ms": 15000
       },
       {
         "matcher": "subagent",
-        "command": "aidlc adapter kiro dispatch-rules",
+        "command": "aidlc engine adapter kiro dispatch-rules",
         "timeout_ms": 15000
       },
       {
         "matcher": "subagent",
-        "command": "aidlc adapter kiro plan-approval-guard",
+        "command": "aidlc engine adapter kiro plan-approval-guard",
         "timeout_ms": 15000
       }
     ],
     "postToolUse": [
       {
         "matcher": "fs_write",
-        "command": "aidlc adapter kiro audit-and-sensors",
+        "command": "aidlc engine adapter kiro audit-and-sensors",
         "timeout_ms": 120000
       },
       {
         "matcher": "execute_bash",
-        "command": "aidlc adapter kiro runtime-compile",
+        "command": "aidlc engine adapter kiro runtime-compile",
         "timeout_ms": 45000
       },
       {
         "matcher": "todo_list",
-        "command": "aidlc adapter kiro state-sync"
+        "command": "aidlc engine adapter kiro state-sync"
       },
       {
         "matcher": "subagent",
-        "command": "aidlc adapter kiro log-subagent"
+        "command": "aidlc engine adapter kiro log-subagent"
       }
     ],
     "stop": [
       {
-        "command": "aidlc adapter kiro stop",
+        "command": "aidlc engine adapter kiro stop",
         "timeout_ms": 30000
       }
     ]

@@ -17,7 +17,7 @@
   "toolsSettings": {
     "execute_bash": {
       "allowedCommands": [
-        "aidlc .*",
+        "aidlc engine .*",
         "date -u( .*)?"
       ],
       "deniedCommands": [

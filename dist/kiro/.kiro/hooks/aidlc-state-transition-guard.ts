@@ -186,7 +186,7 @@ export function directStateTransition(command: string): string | null {
     if (BLOCKED_STATE_TRANSITIONS.has(verb)) return verb;
   }
   const nativeInvocation =
-    /(?:^|&&|\|\||[;|(\n{])[ \t]*(?:(?:command|exec)\s+)?(?:env(?:\s+-[^\s]+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+)\s+)*(?:"[^"\n]*\/aidlc(?:\.exe)?"|'[^'\n]*\/aidlc(?:\.exe)?'|[^\s"';&|({]*aidlc(?:\.exe)?)[ \t]+(?:(?:__delegate)[ \t]+)?state[ \t]+([a-z][a-z0-9-]*)\b/g;
+    /(?:^|&&|\|\||[;|(\n{])[ \t]*(?:(?:command|exec)\s+)?(?:env(?:\s+-[^\s]+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+)\s+)*(?:"[^"\n]*\/aidlc(?:\.exe)?"|'[^'\n]*\/aidlc(?:\.exe)?'|[^\s"';&|({]*aidlc(?:\.exe)?)[ \t]+engine[ \t]+state[ \t]+([a-z][a-z0-9-]*)\b/g;
   for (const match of executableShellText(command).matchAll(nativeInvocation)) {
     const verb = match[1];
     if (BLOCKED_STATE_TRANSITIONS.has(verb)) return verb;
@@ -210,10 +210,10 @@ export function isLifecycleBoundaryCommand(command: string): boolean {
     if (tool === "jump" && verb === "execute") return true;
   }
   const nativeInvocation =
-    /(?:^|&&|\|\||[;|(\n{])[ \t]*(?:(?:command|exec)\s+)?(?:env(?:\s+-[^\s]+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+)\s+)*(?:"[^"\n]*\/aidlc(?:\.exe)?"|'[^'\n]*\/aidlc(?:\.exe)?'|[^\s"';&|({]*aidlc(?:\.exe)?)[ \t]+(?:(?:__delegate)[ \t]+(orchestrate|state|jump)[ \t]+|(state|jump)[ \t]+)?([a-z][a-z0-9-]*)\b/g;
+    /(?:^|&&|\|\||[;|(\n{])[ \t]*(?:(?:command|exec)\s+)?(?:env(?:\s+-[^\s]+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|]+)\s+)*(?:"[^"\n]*\/aidlc(?:\.exe)?"|'[^'\n]*\/aidlc(?:\.exe)?'|[^\s"';&|({]*aidlc(?:\.exe)?)[ \t]+engine[ \t]+(orchestrate|state|jump)[ \t]+([a-z][a-z0-9-]*)\b/g;
   for (const match of executableShellText(command).matchAll(nativeInvocation)) {
-    const tool = match[1] ?? match[2] ?? "orchestrate";
-    const verb = match[3];
+    const tool = match[1];
+    const verb = match[2];
     if (tool === "orchestrate" && (verb === "report" || verb === "park")) return true;
     if (tool === "state" && BLOCKED_STATE_TRANSITIONS.has(verb)) return true;
     if (tool === "jump" && verb === "execute") return true;

@@ -114,7 +114,7 @@ The two knobs differ in scope: the memory cap travels with the repo, so it appli
 
 To opt a SINGLE agent out instead, edit the projected value in the installed
 harness directory (for example, set `model: opus` on one Claude agent `.md`).
-The edit survives until a later `aidlc init` refresh replaces that
+The edit survives until a later `aidlc config` refresh replaces that
 framework-owned file after reporting the local modification.
 
 ---

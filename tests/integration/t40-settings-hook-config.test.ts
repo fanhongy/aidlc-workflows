@@ -82,7 +82,7 @@ describe("t40 settings.json hook/statusline/permissions config (migrated from t4
     const commands = (s.hooks?.SessionStart ?? []).flatMap((g) =>
       (g.hooks ?? []).map((h) => h.command ?? ""),
     );
-    expect(commands).toContain(`${SOURCE_INVOKE} hook session-start`);
+    expect(commands).toContain(`${SOURCE_INVOKE} engine hook session-start`);
   });
 
   test("T3: statusLine.type is 'command' [.sh test 3]", () => {
@@ -91,7 +91,7 @@ describe("t40 settings.json hook/statusline/permissions config (migrated from t4
   });
 
   test("T4: statusLine.command uses the source-channel statusline route [.sh test 4]", () => {
-    expect(readSettings().statusLine?.command).toBe(`${SOURCE_INVOKE} statusline`);
+    expect(readSettings().statusLine?.command).toBe(`${SOURCE_INVOKE} engine statusline`);
   });
 
   test("T5: permissions.allow has exactly 8 tools incl. the source tool pattern [.sh test 5]", () => {

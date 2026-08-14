@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex session-start"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex session-start"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex mint"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex mint"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex dispatch-rules"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex dispatch-rules"
           }
         ],
         "matcher": "spawn_agent"
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex state-transition-guard"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex state-transition-guard"
           }
         ]
       },
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex reviewer-scope"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex reviewer-scope"
           }
         ]
       },
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex review-freeze"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex review-freeze"
           }
         ]
       },
@@ -58,7 +58,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex plan-approval-guard"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex plan-approval-guard"
           }
         ]
       }
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex audit-and-sensors"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex audit-and-sensors"
           }
         ],
         "matcher": "apply_patch"
@@ -77,7 +77,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex state-sync"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex state-sync"
           }
         ],
         "matcher": "update_plan"
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex runtime-compile"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex runtime-compile"
           }
         ],
         "matcher": "Bash"
@@ -97,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex validate-state"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex validate-state"
           }
         ]
       }
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex log-subagent"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex log-subagent"
           }
         ]
       }
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun .codex/tools/aidlc.ts adapter codex stop"
+            "command": "bun .codex/tools/aidlc.ts engine adapter codex stop"
           }
         ]
       }

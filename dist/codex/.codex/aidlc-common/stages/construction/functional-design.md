@@ -119,7 +119,7 @@ Generate the following in `<record>/construction/{unit-name}/functional-design/`
 ### Step 6: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .codex/tools/aidlc.ts __delegate orchestrate report --stage functional-design --result <outcome>`.
+`bun .codex/tools/aidlc.ts engine orchestrate report --stage functional-design --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 7: Completion

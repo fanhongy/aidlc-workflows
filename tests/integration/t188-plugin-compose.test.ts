@@ -42,7 +42,7 @@ const OPENCODE_DIST = join(REPO_ROOT, "dist", "opencode");
 const KIRO_DIST = join(REPO_ROOT, "dist", "kiro", ".kiro");
 const CODEX_DIST = join(REPO_ROOT, "dist", "codex", ".codex");
 const STAGE_TABLE_BEGIN =
-  "<!-- BEGIN: compiled stage graph via `bun .claude/tools/aidlc.ts __delegate utility stage-table` - do NOT hand-edit -->";
+  "<!-- BEGIN: compiled stage graph via `bun .claude/tools/aidlc.ts engine gen stage-table` - do NOT hand-edit -->";
 const STAGE_TABLE_END = "<!-- END: compiled stage graph -->";
 
 function fileInventory(root: string, relative = ""): string[] {

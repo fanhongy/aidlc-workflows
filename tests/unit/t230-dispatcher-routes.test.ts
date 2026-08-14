@@ -17,11 +17,14 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import {
+  ENGINE_NAMESPACE_HELP,
   ROUTES,
-  SLASH_FLAG_ALIASES,
+  SYSTEM_NAMESPACE_HELP,
   TOOLS,
+  type Route,
   renderAllHelp,
   renderHumanHelp,
+  renderNamespaceHelp,
   resolveAction,
   routePolicyFor,
 } from "../../core/tools/aidlc.ts";
@@ -30,6 +33,7 @@ import {
   discoverProjectHarnesses,
   runtimeHarnessDir,
 } from "../../core/tools/aidlc-runtime-paths.ts";
+import { parseSensorManifest } from "../../core/tools/aidlc-sensor-schema.ts";
 import { AIDLC_VERSION } from "../../core/tools/aidlc-version.ts";
 import {
   cleanupTestProject,
@@ -49,6 +53,76 @@ type RunResult = {
   stdout: Buffer;
   stderr: Buffer;
 };
+
+type RouteDestination = {
+  key: string;
+  path: string;
+};
+
+function firstPassthroughTarget(route: Route, form: string): string {
+  const stripped = form === route.group
+    ? ""
+    : form.startsWith(`${route.group} `)
+    ? form.slice(route.group.length + 1)
+    : form;
+  return /^[A-Za-z0-9_-]+/.exec(stripped)?.[0] ?? "<root>";
+}
+
+function routeDestinations(route: Route): RouteDestination[] {
+  const path = (verb: string): string =>
+    route.group === "top" ? verb : `${route.group} ${verb}`;
+  if (route.kind === "custom") {
+    return route.verbs.map((verb) => ({
+      key: `custom:${route.id}::${verb}`,
+      path: path(verb),
+    }));
+  }
+  if (route.kind === "routing-only") {
+    if (route.routeOnly === "tool-passthrough" && route.tool) {
+      return (route.all ?? route.verbs).map((form) => {
+        const target = firstPassthroughTarget(route, form);
+        return {
+          key: `${route.tool}::${target}`,
+          path: path(target),
+        };
+      });
+    }
+    return [{
+      key: `${route.routeOnly ?? route.id}::${route.id}`,
+      path: route.group,
+    }];
+  }
+  if (route.kind === "top-prefix") {
+    return [{
+      key: `${route.tool ?? route.id}::${route.prefix?.join(" ") ?? ""}`,
+      path: route.verbs[0],
+    }];
+  }
+  if (route.kind === "top-help") {
+    return [{ key: `help::${route.namespace}`, path: route.verbs[0] }];
+  }
+  return route.verbs.map((verb) => ({
+    key: `${route.tool ?? route.id}::${
+      route.kind === "noun-map"
+        ? route.targets?.[verb] ?? verb
+        : [...(route.prefix ?? []), verb].join(" ")
+    }`,
+    path: path(verb),
+  }));
+}
+
+function duplicateDestinations(routes: readonly Route[]): Array<[string, string[]]> {
+  const destinations = new Map<string, string[]>();
+  for (const route of routes) {
+    for (const destination of routeDestinations(route)) {
+      destinations.set(destination.key, [
+        ...(destinations.get(destination.key) ?? []),
+        destination.path,
+      ]);
+    }
+  }
+  return [...destinations.entries()].filter(([, paths]) => paths.length > 1);
+}
 
 const tempProjects = new Set<string>();
 let compiledRoot: string | null = null;
@@ -167,29 +241,6 @@ function viaImportedCompiledMain(
   );
 }
 
-function routeForms(route: (typeof ROUTES)[number]): string[] {
-  return [...(route.all ?? route.verbs)];
-}
-
-function parseAllHelp(): Map<string, string[]> {
-  const groups = new Map<string, string[]>();
-  const lines = renderAllHelp().trimEnd().split("\n");
-  const topStart = lines.indexOf("Top level:");
-  const plumbingStart = lines.indexOf("Plumbing:");
-  const aliasStart = lines.indexOf("Slash-flag aliases:");
-
-  groups.set(
-    "top",
-    lines.slice(topStart + 1, plumbingStart - 2).map((line) => line.trim()),
-  );
-  for (const line of lines.slice(plumbingStart + 1, aliasStart - 1)) {
-    const m = /^ {2}([a-z-]+): (.*)$/.exec(line);
-    if (!m) continue;
-    groups.set(m[1], m[2].split(", "));
-  }
-  return groups;
-}
-
 function writeMinimalState(projectDir: string, stage = "intent-capture"): void {
   writeFileSync(
     seededStateFile(projectDir),
@@ -220,221 +271,221 @@ describe("t230 dispatcher route parity", () => {
   }> = [
     {
       name: "compose translates to orchestrate next compose",
-      routerArgs: ["compose"],
+      routerArgs: ["engine", "orchestrate", "next", "compose"],
       tool: "aidlc-orchestrate.ts",
       toolArgs: ["next", "compose"],
     },
     {
       name: "continue passes through to orchestrate",
-      routerArgs: ["continue", "invalid-token"],
+      routerArgs: ["engine", "orchestrate", "continue", "invalid-token"],
       tool: "aidlc-orchestrate.ts",
       toolArgs: ["continue", "invalid-token"],
     },
     {
-      name: "version is static and byte-compatible with utility",
+      name: "version prints binary and runtime versions",
       routerArgs: ["version"],
-      tool: "aidlc-utility.ts",
+      tool: "aidlc.ts",
       toolArgs: ["version"],
     },
     {
       name: "state set-status maps to utility",
-      routerArgs: ["state", "set-status"],
+      routerArgs: ["engine", "state", "set-status"],
       tool: "aidlc-utility.ts",
       toolArgs: ["set-status"],
     },
     {
       name: "state init maps to utility",
-      routerArgs: ["state", "init"],
+      routerArgs: ["engine", "state", "init"],
       tool: "aidlc-utility.ts",
       toolArgs: ["state-init"],
     },
     {
       name: "audit fork maps to audit-fork",
-      routerArgs: ["audit", "fork"],
+      routerArgs: ["engine", "audit", "fork"],
       tool: "aidlc-audit.ts",
       toolArgs: ["audit-fork"],
     },
     {
       name: "audit merge maps to audit-merge",
-      routerArgs: ["audit", "merge"],
+      routerArgs: ["engine", "audit", "merge"],
       tool: "aidlc-audit.ts",
       toolArgs: ["audit-merge"],
     },
     {
       name: "intent list maps through workspace parser",
-      routerArgs: ["intent", "list"],
+      routerArgs: ["engine", "intent", "list"],
       tool: "aidlc-utility.ts",
       toolArgs: ["intent"],
       fixture: true,
     },
     {
       name: "intent list json maps through workspace parser",
-      routerArgs: ["intent", "list", "--json"],
+      routerArgs: ["engine", "intent", "list", "--json"],
       tool: "aidlc-utility.ts",
       toolArgs: ["intent", "--json"],
       fixture: true,
     },
     {
       name: "intent switch maps through workspace parser",
-      routerArgs: ["intent", "switch", "fixture-8000000000000001"],
+      routerArgs: ["engine", "intent", "switch", "fixture-8000000000000001"],
       tool: "aidlc-utility.ts",
       toolArgs: ["intent", "switch", "fixture-8000000000000001"],
       fixture: true,
     },
     {
       name: "intent birth maps through workspace parser",
-      routerArgs: ["intent", "birth"],
+      routerArgs: ["engine", "intent", "birth"],
       tool: "aidlc-utility.ts",
       toolArgs: ["intent-birth"],
     },
     {
       name: "space list maps through workspace parser",
-      routerArgs: ["space", "list"],
+      routerArgs: ["engine", "space", "list"],
       tool: "aidlc-utility.ts",
       toolArgs: ["space"],
       fixture: true,
     },
     {
       name: "space switch maps through workspace parser",
-      routerArgs: ["space", "switch", "default"],
+      routerArgs: ["engine", "space", "switch", "default"],
       tool: "aidlc-utility.ts",
       toolArgs: ["space", "switch", "default"],
       fixture: true,
     },
     {
       name: "scope change maps to utility",
-      routerArgs: ["scope", "change"],
+      routerArgs: ["engine", "scope", "change"],
       tool: "aidlc-utility.ts",
       toolArgs: ["scope-change"],
     },
     {
       name: "scope detect maps to utility",
-      routerArgs: ["scope", "detect"],
+      routerArgs: ["engine", "scope", "detect"],
       tool: "aidlc-utility.ts",
       toolArgs: ["detect-scope"],
     },
     {
       name: "scope resolve-env maps to utility",
-      routerArgs: ["scope", "resolve-env"],
+      routerArgs: ["engine", "scope", "resolve-env"],
       tool: "aidlc-utility.ts",
       toolArgs: ["resolve-env-scope"],
     },
     {
       name: "config get maps to config-get",
-      routerArgs: ["config", "get", "depth"],
+      routerArgs: ["engine", "config", "get", "depth"],
       tool: "aidlc-utility.ts",
       toolArgs: ["config-get", "depth"],
       fixture: true,
     },
     {
       name: "config list maps to config-list",
-      routerArgs: ["config", "list"],
+      routerArgs: ["engine", "config", "list"],
       tool: "aidlc-utility.ts",
       toolArgs: ["config-list"],
       fixture: true,
     },
     {
       name: "config depth maps to config-change",
-      routerArgs: ["config", "set", "depth", "minimal"],
+      routerArgs: ["engine", "config", "set", "depth", "minimal"],
       tool: "aidlc-utility.ts",
       toolArgs: ["config-change", "--depth", "minimal"],
       fixture: true,
     },
     {
       name: "config test strategy maps to config-change",
-      routerArgs: ["config", "set", "test-strategy", "standard"],
+      routerArgs: ["engine", "config", "set", "test-strategy", "standard"],
       tool: "aidlc-utility.ts",
       toolArgs: ["config-change", "--test-strategy", "standard"],
       fixture: true,
     },
     {
       name: "plugin select maps to select-plugins",
-      routerArgs: ["plugin", "select"],
+      routerArgs: ["engine", "plugin", "select"],
       tool: "aidlc-utility.ts",
       toolArgs: ["select-plugins"],
       fixture: true,
     },
     {
       name: "plugin list maps to dedicated plugin state",
-      routerArgs: ["plugin", "list"],
+      routerArgs: ["engine", "plugin", "list"],
       tool: "aidlc-plugin.ts",
       toolArgs: ["list"],
       fixture: true,
     },
     {
       name: "plugin sync maps to dedicated transactional sync",
-      routerArgs: ["plugin", "sync"],
+      routerArgs: ["engine", "plugin", "sync"],
       tool: "aidlc-plugin.ts",
       toolArgs: ["sync"],
       fixture: true,
     },
     {
-      name: "init maps to its project lifecycle delegate",
-      routerArgs: ["init"],
+      name: "config maps to its project lifecycle delegate",
+      routerArgs: ["config"],
       tool: "aidlc-init.ts",
-      toolArgs: ["init"],
+      toolArgs: ["config"],
       fixture: true,
     },
     {
-      name: "upgrade maps to its machine lifecycle delegate",
-      routerArgs: ["upgrade"],
+      name: "update maps to its machine lifecycle delegate",
+      routerArgs: ["update"],
       tool: "aidlc-lifecycle.ts",
-      toolArgs: ["upgrade"],
+      toolArgs: ["update"],
       fixture: true,
     },
     {
       name: "gen runners maps to runner write",
-      routerArgs: ["gen", "runners"],
+      routerArgs: ["engine", "gen", "runners"],
       tool: "aidlc-runner-gen.ts",
       toolArgs: ["write"],
     },
     {
       name: "gen runners check maps to runner check",
-      routerArgs: ["gen", "runners", "--check"],
+      routerArgs: ["engine", "gen", "runners", "--check"],
       tool: "aidlc-runner-gen.ts",
       toolArgs: ["check"],
     },
     {
       name: "gen runner-list maps to runner list",
-      routerArgs: ["gen", "runner-list"],
+      routerArgs: ["engine", "gen", "runner-list"],
       tool: "aidlc-runner-gen.ts",
       toolArgs: ["list"],
     },
     {
       name: "gen runner-scopes maps to runner scopes",
-      routerArgs: ["gen", "runner-scopes", "--check"],
+      routerArgs: ["engine", "gen", "runner-scopes", "--check"],
       tool: "aidlc-runner-gen.ts",
       toolArgs: ["scopes", "--check"],
     },
     {
       name: "gen stage-table maps to utility",
-      routerArgs: ["gen", "stage-table", "--check"],
+      routerArgs: ["engine", "gen", "stage-table", "--check"],
       tool: "aidlc-utility.ts",
       toolArgs: ["stage-table", "--check"],
     },
     {
       name: "gen scope-table maps to utility",
-      routerArgs: ["gen", "scope-table", "--check"],
+      routerArgs: ["engine", "gen", "scope-table", "--check"],
       tool: "aidlc-utility.ts",
       toolArgs: ["scope-table", "--check"],
     },
     {
       name: "workspace detect maps to utility detect",
-      routerArgs: ["workspace", "detect"],
+      routerArgs: ["engine", "workspace", "detect"],
       tool: "aidlc-utility.ts",
       toolArgs: ["detect"],
       fixture: true,
     },
     {
       name: "workspace codekb maps to utility codekb-path",
-      routerArgs: ["workspace", "codekb"],
+      routerArgs: ["engine", "workspace", "codekb"],
       tool: "aidlc-utility.ts",
       toolArgs: ["codekb-path"],
       fixture: true,
     },
     {
       name: "sensor passthrough preserves bytes",
-      routerArgs: ["sensor", "list"],
+      routerArgs: ["engine", "sensor", "list"],
       tool: "aidlc-sensor.ts",
       toolArgs: ["list"],
     },
@@ -453,7 +504,7 @@ describe("t230 dispatcher route parity", () => {
     const directProject = makeProject();
     const routedProject = makeProject();
     const old = direct("aidlc-utility.ts", ["space-create", "router-space"], directProject);
-    const routed = viaDispatcher(["space", "create", "router-space"], routedProject);
+    const routed = viaDispatcher(["engine", "space", "create", "router-space"], routedProject);
 
     expectSameRun(routed, old, "space create");
     expect(entriesUnder(join(routedProject, "aidlc", "spaces", "router-space"))).toEqual(
@@ -461,20 +512,31 @@ describe("t230 dispatcher route parity", () => {
     );
   });
 
-  test("legacy top-level space-create remains routed", () => {
-    const directProject = makeProject();
-    const routedProject = makeProject();
-    const old = direct("aidlc-utility.ts", ["space-create", "legacy-space"], directProject);
-    const routed = viaDispatcher(["space-create", "legacy-space"], routedProject);
-
-    expectSameRun(routed, old, "space-create");
-    expect(existsSync(join(routedProject, "aidlc", "spaces", "legacy-space"))).toBe(true);
+  test("legacy top-level engine forms are rejected", () => {
+    for (const args of [
+      ["state", "get", "Current Stage"],
+      ["graph", "artifacts"],
+      ["space", "list"],
+      ["space-create", "legacy-space"],
+      ["init"],
+      ["upgrade"],
+      ["rollback"],
+      ["versions", "list"],
+      ["harness", "list"],
+      ["package", "verify", "/tmp/release"],
+      ["plugin", "list"],
+      ["completions", "bash"],
+    ]) {
+      const routed = viaDispatcher(args, REPO_ROOT);
+      expect(routed.exitCode, args.join(" ")).toBe(2);
+      expect(routed.stderr.toString()).toContain("unknown command or noun");
+    }
   });
 
-  test("internal utility intent-birth receives project mutation policy", () => {
+  test("semantic intent birth receives project mutation policy", () => {
     const projectDir = makeProject();
     const result = viaDispatcher(
-      ["__delegate", "utility", "intent-birth", "--scope", "poc"],
+      ["engine", "intent", "birth", "--scope", "poc"],
       projectDir,
       { AIDLC_DISPATCH_TOOLS_DIR: DIST_TOOLS_DIR },
     );
@@ -490,7 +552,7 @@ describe("t230 dispatcher route parity", () => {
   test("--project-dir is global and may be interleaved with workspace tokens", () => {
     const projectDir = makeProject();
     const routed = viaDispatcher(
-      ["space", "--project-dir", projectDir, "create", "interleaved-space"],
+      ["engine", "space", "--project-dir", projectDir, "create", "interleaved-space"],
       REPO_ROOT,
     );
 
@@ -508,7 +570,7 @@ describe("t230 version-aware startup", () => {
     const stamp = JSON.parse(readFileSync(stampPath, "utf-8")) as { frameworkVersion: string };
     stamp.frameworkVersion = "99.0.0";
     writeFileSync(stampPath, `${JSON.stringify(stamp, null, 2)}\n`);
-    const result = viaDispatcher(["status", "--json"], project);
+    const result = viaDispatcher(["engine", "status", "--json"], project);
     expect(result.exitCode).toBe(1);
     expect(result.stderr.toString()).toBe("");
     expect(JSON.parse(result.stdout.toString())).toEqual(expect.objectContaining({
@@ -516,7 +578,7 @@ describe("t230 version-aware startup", () => {
       ok: false,
       code: 1,
       message: expect.stringContaining("is incompatible with selected engine"),
-      remediation: "aidlc use <installed-version> or aidlc init",
+      remediation: "aidlc use <installed-version> or aidlc config",
     }));
   });
 
@@ -527,7 +589,7 @@ describe("t230 version-aware startup", () => {
     mkdirSync(join(versionRoot, "runtime", "claude"), { recursive: true });
     writeFileSync(join(versionRoot, "aidlc"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     writeFileSync(join(project, ".aidlc-version"), "9.9.9\n");
-    const result = viaDispatcher(["status"], project, { AIDLC_INSTALL_ROOT: machine });
+    const result = viaDispatcher(["engine", "status"], project, { AIDLC_INSTALL_ROOT: machine });
     expect(result.exitCode).toBe(1);
     expect(result.stderr.toString()).toContain("not installed completely");
   });
@@ -561,13 +623,13 @@ describe("t230 version-aware startup", () => {
     };
     const inputA = JSON.stringify({ session_id: "t230-pin-cache-a" });
     const inputB = JSON.stringify({ session_id: "t230-pin-cache-b" });
-    const first = viaDispatcher(["hook", "validate-state"], project, env, inputA);
+    const first = viaDispatcher( ["engine", "hook", "validate-state"], project, env, inputA);
     expect(first.exitCode, first.stderr.toString()).toBe(0);
     expect(readdirSync(join(machine, "pin-resolution-cache"))).toHaveLength(1);
 
-    const second = viaDispatcher(["hook", "validate-state"], project, env, inputB);
+    const second = viaDispatcher( ["engine", "hook", "validate-state"], project, env, inputB);
     expect(second.exitCode, second.stderr.toString()).toBe(0);
-    const resumed = viaDispatcher(["hook", "validate-state"], project, env, inputA);
+    const resumed = viaDispatcher( ["engine", "hook", "validate-state"], project, env, inputA);
     expect(resumed.exitCode, resumed.stderr.toString()).toBe(0);
     expect(readdirSync(join(machine, "pin-resolution-cache"))).toHaveLength(2);
 
@@ -577,7 +639,7 @@ describe("t230 version-aware startup", () => {
       { recursive: true },
     );
     const ide = viaDispatcher(
-      ["adapter", "kiro-ide", "mint"],
+       ["engine", "adapter", "kiro-ide", "mint"],
       project,
       {
         ...env,
@@ -590,7 +652,7 @@ describe("t230 version-aware startup", () => {
     expect(readdirSync(join(machine, "pin-resolution-cache"))).toHaveLength(3);
 
     writeFileSync(executable, `${readFileSync(executable, "utf-8")}# changed\n`);
-    const changed = viaDispatcher(["hook", "validate-state"], project, env, inputA);
+    const changed = viaDispatcher( ["engine", "hook", "validate-state"], project, env, inputA);
     expect(changed.exitCode).toBe(1);
     expect(changed.stderr.toString()).toContain("not installed completely");
   });
@@ -604,7 +666,7 @@ describe("t230 version-aware startup", () => {
     );
     const child = spawn(
       BUN,
-      [DISPATCHER, "adapter", "kiro-ide", "mint", "--project-dir", project],
+      [DISPATCHER, "engine", "adapter", "kiro-ide", "mint", "--project-dir", project],
       {
         cwd: project,
         env: childEnv(project, {
@@ -623,7 +685,7 @@ describe("t230 version-aware startup", () => {
     const outcome = await Promise.race([
       new Promise<number | null>((resolveExit) => child.once("exit", resolveExit)),
       new Promise<"timeout">((resolveTimeout) =>
-        setTimeout(() => resolveTimeout("timeout"), 2_000)
+        setTimeout(() => resolveTimeout("timeout"), 5_000)
       ),
     ]);
     if (outcome === "timeout") child.kill("SIGKILL");
@@ -635,22 +697,19 @@ describe("t230 version-aware startup", () => {
 
 describe("t230 dispatcher global flag translation", () => {
   test("extracts --project-dir before noun/verb parsing and restores it for delegation", () => {
-    expect(resolveAction(["space", "--project-dir", "/tmp/example", "create", "teamB"])).toEqual({
+    expect(resolveAction(["engine", "space", "--project-dir", "/tmp/example", "create", "teamB"])).toEqual({
       type: "delegate",
       tool: "aidlc-utility.ts",
       args: ["space-create", "teamB", "--project-dir", "/tmp/example"],
     });
-    expect(resolveAction(["--project-dir", "/tmp/example", "space-create", "teamC"])).toEqual({
-      type: "delegate",
-      tool: "aidlc-utility.ts",
-      args: ["space-create", "teamC", "--project-dir", "/tmp/example"],
-    });
-    expect(resolveAction(["bolt", "start", "--project-dir", "relative/project"])).toEqual({
+    expect(resolveAction(["--project-dir", "/tmp/example", "space-create", "teamC"]).type)
+      .toBe("error");
+    expect(resolveAction(["engine", "bolt", "start", "--project-dir", "relative/project"])).toEqual({
       type: "delegate",
       tool: "aidlc-bolt.ts",
       args: ["start", "--project-dir", resolve(process.cwd(), "relative/project")],
     });
-    expect(resolveAction(["--json", "versions", "list"])).toEqual({
+    expect(resolveAction(["--json", "system", "versions", "list"])).toEqual({
       type: "delegate",
       tool: TOOLS.lifecycle,
       args: ["versions", "list", "--json"],
@@ -660,9 +719,9 @@ describe("t230 dispatcher global flag translation", () => {
   test("carries --project-dir into routing-only actions", () => {
     const projectDir = "/tmp/routed-project";
     for (const action of [
-      resolveAction(["hook", "validate-state", "--project-dir", projectDir]),
-      resolveAction(["statusline", "--project-dir", projectDir]),
-      resolveAction(["adapter", "codex", "validate-state", "--project-dir", projectDir]),
+      resolveAction( ["engine", "hook", "validate-state", "--project-dir", projectDir]),
+      resolveAction( ["engine", "statusline", "--project-dir", projectDir]),
+      resolveAction( ["engine", "adapter", "codex", "validate-state", "--project-dir", projectDir]),
     ]) {
       expect("projectDir" in action ? action.projectDir : undefined).toBe(projectDir);
     }
@@ -674,10 +733,15 @@ describe("t230 dispatcher global flag translation", () => {
 
     const active = viaDispatcher(["--project-dir", projectDir, "version"], projectDir);
     expect(active.exitCode).toBe(0);
-    expect(active.stdout.toString()).toMatch(/^aidlc \d+\.\d+\.\d+\n$/);
+    expect(active.stdout.toString()).toMatch(
+      /^aidlc \d+\.\d+\.\d+ \(runtime \d+\.\d+\.\d+\)\n$/,
+    );
     expect(active.stderr.toString()).not.toContain("this project requires");
 
-    const pinned = viaDispatcher(["--json", "--project-dir", projectDir, "status"], projectDir);
+    const pinned = viaDispatcher(
+      ["--json", "--project-dir", projectDir, "engine", "status"],
+      projectDir,
+    );
     expect(pinned.exitCode).toBe(1);
     expect(pinned.stderr.toString()).toBe("");
     expect(JSON.parse(pinned.stdout.toString())).toEqual(expect.objectContaining({
@@ -685,42 +749,50 @@ describe("t230 dispatcher global flag translation", () => {
       ok: false,
       code: 1,
       message: "this project requires 99.0.0, which is not installed completely",
-      remediation: "aidlc versions install 99.0.0",
+      remediation: "aidlc use 99.0.0",
     }));
 
     const bootstrap = viaDispatcher(
-      ["--project-dir", projectDir, "__delegate", "lifecycle", "install-apply"],
+      [
+        "--project-dir",
+        projectDir,
+        "system",
+        "lifecycle",
+        "install-apply",
+        "--from",
+        join(projectDir, "missing-release"),
+      ],
       projectDir,
       { AIDLC_INSTALL_ROOT: join(projectDir, "machine") },
     );
+    expect(bootstrap.exitCode).toBe(4);
     expect(bootstrap.stderr.toString()).not.toContain("this project requires");
-    expect(bootstrap.stdout.toString()).toContain("at least one --harness is required");
 
     const versions = viaDispatcher(
-      ["--json", "versions", "list"],
+      ["--json", "system", "versions", "list"],
       projectDir,
       { AIDLC_INSTALL_ROOT: join(projectDir, "empty-machine") },
     );
     expect(versions.exitCode).toBe(0);
-    expect(versions.stdout.toString()).toContain('"versions":[]');
+    expect(versions.stdout.toString()).not.toContain("this project requires");
   });
 
   test("sensor worker routes by registered id, never by caller-supplied path", () => {
-    expect(resolveAction(["__sensor-script-file", "linter"])).toEqual({
+    expect(resolveAction(["engine", "__sensor-script-file", "linter"])).toEqual({
       type: "sensor-script-file",
       id: "linter",
       args: [],
     });
-    expect(resolveAction(["__sensor-script-file", "/tmp/aidlc-sensor-evil.ts"]).type).toBe("error");
+    expect(resolveAction(["engine", "__sensor-script-file", "/tmp/aidlc-sensor-evil.ts"]).type).toBe("error");
   });
 });
 
 describe("t230 dispatcher dev and compiled in-process modes", () => {
   const cases = [
     { name: "version", args: ["version"] },
-    { name: "graph artifacts", args: ["graph", "artifacts", "--help"] },
-    { name: "sensor list", args: ["sensor", "list"] },
-    { name: "state get", args: ["state", "get"] },
+    { name: "graph artifacts", args: ["engine", "graph", "artifacts", "--help"] },
+    { name: "sensor list", args: ["engine", "sensor", "list"] },
+    { name: "state get", args: ["engine", "state", "get"] },
   ];
 
   for (const item of cases) {
@@ -818,6 +890,7 @@ describe("t230 dispatcher dev and compiled in-process modes", () => {
 describe("t230 dispatcher route completeness", () => {
   test("every route declares the complete normative execution policy", () => {
     for (const route of ROUTES) {
+      expect(["public", "engine", "system"]).toContain(route.namespace);
       expect(["public", "hidden", "legacy"]).toContain(route.visibility);
       expect(["none", "optional", "required"]).toContain(route.projectRequirement);
       expect(["active", "inspect", "pinned"]).toContain(route.pinPolicy);
@@ -827,14 +900,18 @@ describe("t230 dispatcher route completeness", () => {
         .toContain(route.mutationScope);
       expect(route.outputModes.length).toBeGreaterThan(0);
     }
+    for (const route of ROUTES.filter((candidate) => candidate.namespace === "engine")) {
+      expect(route.networkPolicy, route.id).toBe("forbidden");
+      expect(["none", "project"], route.id).toContain(route.mutationScope);
+    }
     expect(ROUTES.find((route) => route.id === "top-doctor"))
       .toEqual(expect.objectContaining({
         tool: "aidlc-doctor.ts",
-        pinPolicy: "inspect",
+        pinPolicy: "active",
         mutationScope: "project-and-machine",
       }));
     expect(ROUTES.find((route) => route.id === "top-use"))
-      .toEqual(expect.objectContaining({ pinPolicy: "inspect", mutationScope: "project-and-machine" }));
+      .toEqual(expect.objectContaining({ pinPolicy: "active", mutationScope: "project-and-machine" }));
     const publicPolicy = new Map(
       ROUTES.filter((route) => route.visibility === "public")
         .map((route) => [route.id, {
@@ -843,72 +920,220 @@ describe("t230 dispatcher route completeness", () => {
         }]),
     );
     expect(Object.fromEntries(publicPolicy)).toEqual(expect.objectContaining({
-      "top-init": { networkPolicy: "forbidden", mutationScope: "project" },
-      "top-upgrade": { networkPolicy: "explicit-only", mutationScope: "machine" },
-      "top-rollback": { networkPolicy: "forbidden", mutationScope: "machine" },
-      "versions-list": { networkPolicy: "forbidden", mutationScope: "none" },
-      "versions-install": { networkPolicy: "explicit-only", mutationScope: "machine" },
-      "package-create": { networkPolicy: "explicit-only", mutationScope: "machine" },
-      "package-verify": { networkPolicy: "forbidden", mutationScope: "none" },
-      "harness-add": { networkPolicy: "explicit-only", mutationScope: "machine" },
-      "harness-list": { networkPolicy: "forbidden", mutationScope: "none" },
-      "harness-mutate": { networkPolicy: "forbidden", mutationScope: "machine" },
-      "versions-prune": { networkPolicy: "forbidden", mutationScope: "machine" },
+      "top-config": { networkPolicy: "forbidden", mutationScope: "project" },
+      "top-update": { networkPolicy: "explicit-only", mutationScope: "machine" },
+      "top-use": { networkPolicy: "explicit-only", mutationScope: "project-and-machine" },
       "top-uninstall": { networkPolicy: "forbidden", mutationScope: "machine" },
-      "top-completions": { networkPolicy: "forbidden", mutationScope: "none" },
-      "config-global": { networkPolicy: "forbidden", mutationScope: "machine" },
     }));
+    expect(
+      ROUTES.filter((route) => route.visibility === "public" && route.id !== "top-help")
+        .map((route) => route.id)
+        .sort(),
+    ).toEqual([
+      "top-config",
+      "top-doctor",
+      "top-uninstall",
+      "top-update",
+      "top-use",
+      "top-version",
+    ]);
     for (const noun of ["state", "audit", "graph", "runtime", "sensor", "plugin"]) {
-      expect(ROUTES.filter((route) => route.group === noun).every((route) => route.pinPolicy === "pinned"))
+      expect(
+        ROUTES.filter((route) => route.namespace === "engine" && route.group === noun)
+          .every((route) => route.pinPolicy === "pinned"),
+      )
         .toBe(true);
+    }
+    expect(Object.fromEntries(
+      ROUTES.filter((route) => route.namespace === "system")
+        .map((route) => [route.id, {
+          networkPolicy: route.networkPolicy,
+          mutationScope: route.mutationScope,
+        }]),
+    )).toEqual({
+      "config-global": { networkPolicy: "forbidden", mutationScope: "machine" },
+      "system-lifecycle": {
+        networkPolicy: "explicit-only",
+        mutationScope: "project-and-machine",
+      },
+      "top-completions": { networkPolicy: "forbidden", mutationScope: "none" },
+      "top-rollback": { networkPolicy: "forbidden", mutationScope: "machine" },
+      "versions-install": { networkPolicy: "explicit-only", mutationScope: "machine" },
+      "versions-list": { networkPolicy: "forbidden", mutationScope: "none" },
+      "versions-prune": { networkPolicy: "forbidden", mutationScope: "machine" },
+      "workspace-sync": { networkPolicy: "required", mutationScope: "project" },
+    });
+  });
+
+  test("aliases and system delegates resolve policy from the route registry", () => {
+    expect(routePolicyFor(["--status"])?.id).toBe("top-status");
+    expect(routePolicyFor(["--project-dir", "/tmp/example", "engine", "graph", "compile"]))
+      .toEqual(expect.objectContaining({ id: "graph", pinPolicy: "pinned" }));
+    expect(routePolicyFor(["system", "lifecycle", "install-apply", "--quiet"])?.id)
+      .toBe("system-lifecycle");
+    expect(routePolicyFor( ["engine", "hook", "validate-state", "--project-dir", "/tmp/example"]))
+      .toEqual(expect.objectContaining({ id: "hook", pinPolicy: "pinned" }));
+    const semanticRoutes: Array<[string[], string]> = [
+      [["engine", "state", "set-status"], "state-utility"],
+      [["engine", "state", "init"], "state-utility"],
+      [["engine", "scope", "change"], "scope"],
+      [["engine", "scope", "detect"], "scope"],
+      [["engine", "scope", "resolve-env"], "scope"],
+      [["engine", "orchestrate", "help"], "engine-orchestrate-help"],
+      [["engine", "workspace", "detect"], "workspace"],
+      [["engine", "workspace", "codekb"], "workspace"],
+      [["engine", "workspace", "codekb-scope-diff"], "workspace"],
+      [["engine", "gen", "stage-table"], "gen"],
+      [["engine", "gen", "scope-table"], "gen"],
+      [["engine", "gen", "runners"], "gen"],
+      [["engine", "gen", "runner-list"], "gen"],
+      [["engine", "gen", "runner-scopes"], "gen"],
+      [["engine", "plugin", "select"], "plugin"],
+      [["engine", "plugin", "list"], "plugin"],
+      [["engine", "plugin", "sync"], "plugin"],
+      [["engine", "intent", "birth"], "intent"],
+      [["engine", "intent", "list"], "intent"],
+      [["engine", "space", "create"], "space"],
+      [["engine", "space", "list"], "space"],
+      [["engine", "config", "get"], "config"],
+      [["engine", "config", "list"], "config"],
+      [["engine", "config", "set", "depth"], "config"],
+      [["engine", "status"], "top-status"],
+      [["engine", "recompose"], "top-recompose"],
+    ];
+    for (const [args, routeId] of semanticRoutes) {
+      expect(routePolicyFor(args)?.id, args.join(" ")).toBe(routeId);
+    }
+    expect(routePolicyFor(["system", "workspace-sync"])?.id).toBe("workspace-sync");
+    expect(routePolicyFor(["engine", "sensor-claim-sources"])?.id)
+      .toBe("engine-sensor-claim-sources");
+    expect(routePolicyFor(["engine", "utility", "status"])).toBeNull();
+    expect(routePolicyFor(["engine", "runner-gen", "write"])).toBeNull();
+  });
+
+  test("system namespace resolves only the moved per-user installation handlers", () => {
+    expect(resolveAction(["system", "lifecycle", "install-apply"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.lifecycle,
+      args: ["install-apply"],
+    });
+    expect(resolveAction(["system", "versions", "list"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.lifecycle,
+      args: ["versions", "list"],
+    });
+    expect(resolveAction(["system", "rollback", "--list"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.lifecycle,
+      args: ["rollback", "--list"],
+    });
+    expect(resolveAction(["system", "config", "global", "list"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.machineConfig,
+      args: ["global", "list"],
+    });
+    expect(resolveAction(["system", "machine-config", "global", "list"]).type)
+      .toBe("error");
+    expect(resolveAction(["system", "completions", "bash"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.completions,
+      args: ["bash"],
+    });
+  });
+
+  test("dissolved aliases resolve through their single semantic paths", () => {
+    expect(resolveAction(["engine", "orchestrate", "help"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.utility,
+      args: ["help"],
+    });
+    expect(resolveAction(["engine", "scope", "help"]).type).toBe("error");
+    expect(resolveAction(["engine", "workspace", "codekb-scope-diff", "--repo", "api"]))
+      .toEqual({
+        type: "delegate",
+        tool: TOOLS.utility,
+        args: ["codekb-scope-diff", "--repo", "api"],
+      });
+    expect(resolveAction(["engine", "status"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.utility,
+      args: ["status"],
+    });
+    expect(resolveAction(["engine", "recompose", "--skip", "market-research"]))
+      .toEqual({
+        type: "delegate",
+        tool: TOOLS.utility,
+        args: ["recompose", "--skip", "market-research"],
+      });
+    expect(resolveAction(["engine", "gen", "runners", "--check"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.runnerGen,
+      args: ["check"],
+    });
+  });
+
+  test("projected tool subcommands are represented in the route table", () => {
+    expect(resolveAction(["engine", "graph", "ars", "--iae", "0.5"])).toEqual({
+      type: "delegate",
+      tool: TOOLS.graph,
+      args: ["ars", "--iae", "0.5"],
+    });
+    expect(resolveAction(["engine", "log", "review", "--stage", "user-stories"]))
+      .toEqual({
+        type: "delegate",
+        tool: TOOLS.log,
+        args: ["review", "--stage", "user-stories"],
+      });
+  });
+
+  test("public, engine, and system namespaces have no duplicate destinations", () => {
+    for (const namespace of ["public", "engine", "system"] as const) {
+      expect(
+        duplicateDestinations(ROUTES.filter((route) => route.namespace === namespace)),
+        namespace,
+      ).toEqual([]);
     }
   });
 
-  test("aliases and internal delegates resolve policy from the route registry", () => {
-    expect(routePolicyFor(["--status"])?.id).toBe("top-status");
-    expect(routePolicyFor(["--project-dir", "/tmp/example", "graph", "compile"])?.id)
-      .toBe("graph");
-    expect(routePolicyFor(["__delegate", "lifecycle", "install-apply", "--quiet"])?.id)
-      .toBe("delegate");
-    expect(routePolicyFor(["__delegate", "lifecycle", "package", "verify", "/tmp/release"])?.id)
-      .toBe("package-verify");
-    expect(routePolicyFor(["hook", "validate-state", "--project-dir", "/tmp/example"]))
-      .toEqual(expect.objectContaining({ id: "hook", pinPolicy: "pinned" }));
-    const utilityRoutes: Readonly<Record<string, string>> = {
-      help: "top-help",
-      version: "top-version",
-      status: "top-status",
-      doctor: "top-doctor",
-      "intent-birth": "intent",
-      intent: "intent",
-      space: "space",
-      "space-create": "space",
-      "codekb-path": "workspace",
-      "codekb-scope-diff": "workspace",
-      detect: "workspace",
-      "select-plugins": "plugin",
-      "plugin-list": "plugin",
-      "plugin-sync": "plugin",
-      init: "top-init",
-      "state-init": "state-utility",
-      upgrade: "top-upgrade",
-      "scope-change": "scope",
-      recompose: "top-recompose",
-      "config-change": "config",
-      "config-get": "config",
-      "config-list": "config",
-      "set-status": "state-utility",
-      "detect-scope": "scope",
-      "resolve-env-scope": "scope",
-      "scope-table": "gen",
-      "stage-table": "gen",
+  test("destination metric resolves tool passthrough forms", () => {
+    const configRoute = ROUTES.find((route) => route.id === "config-global");
+    expect(configRoute).toBeDefined();
+    const retiredTwin: Route = {
+      ...configRoute!,
+      id: "retired-system-machine-config",
+      group: "machine-config",
+      kind: "routing-only",
+      classification: "routing-only",
+      verbs: ["<command>"],
+      routeOnly: "tool-passthrough",
+      all: ["global <get|set|clear|list> [args]"],
     };
-    for (const [command, routeId] of Object.entries(utilityRoutes)) {
-      expect(routePolicyFor(["__delegate", "utility", command])?.id, command).toBe(routeId);
+    expect(duplicateDestinations([configRoute!, retiredTwin])).toEqual([
+      [
+        `${TOOLS.machineConfig}::global`,
+        ["config global", "machine-config global"],
+      ],
+    ]);
+  });
+
+  test("trusted engine namespace refuses every machine or network lifecycle path", () => {
+    for (const args of [
+      ["engine", "update"],
+      ["engine", "use", "1.2.3"],
+      ["engine", "uninstall", "--yes"],
+      ["engine", "rollback", "--list"],
+      ["engine", "versions", "list"],
+      ["engine", "harness", "list"],
+      ["engine", "config", "global", "list"],
+      ["engine", "config", "set", "offline", "on", "--global"],
+      ["engine", "lifecycle", "install-apply"],
+      ["engine", "machine-config", "global", "list"],
+      ["engine", "workspace-sync"],
+      ["engine", "completions", "bash"],
+    ]) {
+      expect(resolveAction(args).type, args.join(" ")).toBe("error");
+      expect(routePolicyFor(args), args.join(" ")).toBeNull();
     }
-    expect(routePolicyFor(["__delegate", "workspace-sync"])?.id).toBe("workspace-sync");
-    expect(routePolicyFor(["__delegate", "sensor-claim-sources"])?.id).toBe("sensor");
-    expect(routePolicyFor(["__delegate", "utility", "unknown"])?.id).toBe("delegate");
   });
 
   test("unsupported output modes are refused before delegate execution", () => {
@@ -917,6 +1142,16 @@ describe("t230 dispatcher route completeness", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stdout.toString("utf-8")).toBe("top-version does not support --quiet\n");
     expect(result.stderr.toString("utf-8")).toBe("");
+  });
+
+  test("version --json reports binary and runtime versions", () => {
+    const result = viaDispatcher(["version", "--json"], REPO_ROOT);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout.toString())).toEqual({
+      schemaVersion: 1,
+      binaryVersion: AIDLC_VERSION,
+      runtimeVersion: AIDLC_VERSION,
+    });
   });
 
   test("unknown commands render one JSON failure before delegation", () => {
@@ -940,14 +1175,45 @@ describe("t230 dispatcher route completeness", () => {
     expect(result.stderr.toString()).toBe("aidlc: --project-dir requires a path value\n");
   });
 
-  test("help --all is generated from the route table", () => {
-    const groups = parseAllHelp();
-    for (const route of ROUTES) {
-      const displayed = groups.get(route.group);
-      expect(displayed, `missing help group ${route.group}`).toBeDefined();
-      for (const form of routeForms(route)) {
-        expect(displayed!.filter((item) => item === form).length, `${route.group} ${form}`).toBe(1);
-      }
+  test("engine help is generated from the route table", () => {
+    const text = renderNamespaceHelp(ENGINE_NAMESPACE_HELP);
+    expect(text).toContain("Engine machinery");
+    const actualGroups = new Set(
+      text.split("\n")
+        .filter((line) => /^ {2}\S/.test(line))
+        .map((line) => /^ {2}([^:]+?)(?::|$)/.exec(line)?.[1])
+        .filter((group): group is string => Boolean(group)),
+    );
+    const expectedGroups = new Set(
+      ROUTES.filter((route) => route.namespace === "engine")
+        .map((route) => route.group === "top" ? route.id.replace(/^top-/, "") : route.group),
+    );
+    expect(actualGroups).toEqual(expectedGroups);
+    expect(actualGroups.has("utility")).toBe(false);
+    expect(actualGroups.has("runner-gen")).toBe(false);
+    expect(text).toContain("  state:\n    records:");
+    expect(text).toContain("    lifecycle:");
+    expect(text).toContain("    gates:");
+    expect(text).toContain("    fork/merge:");
+    expect(text).toContain("    parking:");
+    expect(text).toContain("  status: [args]");
+    expect(text).toContain("  recompose: [args]");
+    expect(text).toContain("  statusline\n");
+    expect(text).toContain("  adapter: <harness> <target> [args]");
+    expect(text).not.toContain("statusline: statusline");
+    expect(text).not.toContain("adapter: adapter ");
+
+    for (const file of [
+      "aidlc-claim-sources.md",
+      "aidlc-linter.md",
+      "aidlc-required-sections.md",
+      "aidlc-type-check.md",
+      "aidlc-upstream-coverage.md",
+    ]) {
+      const manifest = parseSensorManifest(
+        readFileSync(join(REPO_ROOT, "core", "sensors", file), "utf-8"),
+      );
+      expect(text).toContain(`  sensor-${manifest.id}: ${manifest.description}`);
     }
   });
 
@@ -998,6 +1264,10 @@ describe("t230 dispatcher help and errors", () => {
   test("human help stays short and hides plumbing nouns", () => {
     const text = renderHumanHelp();
     expect(text.trimEnd().split("\n").length).toBeLessThanOrEqual(30);
+    const commands = text.split("\n")
+      .filter((line) => line.startsWith("  "))
+      .map((line) => line.trim().split(/\s+/)[0]);
+    expect(commands).toEqual(["config", "doctor", "version", "update", "use", "uninstall"]);
     for (const noun of [
       "state",
       "audit",
@@ -1014,21 +1284,68 @@ describe("t230 dispatcher help and errors", () => {
       "hook",
       "statusline",
       "adapter",
+      "system",
     ]) {
       expect(text).not.toContain(`  ${noun}:`);
       expect(text).not.toContain(`${noun} <`);
     }
   });
 
-  test("help --all contains plumbing groups, banner, and alias rows", () => {
-    const text = renderAllHelp();
-    expect(text).toContain("conductor protocol - not a stable scripting interface");
-    for (const group of ROUTES.filter((route) => route.group !== "top").map((route) => route.group)) {
-      expect(text).toContain(`  ${group}:`);
-    }
-    expect(text).toContain("Slash-flag aliases:");
-    for (const alias of SLASH_FLAG_ALIASES) {
-      expect(text).toContain(`  ${alias.from} -> ${alias.to}`);
+  test("engine help labels the namespace as machinery", () => {
+    const text = renderNamespaceHelp(ENGINE_NAMESPACE_HELP);
+    expect(text).toContain("Engine machinery - generated harness surfaces only; not for human scripts:");
+    expect(text).toContain("  state:");
+    expect(text).not.toContain("Commands:");
+  });
+
+  test("system help is hidden and defines system as this user's installation", () => {
+    const text = renderNamespaceHelp(SYSTEM_NAMESPACE_HELP);
+    expect(resolveAction(["system", "--help"])).toEqual({
+      type: "help",
+      scope: "system",
+    });
+    expect(text).toContain("aidlc system <noun> <verb> [args]");
+    expect(text).toContain(
+      "Operations on this user's aidlc installation; never a system-wide or root install:",
+    );
+    expect(text).toContain("  rollback: [--version <version>|--list]");
+    expect(text).toContain("  completions: <bash|zsh|fish|powershell>");
+    expect(text).toContain("  lifecycle: install-apply");
+    expect(text).toContain("install-profile --profile <path>");
+    expect(text).not.toContain("machine-config");
+    expect(text).toContain("  workspace-sync: [--force] [--project-dir <path>]");
+    expect(text).not.toContain("--harness");
+    expect(text).not.toContain("lifecycle: \n");
+    expect(renderHumanHelp()).not.toContain("system");
+  });
+
+  test("help --all reveals both hidden namespaces without changing default help", () => {
+    const defaultHelp = renderHumanHelp();
+    const expanded = renderAllHelp();
+    expect(resolveAction(["help", "--all"])).toEqual({
+      type: "help",
+      scope: "all",
+    });
+    expect(expanded).toStartWith(defaultHelp.trimEnd());
+    expect(expanded).toContain("Hidden namespaces:");
+    expect(expanded).toContain(
+      "engine  Generated harness surfaces only; not for human scripts. Run: aidlc engine --help",
+    );
+    expect(expanded).toContain(
+      "system  This user's installation; unsupported interface. Run: aidlc system --help",
+    );
+    expect(defaultHelp).not.toContain("Hidden namespaces:");
+    expect(defaultHelp).not.toContain("aidlc engine --help");
+    expect(defaultHelp).not.toContain("aidlc system --help");
+  });
+
+  test("removed alias nouns are routing errors", () => {
+    for (const args of [
+      ["engine", "utility", "status"],
+      ["engine", "runner-gen", "write"],
+      ["system", "machine-config", "global", "list"],
+    ]) {
+      expect(resolveAction(args).type, args.join(" ")).toBe("error");
     }
   });
 
@@ -1039,23 +1356,24 @@ describe("t230 dispatcher help and errors", () => {
     expect(res.stderr.toString("utf-8")).toBe("aidlc: unknown command or noun 'bogus'; try 'aidlc --help'\n");
   });
 
-  test("unknown noun verb points to help --all", () => {
-    const res = viaDispatcher(["state", "bogus"], REPO_ROOT);
+  test("unknown engine noun verb points to engine help", () => {
+    const res = viaDispatcher(["engine", "state", "bogus"], REPO_ROOT);
     expect(res.exitCode).toBe(2);
     expect(res.stdout.toString("utf-8")).toBe("");
-    expect(res.stderr.toString("utf-8")).toBe("aidlc: unknown verb 'bogus' for noun 'state'; try 'aidlc help --all'\n");
+    expect(res.stderr.toString("utf-8")).toBe(
+      "aidlc: unknown verb 'bogus' for engine noun 'state'; try 'aidlc engine --help'\n",
+    );
   });
 
   test("formerly stubbed routes now reach utility handlers", () => {
     const projectDir = makeProject();
     writeMinimalState(projectDir);
     const cases = [
-      ["config", "get", "depth"],
-      ["config", "list"],
-      ["plugin", "sync"],
-      ["plugin", "list"],
-      ["init"],
-      ["upgrade"],
+      ["engine", "config", "get", "depth"],
+      ["engine", "config", "list"],
+      ["engine", "plugin", "sync"],
+      ["engine", "plugin", "list"],
+      ["config"],
     ];
     for (const args of cases) {
       const res = viaDispatcher(args, projectDir);
@@ -1068,14 +1386,14 @@ describe("t230 dispatcher help and errors", () => {
     tempProjects.add(projectDir);
 
     const plugin = viaDispatcher(
-      ["plugin", "select", "aidlc", "--project-dir", projectDir],
+      ["engine", "plugin", "select", "aidlc", "--project-dir", projectDir],
       REPO_ROOT,
     );
     expect(plugin.exitCode).not.toBe(0);
     expect(plugin.stderr.toString("utf-8")).toContain("requires an installed project harness");
 
     const graph = viaDispatcher(
-      ["graph", "compile", "--project-dir", projectDir],
+      ["engine", "graph", "compile", "--project-dir", projectDir],
       REPO_ROOT,
     );
     expect(graph.exitCode).not.toBe(0);
@@ -1086,7 +1404,7 @@ describe("t230 dispatcher help and errors", () => {
 
 describe("t230 dispatcher hook routing", () => {
   test("adapter routing separates harness, target, and extra arguments", () => {
-    const codex = resolveAction(["adapter", "codex", "session-start"]);
+    const codex = resolveAction( ["engine", "adapter", "codex", "session-start"]);
     expect(codex.type).toBe("adapter");
     if (codex.type === "adapter") {
       expect(codex.harness).toBe("codex");
@@ -1096,6 +1414,7 @@ describe("t230 dispatcher hook routing", () => {
     }
 
     const kiro = resolveAction([
+      "engine",
       "adapter",
       "kiro",
       "reviewer-scope",
@@ -1112,7 +1431,7 @@ describe("t230 dispatcher hook routing", () => {
 
   test("hook validate-state dispatches to run(input) and writes heartbeat", () => {
     const projectDir = makeProject();
-    const res = viaDispatcher(["hook", "validate-state"], projectDir, {}, "{}");
+    const res = viaDispatcher( ["engine", "hook", "validate-state"], projectDir, {}, "{}");
 
     expect(res.exitCode).toBe(0);
     expect(res.stderr.toString("utf-8")).toBe("");
@@ -1125,7 +1444,7 @@ describe("t230 dispatcher hook routing", () => {
 
   test("hook review-freeze dispatches to run(input) and writes heartbeat", () => {
     const projectDir = makeProject();
-    const res = viaDispatcher(["hook", "review-freeze"], projectDir, {}, "{}");
+    const res = viaDispatcher( ["engine", "hook", "review-freeze"], projectDir, {}, "{}");
 
     expect(res.exitCode).toBe(0);
     expect(res.stderr.toString("utf-8")).toBe("");
@@ -1144,7 +1463,7 @@ describe("t230 dispatcher hook routing", () => {
       model: { id: "claude-3-5-sonnet-20241022" },
       context_window: { used_percentage: 12 },
     });
-    const res = viaDispatcher(["statusline"], projectDir, {}, input);
+    const res = viaDispatcher(["engine", "statusline"], projectDir, {}, input);
 
     expect(res.exitCode).toBe(0);
     expect(res.stderr.toString("utf-8")).toBe("");
@@ -1163,7 +1482,7 @@ describe("t230 dispatcher hook routing", () => {
       session_id: "t230-adapter",
     });
     const res = viaDispatcher(
-      ["adapter", "codex", "validate-state"],
+       ["engine", "adapter", "codex", "validate-state"],
       projectDir,
       {},
       input,
@@ -1184,7 +1503,7 @@ describe("t230 dispatcher hook routing", () => {
     writeMinimalState(targetProject, "application-design");
 
     const hook = viaDispatcher(
-      ["hook", "validate-state", "--project-dir", targetProject],
+       ["engine", "hook", "validate-state", "--project-dir", targetProject],
       cwdProject,
       {},
       "{}",
@@ -1200,7 +1519,7 @@ describe("t230 dispatcher hook routing", () => {
     ).toBe(false);
 
     const statusline = viaDispatcher(
-      ["statusline", "--project-dir", targetProject],
+       ["engine", "statusline", "--project-dir", targetProject],
       cwdProject,
       {},
       JSON.stringify({
@@ -1225,7 +1544,7 @@ describe("t230 dispatcher hook routing", () => {
       recursive: true,
     });
     const adapter = viaDispatcher(
-      ["adapter", "codex", "validate-state", "--project-dir", targetProject],
+       ["engine", "adapter", "codex", "validate-state", "--project-dir", targetProject],
       cwdProject,
       {},
       JSON.stringify({

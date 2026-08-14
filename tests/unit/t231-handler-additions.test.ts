@@ -22,6 +22,12 @@ const CORE_TOOLS_DIR = join(REPO_ROOT, "core", "tools");
 const UTILITY = join(CORE_TOOLS_DIR, "aidlc-utility.ts");
 const DISPATCHER = join(CORE_TOOLS_DIR, "aidlc.ts");
 const PACKAGE_TS = join(REPO_ROOT, "scripts", "package.ts");
+const PLUGIN_COMPOSE_TEMPLATE = join(
+  REPO_ROOT,
+  "scripts",
+  "plugin-hooks-template",
+  "compose.ts",
+);
 const STATE_FIXTURE = join(FIXTURES_DIR, "state-mid-ideation.md");
 const NO_STATE_MESSAGE =
   "No state file found. Start a workflow first by describing what to build (/aidlc \"build the auth service\").";
@@ -169,17 +175,20 @@ describe("t231 config get/list/set handlers", () => {
     expect(stderrError(missing)).toBe(NO_STATE_MESSAGE);
   });
 
-  test("dispatcher config set translates to config-change and legacy spelling still works", () => {
+  test("engine config set translates to config-change and legacy top-level spelling is rejected", () => {
     const project = stateProject();
 
-    const setDepth = dispatcher(["config", "set", "depth", "comprehensive"], project);
+    const setDepth = dispatcher(
+      ["engine", "config", "set", "depth", "comprehensive"],
+      project,
+    );
     expect(setDepth.status).toBe(0);
     expect(stateField(project, "Depth")).toBe("Comprehensive");
     expect(utility(["config-get", "depth"], project).stdout).toBe("Comprehensive\n");
 
     const legacy = dispatcher(["config-change", "--depth", "minimal"], project);
-    expect(legacy.status).toBe(0);
-    expect(stateField(project, "Depth")).toBe("Minimal");
+    expect(legacy.status).toBe(2);
+    expect(stateField(project, "Depth")).toBe("Comprehensive");
   });
 });
 
@@ -247,11 +256,11 @@ describe("t231 plugin list and sync handlers", () => {
   });
 });
 
-describe("t231 init and upgrade lifecycle routing", () => {
-  test("init reaches the dedicated delegate and does not create an intent record on source failure", () => {
+describe("t231 config and update lifecycle routing", () => {
+  test("config reaches the dedicated delegate and does not create an intent record on source failure", () => {
     const project = emptyProject();
     const result = run(
-      [BUN, join(CORE_TOOLS_DIR, "aidlc-init.ts"), "init", "--project-dir", project],
+      [BUN, join(CORE_TOOLS_DIR, "aidlc-init.ts"), "config", "--project-dir", project],
       project,
     );
 
@@ -260,29 +269,41 @@ describe("t231 init and upgrade lifecycle routing", () => {
     expect(existsSync(join(project, "aidlc", "spaces", "default", "intents"))).toBe(false);
   });
 
-  test("dispatcher init matches its dedicated delegate", () => {
+  test("dispatcher config matches its dedicated delegate", () => {
     const project = emptyProject();
     const direct = run(
-      [BUN, join(CORE_TOOLS_DIR, "aidlc-init.ts"), "init", "--project-dir", project],
+      [BUN, join(CORE_TOOLS_DIR, "aidlc-init.ts"), "config", "--project-dir", project],
       project,
     );
-    const routed = dispatcher(["init"], project);
+    const routed = dispatcher(["config"], project);
 
     expect(routed.status).toBe(direct.status);
     expect(routed.stdout).toBe(direct.stdout);
     expect(routed.stderr).toBe(direct.stderr);
   });
 
-  test("upgrade reaches the lifecycle delegate through command and slash alias", () => {
+  test("update reaches the lifecycle delegate and upgrade spellings are rejected", () => {
     const project = emptyProject();
-    const direct = run([BUN, join(CORE_TOOLS_DIR, "aidlc-lifecycle.ts"), "upgrade"], project);
-    const routed = dispatcher(["upgrade"], project);
+    const machine = tempDir("aidlc-t231-update-machine-");
+    const env = {
+      AIDLC_INSTALL_ROOT: machine,
+      AIDLC_BIN_DIR: join(machine, "bin"),
+      AIDLC_OFFLINE: "1",
+    };
+    const direct = run(
+      [BUN, join(CORE_TOOLS_DIR, "aidlc-lifecycle.ts"), "update"],
+      project,
+      env,
+    );
+    const routed = dispatcher(["update"], project, env);
     const alias = dispatcher(["--upgrade"], project);
 
-    for (const result of [direct, routed, alias]) {
-      expect(result.status).toBe(2);
-      expect(result.stdout).toContain("at least one --harness is required");
-    }
+    expect(routed.status).toBe(direct.status);
+    expect(routed.stdout).toBe(direct.stdout);
+    expect(routed.stderr).toBe(direct.stderr);
+    expect(routed.status).toBe(3);
+    expect(dispatcher(["upgrade"], project).status).toBe(2);
+    expect(alias.status).toBe(2);
   });
 
   test("legacy direct utility upgrade remains an explicit unavailable error", () => {
@@ -294,6 +315,23 @@ describe("t231 init and upgrade lifecycle routing", () => {
 });
 
 describe("t231 emitted plugin hook command", () => {
+  test("compiled runner-gen calls map only to the gen noun", () => {
+    const template = readFileSync(PLUGIN_COMPOSE_TEMPLATE, "utf-8");
+    expect(template).toContain(
+      'if (args[0] === "write") return [executable, "engine", "gen", "runners"',
+    );
+    expect(template).toContain(
+      'if (args[0] === "check") return [executable, "engine", "gen", "runners", "--check"',
+    );
+    expect(template).toContain(
+      'if (args[0] === "scopes") return [executable, "engine", "gen", "runner-scopes"',
+    );
+    expect(template).toContain(
+      'if (args[0] === "list") return [executable, "engine", "gen", "runner-list"',
+    );
+    expect(template).not.toContain('"engine", "runner-gen"');
+  });
+
   test("packaged hook probes aidlc first, propagates sync failures, and keeps graceful skip", () => {
     const outDir = join(tempDir("aidlc-t231-package-"), "plugin");
     const build = run([BUN, PACKAGE_TS, "plugin", "build", "test-pro", "claude", outDir], REPO_ROOT);
@@ -308,7 +346,7 @@ describe("t231 emitted plugin hook command", () => {
 
     expect(aidlcIdx).toBeGreaterThanOrEqual(0);
     expect(bunIdx).toBeGreaterThan(aidlcIdx);
-    expect(command).toContain("\"$AIDLC\" plugin sync; exit $?");
+    expect(command).toContain("\"$AIDLC\" engine plugin sync; exit $?");
     expect(command).toContain("\"$PLUGIN_TOOL\" sync; exit $?");
     expect(command).toContain("tools/aidlc-plugin.ts");
     expect(command).toContain(`"$BUN" "\${CLAUDE_PLUGIN_ROOT}/hooks/compose.ts"`);

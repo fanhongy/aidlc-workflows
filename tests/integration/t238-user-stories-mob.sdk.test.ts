@@ -422,7 +422,7 @@ describe("t238 user-stories mob topology (Claude SDK live)", () => {
           .map(shellCommand)
           .filter((command): command is string => command !== undefined);
         const reportCommands = commands.filter((command) =>
-          /(?:aidlc-orchestrate\.ts["']?|__delegate orchestrate)\s+report\b/.test(command)
+          /(?:aidlc-orchestrate\.ts["']?|engine orchestrate)\s+report\b/.test(command)
         );
         const stagePinned = /--stage(?:=|\s+)(?:["'])?user-stories\b/;
         const awaitingIndex = reportCommands.findIndex(

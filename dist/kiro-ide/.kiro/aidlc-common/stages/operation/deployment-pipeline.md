@@ -73,7 +73,7 @@ Create CD pipeline configuration, deployment strategy document, rollback runbook
 ### Step 5: Completion Handoff
 
 Hand completion to `stage-protocol.md` via
-`bun .kiro/tools/aidlc.ts __delegate orchestrate report --stage deployment-pipeline --result <outcome>`.
+`bun .kiro/tools/aidlc.ts engine orchestrate report --stage deployment-pipeline --result <outcome>`.
 The engine owns all lifecycle transitions and advancement.
 
 ### Step 6: Present Completion & Request Approval

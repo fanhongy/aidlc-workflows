@@ -107,8 +107,8 @@ describe("t242 state-transition ownership guard", () => {
           `cd /tmp && env AIDLC_TEST=1 bun run ".claude/tools/aidlc-state.ts" ${verb} fixture`,
         ),
       ).toBe(verb);
-      expect(directStateTransition(`aidlc state ${verb} fixture`)).toBe(verb);
-      expect(directStateTransition(`/opt/aidlc/bin/aidlc __delegate state ${verb} fixture`))
+      expect(directStateTransition(`aidlc state ${verb} fixture`)).toBeNull();
+      expect(directStateTransition(`/opt/aidlc/bin/aidlc engine state ${verb} fixture`))
         .toBe(verb);
     }
   });
@@ -146,7 +146,7 @@ describe("t242 state-transition ownership guard", () => {
       "run_transition() {\n  bun .claude/tools/aidlc-state.ts advance feasibility\n}",
       "function run_transition {\n  bun .claude/tools/aidlc-state.ts skip feasibility\n}",
       "echo aidlc state approve feasibility",
-      "printf '%s' 'aidlc __delegate state reject feasibility'",
+      "printf '%s' 'aidlc engine state reject feasibility'",
       "cat <<'EOF'\naidlc state advance feasibility\nEOF",
     ]) {
       expect(directStateTransition(command), command).toBeNull();
@@ -165,11 +165,10 @@ describe("t242 state-transition ownership guard", () => {
       ),
     ).toBe(true);
     for (const command of [
-      "aidlc report --stage feasibility --result completed",
-      "aidlc __delegate orchestrate report --stage feasibility --result completed",
-      "aidlc state approve feasibility",
-      "aidlc __delegate jump execute --target application-design",
-      "/opt/aidlc/bin/aidlc park",
+      "aidlc engine orchestrate report --stage feasibility --result completed",
+      "aidlc engine state approve feasibility",
+      "aidlc engine jump execute --target application-design",
+      "/opt/aidlc/bin/aidlc engine orchestrate park",
     ]) {
       expect(isLifecycleBoundaryCommand(command), command).toBe(true);
     }
@@ -393,7 +392,7 @@ describe("t242 state-transition ownership guard", () => {
 
       expect(body, label).toMatch(
         new RegExp(
-          String.raw`(?:aidlc-orchestrate\.ts|__delegate orchestrate) report\s+--stage\s+${slug}\b`,
+          String.raw`(?:aidlc-orchestrate\.ts|engine orchestrate) report\s+--stage\s+${slug}\b`,
         ),
       );
       expect(body, label).not.toMatch(DIRECT_LIFECYCLE_VERB);
@@ -425,16 +424,16 @@ describe("t242 state-transition ownership guard", () => {
       readFileSync(join(STAGES_ROOT, phase, `${slug}.md`), "utf-8");
 
     expect(stage("inception", "reverse-engineering")).toContain(
-      '{{INVOKE}} __delegate orchestrate report --stage reverse-engineering --result skipped --reason "<reason>"',
+      '{{INVOKE}} engine orchestrate report --stage reverse-engineering --result skipped --reason "<reason>"',
     );
     expect(stage("inception", "user-stories")).toContain(
-      '{{INVOKE}} __delegate orchestrate report --stage user-stories --result skipped --reason "<reason>"',
+      '{{INVOKE}} engine orchestrate report --stage user-stories --result skipped --reason "<reason>"',
     );
     expect(stage("inception", "requirements-analysis")).toContain(
-      "{{INVOKE}} __delegate utility recompose --add user-stories",
+      "{{INVOKE}} engine recompose --add user-stories",
     );
     expect(stage("inception", "application-design")).toContain(
-      "{{INVOKE}} __delegate utility recompose --add units-generation",
+      "{{INVOKE}} engine recompose --add units-generation",
     );
   });
 });
