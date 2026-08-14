@@ -20,20 +20,20 @@
     "render-surface": "tui"
   },
   "counts": {
-    "total": 551,
+    "total": 550,
     "enumeratedByClass": {
-      "function": 304,
+      "function": 302,
       "audit": 82,
-      "scope": 9,
+      "scope": 10,
       "stage": 33,
       "hook": 17,
       "subcommand": 99,
       "render-surface": 7
     },
     "coveredByClass": {
-      "function": 145,
+      "function": 144,
       "audit": 40,
-      "scope": 9,
+      "scope": 10,
       "stage": 11,
       "hook": 17,
       "subcommand": 87,
@@ -1251,18 +1251,6 @@
     },
     {
       "unitClass": "function",
-      "unitId": "function:classifyStateVersion",
-      "minMechanism": "none",
-      "coveredBy": [
-        {
-          "file": "tests/unit/t282-state-version-doctor.test.ts",
-          "mechanism": "cli"
-        }
-      ],
-      "status": "covered"
-    },
-    {
-      "unitClass": "function",
       "unitId": "function:classifyTerminalCommand",
       "minMechanism": "none",
       "coveredBy": [
@@ -1462,13 +1450,6 @@
     {
       "unitClass": "function",
       "unitId": "function:CURRENT_SESSION_FILE",
-      "minMechanism": "none",
-      "coveredBy": [],
-      "status": "UNCOVERED"
-    },
-    {
-      "unitClass": "function",
-      "unitId": "function:CURRENT_STATE_VERSION",
       "minMechanism": "none",
       "coveredBy": [],
       "status": "UNCOVERED"
@@ -4490,12 +4471,52 @@
     },
     {
       "unitClass": "scope",
+      "unitId": "classic",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/e2e/t-tui-t58-workshop-scope.serial.test.ts",
+          "mechanism": "tui"
+        },
+        {
+          "file": "tests/e2e/t291-express-scope-routing.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/integration/t30-scope-stage-mapping.test.ts",
+          "mechanism": "none"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "scope",
       "unitId": "enterprise",
       "minMechanism": "none",
       "coveredBy": [
         {
           "file": "tests/integration/t141-enterprise-scope-routing.test.ts",
           "mechanism": "sdk"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "scope",
+      "unitId": "express",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/e2e/t291-express-scope-routing.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/integration/t130-scope-runners.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/smoke/t130-scope-runners.test.ts",
+          "mechanism": "cli"
         }
       ],
       "status": "covered"
@@ -4588,22 +4609,6 @@
         {
           "file": "tests/smoke/t130-scope-runners.test.ts",
           "mechanism": "cli"
-        }
-      ],
-      "status": "covered"
-    },
-    {
-      "unitClass": "scope",
-      "unitId": "workshop",
-      "minMechanism": "none",
-      "coveredBy": [
-        {
-          "file": "tests/e2e/t-tui-t58-workshop-scope.serial.test.ts",
-          "mechanism": "tui"
-        },
-        {
-          "file": "tests/integration/t30-scope-stage-mapping.test.ts",
-          "mechanism": "none"
         }
       ],
       "status": "covered"
@@ -5998,6 +6003,10 @@
       "minMechanism": "cli",
       "coveredBy": [
         {
+          "file": "tests/e2e/t291-express-scope-routing.test.ts",
+          "mechanism": "cli"
+        },
+        {
           "file": "tests/unit/t27.test.ts",
           "mechanism": "cli"
         },
@@ -6187,6 +6196,10 @@
         },
         {
           "file": "tests/e2e/t-exec-codex-journey-workspace.serial.test.ts",
+          "mechanism": "cli"
+        },
+        {
+          "file": "tests/e2e/t291-express-scope-routing.test.ts",
           "mechanism": "cli"
         },
         {
