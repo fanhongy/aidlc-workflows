@@ -31,6 +31,11 @@ import {
   validateScope,
 } from "./aidlc-graph.ts";
 import { repointHarnessIncludes } from "./aidlc-includes.ts";
+import {
+  TRUSTED_COMMAND_PREFIX,
+  TRUSTED_COMMAND_TOKENS,
+  trustedCommand,
+} from "./aidlc-command.ts";
 import { workspaceManifestChecks } from "./aidlc-workspace-doctor.ts";
 import {
   activeIntent,
@@ -1185,7 +1190,7 @@ function codexNativeTrustHashes(hooksPath: string): string[] {
       for (const hook of group.hooks ?? []) {
         if (
           typeof hook.command !== "string" ||
-          !hook.command.startsWith("aidlc engine adapter codex ")
+          !hook.command.startsWith(`${trustedCommand("adapter codex")} `)
         ) continue;
         const identity = {
           event_name: eventName,
@@ -1390,15 +1395,17 @@ export async function collectDoctorReport(
         /\bbun\s+[^\n]*(?:\/(?:tools|hooks)\/aidlc|\\?\.kiro\/tools\/)/.test(command)
       );
       const nativeHooks = commands.some((command) =>
-        /\baidlc\s+engine\s+(?:hook|adapter|statusline)\b/.test(command)
+        ["hook", "adapter", "statusline"].some((noun) =>
+          command.includes(`${TRUSTED_COMMAND_PREFIX} ${noun}`)
+        )
       );
       let nativePermission = false;
       if (harnessDir() === ".claude") {
-        nativePermission = commands.includes("Bash(aidlc engine *)") &&
+        nativePermission = commands.includes(`Bash(${trustedCommand("*")})`) &&
           !commands.includes("Bash");
       } else if (harnessDir() === ".kiro") {
-        nativePermission = commands.includes("aidlc engine .*") ||
-          commands.includes("aidlc engine *");
+        nativePermission = commands.includes(trustedCommand(".*")) ||
+          commands.includes(trustedCommand("*"));
       } else if (harnessDir() === ".codex") {
         const rules = join(harnessRoot, "rules", "default.rules");
         const seed = join(harnessRoot, "trust-seed.toml");
@@ -1413,7 +1420,9 @@ export async function collectDoctorReport(
         nativePermission =
           existsSync(rules) &&
           readFileSync(rules, "utf-8").includes(
-            'prefix_rule(pattern = ["aidlc", "engine"], decision = "allow")',
+            `prefix_rule(pattern = [${
+              TRUSTED_COMMAND_TOKENS.map((token) => JSON.stringify(token)).join(", ")
+            }], decision = "allow")`,
           ) &&
           hashes.length > 0 &&
           hashes.every((hash) => seedText.includes(`trusted_hash = "${hash}"`));
@@ -1493,7 +1502,7 @@ export async function collectDoctorReport(
         label: stampVersion === AIDLC_VERSION
           ? `Project runtime stamp: ${stampVersion} (${stamp.distribution ?? "unknown"})`
           : `Project runtime stamp: ${stampVersion}; selected engine: ${AIDLC_VERSION}`,
-        fix: `run \`aidlc config\` or \`aidlc use ${stampVersion}\``,
+        fix: `run \`aidlc config\` or select the machine release with \`aidlc use ${stampVersion}\``,
       });
     } catch {
       results.push({
@@ -1511,7 +1520,7 @@ export async function collectDoctorReport(
       results.push({
         pass: false,
         label: `Project pin is malformed: ${JSON.stringify(pinned)}`,
-        fix: "run `aidlc use current` or write one strict semver",
+        fix: "run `aidlc config --unpin` or write one strict semver",
       });
     } else {
       const distribution = (() => {
@@ -1535,7 +1544,7 @@ export async function collectDoctorReport(
         label: pinState.complete
           ? `Project pin: ${pinned} is installed`
           : `Project pin: ${pinned} is not installed completely`,
-        fix: `run \`aidlc use ${pinned}\``,
+        fix: `run \`aidlc config --pin ${pinned}\``,
       });
     }
   }

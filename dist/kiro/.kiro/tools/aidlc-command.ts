@@ -1,3 +1,128 @@
+export const ROUTE_NAMESPACE_DECLARATIONS = {
+  public: { trustedPrefix: false },
+  engine: { trustedPrefix: true },
+  system: { trustedPrefix: false },
+} as const;
+
+export type RouteNamespaceName = keyof typeof ROUTE_NAMESPACE_DECLARATIONS;
+
+const trustedNamespaces = Object.entries(ROUTE_NAMESPACE_DECLARATIONS)
+  .filter(([, declaration]) => declaration.trustedPrefix)
+  .map(([namespace]) => namespace as RouteNamespaceName);
+
+if (trustedNamespaces.length !== 1) {
+  throw new Error(
+    `route namespace declarations must identify exactly one trusted prefix; found ${trustedNamespaces.length}`,
+  );
+}
+
+export const TRUSTED_ROUTE_NAMESPACE = trustedNamespaces[0];
+export const TRUSTED_COMMAND_PREFIX = `aidlc ${TRUSTED_ROUTE_NAMESPACE}`;
+export const TRUSTED_COMMAND_TOKENS = ["aidlc", TRUSTED_ROUTE_NAMESPACE] as const;
+export const UNTRUSTED_ROUTE_NAMESPACES = Object.keys(ROUTE_NAMESPACE_DECLARATIONS)
+  .filter((namespace) =>
+    namespace !== "public" && namespace !== TRUSTED_ROUTE_NAMESPACE
+  ) as RouteNamespaceName[];
+
+export function trustedCommand(suffix = ""): string {
+  return suffix ? `${TRUSTED_COMMAND_PREFIX} ${suffix}` : TRUSTED_COMMAND_PREFIX;
+}
+
+export type NamespaceRouteShape = {
+  namespace: string;
+  group: string;
+  kind: string;
+  verbs: readonly string[];
+};
+
+export type NamespaceInvocation = {
+  file: string;
+  line: number;
+  source: "aidlc" | "bun .kiro/tools/aidlc.ts";
+  namespace: "engine" | "system";
+  noun?: string;
+  verb?: string;
+  command: string;
+  resolves: boolean;
+};
+
+function cleanInvocationToken(token: string | undefined): string | undefined {
+  return token
+    ?.replace(/^[([`"']+/, "")
+    .replace(/[\]),.:;\\`"']+$/, "");
+}
+
+export function namespaceInvocationResolves(
+  routes: readonly NamespaceRouteShape[],
+  namespace: "engine" | "system",
+  noun: string | undefined,
+  verb: string | undefined,
+): boolean {
+  if (
+    !noun ||
+    noun === "*" ||
+    noun === ".*" ||
+    noun === "--help" ||
+    noun === "-h" ||
+    noun.includes("<") ||
+    noun.startsWith("$")
+  ) {
+    return true;
+  }
+  const namespaceRoutes = routes.filter((route) => route.namespace === namespace);
+  if (
+    namespaceRoutes.some((route) =>
+      route.group === "top" && route.verbs.includes(noun)
+    )
+  ) {
+    return true;
+  }
+  const grouped = namespaceRoutes.filter((route) => route.group === noun);
+  if (grouped.length === 0) return false;
+  if (!verb) return true;
+  if (verb.startsWith("<") || verb.startsWith("$")) return true;
+  if (verb.startsWith("--")) {
+    return grouped.some((route) => route.kind === "routing-only");
+  }
+  return grouped.some((route) =>
+    route.kind === "routing-only" ||
+    route.verbs.some((candidate) =>
+      candidate === verb ||
+      candidate.startsWith(`${verb} `) ||
+      candidate.startsWith("<")
+    )
+  );
+}
+
+export function scanNamespaceInvocations(
+  file: string,
+  value: string,
+  routes: readonly NamespaceRouteShape[],
+): NamespaceInvocation[] {
+  const invocations: NamespaceInvocation[] = [];
+  for (const [index, line] of value.split(/\r?\n/).entries()) {
+    const invocation =
+      /(\baidlc|\{\{INVOKE\}\})\s+(engine|system)(?:\s+([^\s`"'|;&(){}]+))?(?:\s+([^\s`"'|;&(){}]+))?/g;
+    for (const match of line.matchAll(invocation)) {
+      const source = match[1] === "aidlc" ? "aidlc" : "bun .kiro/tools/aidlc.ts";
+      const namespace = match[2] as "engine" | "system";
+      const noun = cleanInvocationToken(match[3]);
+      const verb = cleanInvocationToken(match[4]);
+      invocations.push({
+        file,
+        line: index + 1,
+        source,
+        namespace,
+        noun,
+        verb,
+        command: [source, namespace, noun, verb].filter(Boolean).join(" "),
+        resolves: namespaceInvocationResolves(routes, namespace, noun, verb),
+      });
+    }
+  }
+  return invocations;
+}
+
 export const EXIT = {
   ok: 0,
   failure: 1,

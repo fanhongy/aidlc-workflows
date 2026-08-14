@@ -34,6 +34,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { parse } from "smol-toml";
+import { TRUSTED_ROUTE_NAMESPACE } from "../../core/tools/aidlc-command.ts";
 import { REPO_ROOT } from "../harness/fixtures.ts";
 
 const PACKAGE_SCRIPT = join(REPO_ROOT, "scripts", "package.ts");
@@ -77,9 +78,29 @@ function parseTrustDocument(source: string): TrustDocument {
 
 function trustEntries(): TrustEntries {
   const emitter = require(join(REPO_ROOT, "harness", "codex", "emit.ts")) as {
-    trustEntries: TrustEntries;
+    trustEntries: (...args: [
+      string,
+      string | undefined,
+      string,
+      string,
+      string,
+      string,
+    ]) => string;
   };
-  return emitter.trustEntries;
+  return (
+    project,
+    hooksJson,
+    harnessDir = ".codex",
+    harnessName = "codex",
+    invoke = "aidlc",
+  ) => emitter.trustEntries(
+    project,
+    hooksJson,
+    harnessDir,
+    harnessName,
+    invoke,
+    TRUSTED_ROUTE_NAMESPACE,
+  );
 }
 
 function expectedTrustKeys(hooksJsonPath: string): string[] {

@@ -62,6 +62,10 @@ function makeFixture(harness: string, sourceHarness = harness): string {
   const root = mkdtempSync(join(tmpdir(), "aidlc-package-contract-"));
   copyDir(join(REPO_ROOT, "core"), join(root, "core"));
   copyDir(join(REPO_ROOT, "scripts"), join(root, "scripts"));
+  copyDir(
+    join(REPO_ROOT, "node_modules", "smol-toml"),
+    join(root, "node_modules", "smol-toml"),
+  );
   mkdirSync(join(root, "harness"), { recursive: true });
   copyDir(join(REPO_ROOT, "harness", sourceHarness), join(root, "harness", harness));
   if (harness === sourceHarness) {

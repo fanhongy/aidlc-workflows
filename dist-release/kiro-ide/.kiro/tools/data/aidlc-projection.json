@@ -400,6 +400,9 @@
     ".kiro/skills/aidlc-user-stories/SKILL.md": [
       "sha256:36433acbe9be3df5dc4d3029ca3f8bd39c6ed4f7268700288764543185565414"
     ],
+    ".kiro/tools/aidlc-command.ts": [
+      "sha256:dee25e620792bdf0b5b06cd92abb953798c94d77cf564688fc328d0bab5fb858"
+    ],
     ".kiro/tools/aidlc-runtime-paths.ts": [
       "sha256:fef1fcae9fd95f17f11d590e83005e884017108dd95663821dbc6a9c44632a20"
     ],

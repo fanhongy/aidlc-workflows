@@ -292,6 +292,9 @@
     ".aidlc/skills/aidlc-user-stories/SKILL.md": [
       "sha256:4a9bdeec2792023cd4444bcc7739d4e6a2aa799768766ee7ce2915ca2a5582a9"
     ],
+    ".aidlc/tools/aidlc-command.ts": [
+      "sha256:12cff046e65c91e1b734d6ab34892de94d2d0566d0d32833ec0b35da15c0446d"
+    ],
     ".aidlc/tools/aidlc-runtime-paths.ts": [
       "sha256:84f8da9a8d35d36b04fad258995a0192d8a096c933cc9327c01f6473daa9ba4f"
     ],
@@ -308,7 +311,7 @@
       "sha256:cf18036fcc59dfea71428d87a02e8c92f9713c57fb2916cd65f566d3b743f98e"
     ],
     ".opencode/plugin/aidlc-opencode-adapter.ts": [
-      "sha256:8d0d648846f1d2bf7791194e854194d9caacf6aff3156ddcee687f4078b633c1"
+      "sha256:3d6417449df3ae6e05aca1214a6b05bf44363e75641c28375526a7cc98bbad30"
     ]
   }
 }

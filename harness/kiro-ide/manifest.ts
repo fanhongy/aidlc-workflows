@@ -21,6 +21,7 @@
 // bodies; each ships its own adapter.
 
 import type { HarnessManifest } from "../../scripts/manifest-types.ts";
+import { TRUSTED_COMMAND_PREFIX } from "../../core/tools/aidlc-command.ts";
 import onboardingFills from "./onboarding.fills.ts";
 
 const manifest: HarnessManifest = {
@@ -60,7 +61,9 @@ const manifest: HarnessManifest = {
   ],
   nativeRootIntegrations: [
     {
-      src: "settings/release.json",
+      content: `${JSON.stringify({
+        "kiroAgent.trustedCommands": [`${TRUSTED_COMMAND_PREFIX} *`],
+      }, null, 2)}\n`,
       path: ".vscode/settings.json",
       policy: "json-array",
       jsonKey: "kiroAgent.trustedCommands",

@@ -58,6 +58,12 @@ import {
   readEnvCap,
   readMemoryCap,
 } from "../core/tools/aidlc-tiers.ts";
+import {
+  scanNamespaceInvocations,
+  TRUSTED_COMMAND_PREFIX,
+  TRUSTED_ROUTE_NAMESPACE,
+  trustedCommand,
+} from "../core/tools/aidlc-command.ts";
 import { ROUTES } from "../core/tools/aidlc.ts";
 import { AIDLC_VERSION } from "../core/tools/aidlc-version.ts";
 import { sha256Bytes } from "../core/tools/aidlc-distribution.ts";
@@ -102,6 +108,7 @@ const ONBOARDING_SKELETON = join(CORE_ROOT, "templates", "onboarding.md");
 const HARNESS_TOKEN = /\{\{HARNESS_DIR\}\}/g;
 const INVOKE_TOKEN = /\{\{INVOKE\}\}/g;
 const TOOL_PREFIX_TOKEN = /\{\{TOOL_PREFIX\}\}/g;
+const TRUSTED_NAMESPACE_TOKEN = /\{\{TRUSTED_NAMESPACE\}\}/g;
 
 // Harnesses the packager builds = every harness/<name>/ that carries a
 // manifest.ts. DISCOVERED, not hardcoded: adding harness #N is one harness/<n>/
@@ -124,8 +131,11 @@ function substituteInvocationTokens(
   harnessDir: string,
   invoke = `bun ${harnessDir}/tools/aidlc.ts`,
 ): string {
-  const toolPrefix = invoke === "aidlc" ? "aidlc engine " : `bun ${harnessDir}/tools/`;
-  return s.replace(INVOKE_TOKEN, invoke).replace(TOOL_PREFIX_TOKEN, toolPrefix);
+  const toolPrefix = invoke === "aidlc" ? `${TRUSTED_COMMAND_PREFIX} ` : `bun ${harnessDir}/tools/`;
+  return s
+    .replace(INVOKE_TOKEN, invoke)
+    .replace(TOOL_PREFIX_TOKEN, toolPrefix)
+    .replace(TRUSTED_NAMESPACE_TOKEN, TRUSTED_ROUTE_NAMESPACE);
 }
 
 function substituteToken(
@@ -768,6 +778,7 @@ function buildTree(
       harnessName: m.name,
       distRoot: outRoot,
       harnessDir,
+      trustedRouteNamespace: TRUSTED_ROUTE_NAMESPACE,
       substituteToken: (s: string) => substituteToken(s, harnessDir, invoke),
       tierCap: TIER_CAP,
     });
@@ -798,7 +809,7 @@ function rewriteKiroNativeAllowlists(outRoot: string, m: HarnessManifest): void 
       typeof command === "string" &&
         command.startsWith("bun ") &&
         command.includes(`${m.harnessDir.replace(".", "\\.")}/tools/`)
-        ? "aidlc engine .*"
+        ? trustedCommand(".*")
         : command
     );
     value.toolsSettings!.execute_bash!.allowedCommands = [...new Set(rewritten)];
@@ -819,7 +830,7 @@ function rewriteClaudeNativePermissions(outRoot: string, m: HarnessManifest): vo
       entry !== "Bash" &&
       !(typeof entry === "string" && entry.startsWith("Bash(bun "))
     ),
-    "Bash(aidlc engine *)",
+    `Bash(${trustedCommand("*")})`,
   ];
   writeFileSync(settingsPath, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -836,7 +847,7 @@ function rewriteNativeOnboarding(value: string): string {
     )
     .replace(
       /^- \*\*Permissions\*\*:.*$/gm,
-      "- **Permissions**: the `aidlc` agent pre-approves only the native `aidlc engine` command prefix and its listed read-only tools; everything else prompts.",
+      `- **Permissions**: the \`aidlc\` agent pre-approves only the native \`${TRUSTED_COMMAND_PREFIX}\` command prefix and its listed read-only tools; everything else prompts.`,
     )
     .replace(
       /TypeScript, run via bun/g,
@@ -844,11 +855,11 @@ function rewriteNativeOnboarding(value: string): string {
     )
     .replace(
       /pre-approves ONLY `bun \.kiro\/tools\/\*` shell commands/g,
-      "pre-approves only `aidlc engine` shell commands",
+      `pre-approves only \`${TRUSTED_COMMAND_PREFIX}\` shell commands`,
     )
     .replace(
       /pre-allows the deterministic core's exact command prefixes — `bun \.codex\/tools\/`, `bun \.codex\/hooks\/`, and/g,
-      "pre-allows the deterministic core's `aidlc engine` command prefix and",
+      `pre-allows the deterministic core's \`${TRUSTED_COMMAND_PREFIX}\` command prefix and`,
     )
     .replace(
       /^\*\*CWD drift warning\*\*: If a stage runs `cd` in Bash.*$/gm,
@@ -864,90 +875,37 @@ function projectNativeRootIntegrations(outRoot: string, m: HarnessManifest): voi
     rootIntegrations: Array<Record<string, unknown>>;
   };
   const paths = new Set(descriptor.rootIntegrations.map((item) => String(item.path)));
-  for (const { src, ...integration } of additions) {
+  for (const addition of additions) {
+    const { src, content, ...integration } = addition;
     if (paths.has(integration.path)) {
       throw new Error(`[${m.name}] duplicate release root integration path: ${integration.path}`);
     }
-    const source = join(HARNESS_ROOT, m.name, src);
-    if (!existsSync(source) || !lstatSync(source).isFile()) {
-      throw new Error(`[${m.name}] release root integration source is missing: ${src}`);
-    }
     const destination = join(outRoot, integration.path);
     mkdirSync(dirname(destination), { recursive: true });
-    cpSync(source, destination);
+    if (content !== undefined) {
+      writeFileSync(destination, content);
+    } else {
+      const source = join(HARNESS_ROOT, m.name, src);
+      if (!existsSync(source) || !lstatSync(source).isFile()) {
+        throw new Error(`[${m.name}] release root integration source is missing: ${src}`);
+      }
+      cpSync(source, destination);
+    }
     descriptor.rootIntegrations.push(integration);
     paths.add(integration.path);
   }
   writeFileSync(descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`);
 }
 
-function cleanInvocationToken(token: string | undefined): string | undefined {
-  return token
-    ?.replace(/^[([`"']+/, "")
-    .replace(/[\]),.:;\\`"']+$/, "");
-}
-
-function projectedNamespaceInvocationResolves(
-  namespace: "engine" | "system",
-  noun: string | undefined,
-  verb: string | undefined,
-): boolean {
-  if (
-    !noun ||
-    noun === "*" ||
-    noun === ".*" ||
-    noun === "--help" ||
-    noun === "-h" ||
-    noun.includes("<") ||
-    noun.startsWith("$")
-  ) {
-    return true;
-  }
-  const routes = ROUTES.filter((route) => route.namespace === namespace);
-  if (
-    routes.some((route) =>
-      route.group === "top" && route.verbs.includes(noun)
-    )
-  ) {
-    return true;
-  }
-  const grouped = routes.filter((route) => route.group === noun);
-  if (grouped.length === 0) return false;
-  if (!verb) return true;
-  if (verb.startsWith("<") || verb.startsWith("$")) return true;
-  if (verb.startsWith("--")) {
-    return grouped.some((route) => route.kind === "routing-only");
-  }
-  return grouped.some((route) =>
-    route.kind === "routing-only" ||
-    route.verbs.some((candidate) =>
-      candidate === verb ||
-      candidate.startsWith(`${verb} `) ||
-      candidate.startsWith("<")
-    )
-  );
-}
-
 function projectedNamespaceInvocationViolations(
   file: string,
   value: string,
 ): string[] {
-  const violations: string[] = [];
-  for (const [index, line] of value.split(/\r?\n/).entries()) {
-    const invocation =
-      /\baidlc\s+(engine|system)(?:\s+([^\s`"'|;&(){}]+))?(?:\s+([^\s`"'|;&(){}]+))?/g;
-    for (const match of line.matchAll(invocation)) {
-      const namespace = match[1] as "engine" | "system";
-      const noun = cleanInvocationToken(match[2]);
-      const verb = cleanInvocationToken(match[3]);
-      if (projectedNamespaceInvocationResolves(namespace, noun, verb)) continue;
-      const command = ["aidlc", namespace, noun, verb].filter(Boolean).join(" ");
-      violations.push(
-        `${file}:${index + 1}: unresolvable projected namespace invocation "${command}"`,
-      );
-    }
-  }
-  return violations;
+  return scanNamespaceInvocations(file, value, ROUTES)
+    .filter((invocation) => invocation.source === "aidlc" && !invocation.resolves)
+    .map((invocation) =>
+      `${file}:${invocation.line}: unresolvable projected namespace invocation "${invocation.command}"`
+    );
 }
 
 function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
@@ -1001,29 +959,29 @@ function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
       "gi",
     );
     value = value.replace(escapedJsonHook, (_match, hook: string) =>
-      hook === "statusline" ? "aidlc engine statusline" : `aidlc engine hook ${hook}`
+      hook === "statusline" ? trustedCommand("statusline") : trustedCommand(`hook ${hook}`)
     );
     value = value.replace(toolPattern, (_match, delegate: string | undefined) =>
-      delegate ? `aidlc engine ${delegate}` : "aidlc engine"
+      delegate ? trustedCommand(delegate) : TRUSTED_COMMAND_PREFIX
     );
     value = value.replace(
       bareToolPattern,
-      (_match, delegate: string) => `aidlc engine ${delegate}`,
+      (_match, delegate: string) => trustedCommand(delegate),
     );
     value = value.replace(hookPattern, (_match, hook: string) => {
       if (hook === "kiro-adapter" || hook === "codex-adapter") {
-        return `aidlc engine adapter ${m.name}`;
+        return trustedCommand(`adapter ${m.name}`);
       }
-      if (hook === "statusline") return "aidlc engine statusline";
-      return `aidlc engine hook ${hook}`;
+      if (hook === "statusline") return trustedCommand("statusline");
+      return trustedCommand(`hook ${hook}`);
     });
     value = value.replaceAll(
       `"bun \\\\${m.harnessDir}/tools/.*"`,
-      `"aidlc engine .*"`,
+      `"${trustedCommand(".*")}"`,
     );
     value = value.replaceAll(
       `"bun \\\\$\\\\{?KIRO_PROJECT_DIR\\\\}?/${m.harnessDir}/tools/.*"`,
-      `"aidlc engine .*"`,
+      `"${trustedCommand(".*")}"`,
     );
     value = substituteInvocationTokens(value, m.harnessDir, "aidlc");
     value = rewriteNativeOnboarding(value);
@@ -1035,20 +993,25 @@ function rewriteNativeInvocations(outRoot: string, m: HarnessManifest): void {
     const { emitDefaultRules, emitTrustSeed } = require(
       join(HARNESS_ROOT, m.name, "emit.ts"),
     ) as {
-      emitDefaultRules: (harnessDir: string, invoke?: string) => string;
+      emitDefaultRules: (
+        harnessDir: string,
+        invoke: string,
+        trustedNamespace: string,
+      ) => string;
       emitTrustSeed: (
         harnessDir: string,
-        harnessName?: string,
-        invoke?: string,
+        harnessName: string,
+        invoke: string,
+        trustedNamespace: string,
       ) => string;
     };
     writeFileSync(
       join(outRoot, m.harnessDir, "rules", "default.rules"),
-      emitDefaultRules(m.harnessDir, "aidlc"),
+      emitDefaultRules(m.harnessDir, "aidlc", TRUSTED_ROUTE_NAMESPACE),
     );
     writeFileSync(
       join(outRoot, m.harnessDir, "trust-seed.toml"),
-      emitTrustSeed(m.harnessDir, m.name, "aidlc"),
+      emitTrustSeed(m.harnessDir, m.name, "aidlc", TRUSTED_ROUTE_NAMESPACE),
     );
   }
   const descriptorPath = join(outRoot, m.harnessDir, PROJECTION_DATA);
@@ -1308,9 +1271,25 @@ if (argv[0] === "codex" && argv[1] === "trust") {
   }
   const resolvedProject = project ?? failTrustArgs("--project is required");
   const { trustEntries } = require(join(HARNESS_ROOT, "codex", "emit.ts")) as {
-    trustEntries: (project: string, hooksJson?: string) => string;
+    trustEntries: (
+      project: string,
+      hooksJson: string | undefined,
+      harnessDir: string,
+      harnessName: string,
+      invoke: string,
+      trustedNamespace: string,
+    ) => string;
   };
-  console.log(trustEntries(resolvedProject, hooksJson ?? undefined));
+  console.log(
+    trustEntries(
+      resolvedProject,
+      hooksJson ?? undefined,
+      ".codex",
+      "codex",
+      "aidlc",
+      TRUSTED_ROUTE_NAMESPACE,
+    ),
+  );
   process.exit(0);
 }
 
@@ -1417,11 +1396,11 @@ function buildPluginProjection(pluginName: string, harnessName: string, outDir: 
   // executable, exit 0 with a note rather than running a non-existent binary.
   const aidlcExpr =
     'AIDLC=$(command -v aidlc 2>/dev/null || true); ' +
-    `[ -n "$AIDLC" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} "$AIDLC" engine plugin sync; exit $?; }; `;
+    `[ -n "$AIDLC" ] && { AIDLC_HARNESS_DIR=${harnessLeaf} "$AIDLC" ${TRUSTED_ROUTE_NAMESPACE} plugin sync; exit $?; }; `;
   const bunExpr =
     'BUN=$(command -v bun 2>/dev/null || true); ' +
     '[ -z "$BUN" ] && [ -x "$HOME/.bun/bin/bun" ] && BUN="$HOME/.bun/bin/bun"; ' +
-    '[ -z "$BUN" ] && { echo "aidlc engine plugin compose: aidlc and bun not found, skipping" >&2; exit 0; }';
+    `[ -z "$BUN" ] && { echo "${trustedCommand("plugin compose")}: aidlc and bun not found, skipping" >&2; exit 0; }`;
   const sharedToolExpr =
     `PROJECT_ROOT="\${CLAUDE_PROJECT_DIR:-\${AIDLC_PROJECT_DIR:-$PWD}}"; ` +
     `PLUGIN_TOOL="$PROJECT_ROOT/${harnessLeaf}/tools/aidlc-plugin.ts"; ` +

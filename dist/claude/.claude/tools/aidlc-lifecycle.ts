@@ -287,6 +287,20 @@ function commitProjectPin(projectDir: string, version: string | null): void {
   });
 }
 
+function lifecycleFailureResult(error: unknown, argv: readonly string[]): CommandResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof LifecycleCommandError
+    ? error.exitCode
+    : error instanceof ReleaseUnavailableError
+    ? EXIT.unavailable
+    : valueAfter(argv, "--from") &&
+        /(checksum|version\.json|checksums\.txt|release is missing|invalid asset|size mismatch)/i
+          .test(message)
+    ? EXIT.integrity
+    : EXIT.failure;
+  return failure(message, code);
+}
+
 function treesMatch(left: string, right: string): boolean {
   const leftFiles = walkFiles(left).map((path) => path.replaceAll("\\", "/"));
   const rightFiles = walkFiles(right).map((path) => path.replaceAll("\\", "/"));
@@ -980,18 +994,64 @@ function rollbackCommand(argv: string[]): ReturnType<typeof success> {
   return success(`rolled back to ${target}`, { version: target });
 }
 
-async function useCommand(argv: string[]): Promise<ReturnType<typeof success>> {
-  const value = argv[1];
-  if (!value || value.startsWith("--")) return usage("usage: aidlc use <version> [--pin]");
-  const projectDir = projectDirFrom(argv);
-  if (argv.includes("--harness")) return usage("unknown argument: --harness");
-  if (value === "current") {
-    commitProjectPin(projectDir, null);
+export async function configureProjectPin(argv: string[]): Promise<CommandResult> {
+  try {
+    const hasPin = argv.includes("--pin");
+    const hasUnpin = argv.includes("--unpin");
+    if (hasPin === hasUnpin) {
+      return usage("usage: aidlc config --pin <version> | aidlc config --unpin");
+    }
+    if (argv.includes("--harness")) return usage("unknown argument: --harness");
+    const projectDir = projectDirFrom(argv);
+    if (hasUnpin) {
+      commitProjectPin(projectDir, null);
+      return success(
+        "Removed this project's AI-DLC version pin; it now follows the active machine version.",
+        { projectDir, version: activeVersion(), pinned: false },
+      );
+    }
+    const requested = valueAfter(argv, "--pin");
+    if (!requested) return usage("--pin requires a strict version");
+    const version = requestedVersion(requested);
+    if (existsSync(versionRoot(version)) && !completeVersion(version)) {
+      const reason = inspectInstalledVersion(version).reason ?? "integrity validation failed";
+      commandError(`retained version ${version} is incomplete: ${reason}`, EXIT.integrity);
+    }
+    if (!completeVersion(version)) {
+      await installVersion({
+        version,
+        from: valueAfter(argv, "--from"),
+        offline: offline(argv),
+        activate: false,
+        dryRun: false,
+        baseUrl: valueAfter(argv, "--release-base-url"),
+        caBundle: valueAfter(argv, "--ca-bundle"),
+      });
+    }
+    const distribution = projectDistribution(projectDir);
+    if (distribution && !inspectInstalledVersion(version, distribution).complete) {
+      commandError(`${version} does not contain this project's ${distribution} runtime`, EXIT.usage);
+    }
+    commitProjectPin(projectDir, version);
     return success(
-      "Removed this project's AI-DLC version pin; it now follows the active machine version.",
-      { projectDir, version: activeVersion(), pinned: false },
+      `Pinned this project to aidlc ${version}. Commit .aidlc-version to share the pin.`,
+      { projectDir, version, pinned: true },
     );
+  } catch (error) {
+    return lifecycleFailureResult(error, argv);
   }
+}
+
+async function useCommand(argv: string[]): Promise<CommandResult> {
+  const value = argv[1];
+  if (!value || value.startsWith("--")) return usage("usage: aidlc use <version>");
+  if (argv.includes("--pin")) {
+    return usage("use --pin is not supported; run aidlc config --pin <version>");
+  }
+  if (value === "current") {
+    return usage("use current is not supported; run aidlc config --unpin");
+  }
+  if (argv.includes("--harness")) return usage("unknown argument: --harness");
   const version = requestedVersion(value);
   if (existsSync(versionRoot(version)) && !completeVersion(version)) {
     const reason = inspectInstalledVersion(version).reason ?? "integrity validation failed";
@@ -1008,19 +1068,8 @@ async function useCommand(argv: string[]): Promise<ReturnType<typeof success>> {
       caBundle: valueAfter(argv, "--ca-bundle"),
     });
   }
-  if (!argv.includes("--pin")) {
-    activate(version);
-    return success(`active AI-DLC version set to ${version}`, { version, pinned: false });
-  }
-  const distribution = projectDistribution(projectDir);
-  if (distribution && !inspectInstalledVersion(version, distribution).complete) {
-    commandError(`${version} does not contain this project's ${distribution} runtime`, EXIT.usage);
-  }
-  commitProjectPin(projectDir, version);
-  return success(
-    `Pinned this project to aidlc ${version}. Commit .aidlc-version to share the pin.`,
-    { projectDir, version, pinned: true },
-  );
+  activate(version);
+  return success(`active AI-DLC version set to ${version}`, { version });
 }
 
 function installProfileCommand(argv: string[]): CommandResult {
@@ -1133,20 +1182,7 @@ export async function main(input: string[]): Promise<void> {
       : usage("unknown lifecycle command");
     emitResult(result, options);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const code = error instanceof LifecycleCommandError
-      ? error.exitCode
-      : error instanceof ReleaseUnavailableError
-      ? EXIT.unavailable
-      : valueAfter(argv, "--from") &&
-          /(checksum|version\.json|checksums\.txt|release is missing|invalid asset|size mismatch)/i
-            .test(message)
-      ? EXIT.integrity
-      : EXIT.failure;
-    emitResult(failure(
-      message,
-      code,
-    ), options);
+    emitResult(lifecycleFailureResult(error, argv), options);
   }
 }
 

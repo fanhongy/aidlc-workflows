@@ -44,6 +44,7 @@ import {
 
 const REPO_ROOT = join(fileURLToPath(new URL("../..", import.meta.url)));
 const DISPATCHER = join(REPO_ROOT, "core", "tools", "aidlc.ts");
+const INIT = join(REPO_ROOT, "core", "tools", "aidlc-init.ts");
 const LIFECYCLE = join(REPO_ROOT, "core", "tools", "aidlc-lifecycle.ts");
 const INSTALL_SH = join(REPO_ROOT, "scripts", "install.sh");
 const INSTALL_PS1 = join(REPO_ROOT, "scripts", "install.ps1");
@@ -678,14 +679,19 @@ describe("t244 management lifecycle", () => {
     expect(run(LIFECYCLE, [
       "versions", "install", REMOVABLE_VERSION, "--from", removableRelease,
     ], project, env).status).toBe(0);
-    writeFileSync(
-      join(machine, "pins.json"),
-      `${JSON.stringify({
-        [pinnedProject]: LIVE_PIN_VERSION,
-        "/missing/stale-project": STALE_PIN_VERSION,
-      }, null, 2)}\n`,
-    );
-    writeFileSync(join(pinnedProject, ".aidlc-version"), `${LIVE_PIN_VERSION}\n`);
+    const pinned = run(INIT, [
+      "config",
+      "--pin",
+      LIVE_PIN_VERSION,
+      "--project-dir",
+      pinnedProject,
+    ], pinnedProject, env);
+    expect(pinned.status, pinned.stdout + pinned.stderr).toBe(0);
+    const pins = JSON.parse(
+      readFileSync(join(machine, "pins.json"), "utf-8"),
+    ) as Record<string, string>;
+    pins["/missing/stale-project"] = STALE_PIN_VERSION;
+    writeFileSync(join(machine, "pins.json"), `${JSON.stringify(pins, null, 2)}\n`);
     const updated = run(LIFECYCLE, [
       "update", "--version", NEXT_VERSION, "--from", nextRelease,
     ], project, env);

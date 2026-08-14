@@ -8,6 +8,7 @@ import {
   parseWorkspaceCommand,
   workspaceCommandUtilityArgv,
 } from "./aidlc-lib.ts";
+import type { RouteNamespaceName } from "./aidlc-command.ts";
 import { parseSensorManifest } from "./aidlc-sensor-schema.ts";
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import {
@@ -59,7 +60,7 @@ type HelpSection = {
 type CustomRoute = "workspace" | "config" | "plugin" | "gen";
 type RouteOnly = "hook" | "statusline" | "adapter" | "tool-passthrough";
 type Visibility = "public" | "hidden" | "legacy";
-type RouteNamespace = "public" | "engine" | "system";
+type RouteNamespace = RouteNamespaceName;
 type ProjectRequirement = "none" | "optional" | "required";
 type PinPolicy = "active" | "inspect" | "pinned";
 type NetworkPolicy = "forbidden" | "explicit-only" | "interactive-bounded" | "required";
@@ -167,11 +168,11 @@ export const SLASH_FLAG_ALIASES: readonly Alias[] = [
 ];
 
 const HUMAN_HELP: readonly HelpLine[] = [
-  { command: "config [args]", summary: "configure or refresh this project" },
+  { command: "config [args]", summary: "configure, pin, or refresh this project" },
   { command: "doctor [args]", summary: "run machine and project diagnostics" },
   { command: "version [--json]", summary: "print binary and runtime versions" },
   { command: "update [args]", summary: "install and activate a framework release" },
-  { command: "use <version> [--pin]", summary: "select or pin an exact framework release" },
+  { command: "use <version>", summary: "select an exact machine release" },
   { command: "uninstall [--purge]", summary: "remove the machine installation" },
 ];
 
@@ -270,7 +271,7 @@ export const ROUTES: readonly Route[] = [
     projectRequirement: "optional",
     pinPolicy: "active",
     networkPolicy: "interactive-bounded",
-    mutationScope: "project-and-machine",
+    mutationScope: "machine",
     outputModes: ["human", "quiet", "json"],
     human: [
       { command: "doctor [--check-updates]", summary: "run environment diagnostics" },
@@ -288,7 +289,7 @@ export const ROUTES: readonly Route[] = [
     verbs: ["version"],
     tool: TOOLS.utility,
     visibility: "public",
-    projectRequirement: "none",
+    projectRequirement: "optional",
     pinPolicy: "active",
     networkPolicy: "forbidden",
     mutationScope: "none",
@@ -320,13 +321,17 @@ export const ROUTES: readonly Route[] = [
     verbs: ["config"],
     tool: TOOLS.init,
     visibility: "public",
-    projectRequirement: "optional",
+    projectRequirement: "none",
     pinPolicy: "active",
-    networkPolicy: "forbidden",
+    networkPolicy: "explicit-only",
     mutationScope: "project",
     outputModes: ["human", "quiet", "json"],
-    human: [{ command: "config [args]", summary: "configure or refresh this project" }],
-    all: ["config [--harness <name>] [--from <path>] [--dry-run] [--force]"],
+    human: [{ command: "config [args]", summary: "configure, pin, or refresh this project" }],
+    all: [
+      "config [--harness <name>] [--from <path>] [--dry-run] [--force]",
+      "config --pin <version> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline]",
+      "config --unpin",
+    ],
   },
   {
     id: "top-update",
@@ -374,14 +379,14 @@ export const ROUTES: readonly Route[] = [
     verbs: ["use"],
     tool: TOOLS.lifecycle,
     visibility: "public",
-    projectRequirement: "optional",
+    projectRequirement: "none",
     pinPolicy: "active",
     networkPolicy: "explicit-only",
-    mutationScope: "project-and-machine",
+    mutationScope: "machine",
     outputModes: ["human", "quiet", "json"],
-    human: [{ command: "use <version> [--pin]", summary: "select or pin an exact framework release" }],
+    human: [{ command: "use <version>", summary: "select an exact machine release" }],
     all: [
-      "use <version> [--pin] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline]",
+      "use <version> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline]",
     ],
   },
   {
@@ -2032,7 +2037,7 @@ function dispatchPinnedVersion(argv: string[], input: string | null): number | n
       argv,
       2,
       `${pinPath} must contain one strict semver`,
-      "aidlc use current",
+      "aidlc config --unpin",
     );
   }
   if (process.env.AIDLC_PIN_DISPATCHED === version) return null;
@@ -2042,7 +2047,7 @@ function dispatchPinnedVersion(argv: string[], input: string | null): number | n
       argv,
       1,
       `this project requires ${version}, which is not installed completely`,
-      `aidlc use ${version}`,
+      `aidlc config --pin ${version}`,
     );
   }
   reconcilePinRegistration(projectDir, version);

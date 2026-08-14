@@ -37,6 +37,11 @@ import {
 } from "../../core/tools/aidlc-install-paths.ts";
 import { activate } from "../../core/tools/aidlc-lifecycle.ts";
 import {
+  TRUSTED_COMMAND_TOKENS,
+  UNTRUSTED_ROUTE_NAMESPACES,
+  trustedCommand,
+} from "../../core/tools/aidlc-command.ts";
+import {
   acquireRelease,
   digest,
   readReleaseManifest,
@@ -1362,7 +1367,7 @@ describe("t243 project initialization", () => {
     let settings = JSON.parse(readFileSync(join(project, ".vscode", "settings.json"), "utf-8"));
     expect(settings["kiroAgent.trustedCommands"]).toEqual([
       "user-tool *",
-      "aidlc engine *",
+      trustedCommand("*"),
     ]);
     expect(settings["editor.formatOnSave"]).toBe(true);
 
@@ -1399,10 +1404,10 @@ describe("t243 release lifecycle", () => {
     ], project, env);
     expect(installed.status, installed.stdout + installed.stderr).toBe(0);
 
-    const pin = run(LIFECYCLE, [
-      "use",
-      AIDLC_VERSION,
+    const pin = run(INIT, [
+      "config",
       "--pin",
+      AIDLC_VERSION,
       "--project-dir",
       project,
     ], project, env);
@@ -1842,7 +1847,7 @@ describe("t243 release lifecycle", () => {
     }
   }, 60_000);
 
-  test("use installs missing versions, selects the machine version, and pins projects", async () => {
+  test("use selects only the machine version while config owns project pins", async () => {
     const release = fixtureRelease();
     const nextRelease = fixtureRelease(NEXT_VERSION);
     expect(verifyReleaseDirectory(release).version).toBe(AIDLC_VERSION);
@@ -1861,9 +1866,17 @@ describe("t243 release lifecycle", () => {
     expect(selected.status, selected.stdout + selected.stderr).toBe(0);
     expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
     expect(existsSync(join(bin, "aidlc"))).toBe(true);
+    expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
+    expect(existsSync(join(machine, "pins.json"))).toBe(false);
     expect(
       run(LIFECYCLE, ["use", AIDLC_VERSION, "--harness", "claude"], project, env).status,
     ).toBe(2);
+    expect(
+      run(LIFECYCLE, ["use", AIDLC_VERSION, "--pin", "--project-dir", project], project, env).status,
+    ).toBe(2);
+    expect(run(LIFECYCLE, ["use", "current"], project, env).status).toBe(2);
+    expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
+    expect(existsSync(join(machine, "pins.json"))).toBe(false);
     expect(
       run(LIFECYCLE, ["update", "--harness", "claude"], project, env).status,
     ).toBe(2);
@@ -1874,11 +1887,11 @@ describe("t243 release lifecycle", () => {
     expect(list.stdout).toContain(`"active":true`);
 
     const pin = run(
-      LIFECYCLE,
+      INIT,
       [
-        "use",
-        NEXT_VERSION,
+        "config",
         "--pin",
+        NEXT_VERSION,
         "--from",
         nextRelease,
         "--project-dir",
@@ -1898,7 +1911,7 @@ describe("t243 release lifecycle", () => {
     expect(pinnedList.stdout).toContain(`"pinPaths":["${project}"]`);
 
     expect(run(LIFECYCLE, ["package", "verify", release], project, env).status).toBe(2);
-    const unpinned = run(LIFECYCLE, ["use", "current"], project, env);
+    const unpinned = run(INIT, ["config", "--unpin", "--project-dir", project], project, env);
     expect(unpinned.status, unpinned.stdout + unpinned.stderr).toBe(0);
     expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
     expect(readFileSync(join(machine, "pins.json"), "utf-8")).not.toContain(project);
@@ -1912,7 +1925,7 @@ describe("t243 release lifecycle", () => {
     expect(
       orphaned.data.versions.find((item) => item.version === NEXT_VERSION)?.pinPaths,
     ).toEqual([]);
-    expect(run(LIFECYCLE, ["use", "current"], project, env).status).toBe(0);
+    expect(run(INIT, ["config", "--unpin", "--project-dir", project], project, env).status).toBe(0);
     expect(readFileSync(join(machine, "pins.json"), "utf-8")).not.toContain(project);
 
     writeFileSync(join(release, `aidlc-${targetTriple()}`), "tampered");
@@ -1934,8 +1947,8 @@ describe("t243 release lifecycle", () => {
     mkdirSync(join(project, ".aidlc-version"));
     writeFileSync(join(project, ".aidlc-version", "owned.txt"), "keep\n");
 
-    const failed = run(LIFECYCLE, [
-      "use", AIDLC_VERSION, "--pin", "--project-dir", project,
+    const failed = run(INIT, [
+      "config", "--pin", AIDLC_VERSION, "--project-dir", project,
     ], project, env);
     expect(failed.status).toBe(1);
     expect(readFileSync(join(project, ".aidlc-version", "owned.txt"), "utf-8")).toBe("keep\n");
@@ -2134,8 +2147,8 @@ describe("t243 release lifecycle", () => {
     expect(run(INIT, [
       "config", "--project-dir", oldProject, "--from", CLAUDE_RELEASE, "--harness", "claude",
     ], oldProject, env).status).toBe(0);
-    expect(run(LIFECYCLE, [
-      "use", AIDLC_VERSION, "--pin", "--project-dir", oldProject,
+    expect(run(INIT, [
+      "config", "--pin", AIDLC_VERSION, "--project-dir", oldProject,
     ], oldProject, env).status).toBe(0);
     renameSync(oldProject, newProject);
 
@@ -2324,15 +2337,19 @@ describe("t243 projection channel", () => {
     const claudeSettings = JSON.parse(
       readFileSync(join(CLAUDE_RELEASE, ".claude", "settings.json"), "utf-8"),
     ) as { permissions: { allow: string[] } };
-    expect(claudeSettings.permissions.allow).toContain("Bash(aidlc engine *)");
+    expect(claudeSettings.permissions.allow).toContain(`Bash(${trustedCommand("*")})`);
     expect(claudeSettings.permissions.allow).not.toContain("Bash");
     expect(claudeSettings.permissions.allow.some((entry) => entry.startsWith("Bash(bun "))).toBe(false);
     expect(
       claudeSettings.permissions.allow.filter((entry) => entry.includes("aidlc")),
-    ).toEqual(["Bash(aidlc engine *)"]);
-    expect(
-      claudeSettings.permissions.allow.some((entry) => entry.includes("aidlc system")),
-    ).toBe(false);
+    ).toEqual([`Bash(${trustedCommand("*")})`]);
+    for (const namespace of UNTRUSTED_ROUTE_NAMESPACES) {
+      expect(
+        claudeSettings.permissions.allow.some((entry) =>
+          entry.includes(`aidlc ${namespace}`)
+        ),
+      ).toBe(false);
+    }
 
     for (const root of KIRO_RELEASES) {
       for (const path of walkFiles(join(root, ".kiro", "agents"))) {
@@ -2344,11 +2361,13 @@ describe("t243 projection channel", () => {
         };
         const allowed = value.toolsSettings?.execute_bash?.allowedCommands;
         if (!allowed) continue;
-        expect(allowed).toContain("aidlc engine .*");
+        expect(allowed).toContain(trustedCommand(".*"));
         expect(allowed.some((command) => command.startsWith("bun "))).toBe(false);
         expect(allowed.filter((command) => command.includes("aidlc")))
-          .toEqual(["aidlc engine .*"]);
-        expect(allowed.some((command) => command.includes("aidlc system"))).toBe(false);
+          .toEqual([trustedCommand(".*")]);
+        for (const namespace of UNTRUSTED_ROUTE_NAMESPACES) {
+          expect(allowed.some((command) => command.includes(`aidlc ${namespace}`))).toBe(false);
+        }
       }
       expect(readFileSync(join(root, "AGENTS.md"), "utf-8"))
         .toContain(
@@ -2358,24 +2377,30 @@ describe("t243 projection channel", () => {
     const ideSettings = JSON.parse(
       readFileSync(join(KIRO_IDE_RELEASE, ".vscode", "settings.json"), "utf-8"),
     ) as { "kiroAgent.trustedCommands": string[] };
-    expect(ideSettings["kiroAgent.trustedCommands"]).toEqual(["aidlc engine *"]);
-    expect(ideSettings["kiroAgent.trustedCommands"]).not.toContain("aidlc system *");
+    expect(ideSettings["kiroAgent.trustedCommands"]).toEqual([trustedCommand("*")]);
+    for (const namespace of UNTRUSTED_ROUTE_NAMESPACES) {
+      expect(ideSettings["kiroAgent.trustedCommands"]).not.toContain(`aidlc ${namespace} *`);
+    }
 
     const rules = readFileSync(
       join(CODEX_RELEASE, ".codex", "rules", "default.rules"),
       "utf-8",
     );
     expect(rules).toContain(
-      'prefix_rule(pattern = ["aidlc", "engine"], decision = "allow")',
+      `prefix_rule(pattern = [${
+        TRUSTED_COMMAND_TOKENS.map((token) => JSON.stringify(token)).join(", ")
+      }], decision = "allow")`,
     );
     expect(rules).not.toContain('pattern = ["bun"');
     expect(rules).not.toMatch(/prefix_rule\(pattern = \["aidlc"\]/);
     expect(rules).not.toContain('pattern = ["aidlc", "*"]');
-    expect(rules).not.toContain('pattern = ["aidlc", "system"]');
+    for (const namespace of UNTRUSTED_ROUTE_NAMESPACES) {
+      expect(rules).not.toContain(`pattern = ["aidlc", "${namespace}"]`);
+    }
     const hooks = readFileSync(join(CODEX_RELEASE, ".codex", "hooks.json"), "utf-8");
     const trust = readFileSync(join(CODEX_RELEASE, ".codex", "trust-seed.toml"), "utf-8");
-    expect(hooks).toContain("aidlc engine adapter codex");
-    expect(trust).toContain("projected `aidlc engine adapter codex ...`");
+    expect(hooks).toContain(trustedCommand("adapter codex"));
+    expect(trust).toContain(`projected \`${trustedCommand("adapter codex")} ...\``);
     expect(trust).not.toContain("bun .codex/tools/aidlc.ts");
     expect(trust).not.toContain("bun scripts/package.ts codex trust");
     const opencode = JSON.parse(
@@ -2384,9 +2409,11 @@ describe("t243 projection channel", () => {
     expect(
       Object.entries(opencode.permission.bash)
         .filter(([command]) => command.includes("aidlc")),
-    ).toEqual([["aidlc engine *", "allow"]]);
-    expect(opencode.permission.bash["aidlc *"]).toBeUndefined();
-    expect(opencode.permission.bash["aidlc system *"]).toBeUndefined();
+    ).toEqual([[trustedCommand("*"), "allow"]]);
+    expect(opencode.permission.bash[`${TRUSTED_COMMAND_TOKENS[0]} *`]).toBeUndefined();
+    for (const namespace of UNTRUSTED_ROUTE_NAMESPACES) {
+      expect(opencode.permission.bash[`aidlc ${namespace} *`]).toBeUndefined();
+    }
     const parsedHooks = JSON.parse(hooks) as {
       hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
     };

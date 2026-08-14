@@ -47,9 +47,10 @@ import { isAbsolute, join } from "node:path";
 
 const NUDGE_SENTINEL = "[aidlc-forwarding-nudge]";
 const PROJECTED_INVOKE = "aidlc";
+const TRUSTED_NAMESPACE = "engine";
 const DEFAULT_AIDLC_COMMAND = PROJECTED_INVOKE.startsWith("{{")
-  ? ["aidlc", "engine"]
-  : [...PROJECTED_INVOKE.trim().split(/\s+/), "engine"];
+  ? ["aidlc", TRUSTED_NAMESPACE]
+  : [...PROJECTED_INVOKE.trim().split(/\s+/), TRUSTED_NAMESPACE];
 
 function runCoreHook(
   hookFile: string,

@@ -37,6 +37,8 @@ export type EmitContext = {
   distRoot: string;
   /** The harness directory name (".claude" | ".kiro" | ".codex"). */
   harnessDir: string;
+  /** Route-table-derived namespace trusted by native host permission surfaces. */
+  trustedRouteNamespace: string;
   /** Substitute {{HARNESS_DIR}} → this harness's dir in a prose string. */
   substituteToken: (s: string) => string;
   /**
@@ -89,10 +91,18 @@ export type RootIntegration = {
   };
 };
 
-export type NativeRootIntegration = RootIntegration & {
-  /** Authored file below harness/<name>/ copied into each native projection. */
-  src: string;
-};
+export type NativeRootIntegration = RootIntegration & (
+  | {
+      /** Authored file below harness/<name>/ copied into each native projection. */
+      src: string;
+      content?: never;
+    }
+  | {
+      /** Harness-formatted generated content supplied directly to the native projection. */
+      content: string;
+      src?: never;
+    }
+);
 
 export type HarnessManifest = {
   /** Harness name; matches the dist/<name>/ and harness/<name>/ dir. */

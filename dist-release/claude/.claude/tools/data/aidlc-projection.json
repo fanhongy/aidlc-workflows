@@ -310,6 +310,9 @@
     ".claude/skills/aidlc-user-stories/SKILL.md": [
       "sha256:970e71fb01e83c2a54df0563adcc0af8781890ab8600dd209a91963bb6746873"
     ],
+    ".claude/tools/aidlc-command.ts": [
+      "sha256:b1e2c0bce6e83cc3e2ebb63fa8c77c1443c6fee16e96b112b06f3e2b9d583a55"
+    ],
     ".claude/tools/aidlc-runtime-paths.ts": [
       "sha256:406017d92835e50b60f4c2dfb6130d91b270f67717929d1ed8c8276a9d09e9a8"
     ],

@@ -33,6 +33,7 @@ import {
 } from "./aidlc-distribution.ts";
 import { activeVersion, projectDirFrom, runtimeRoot } from "./aidlc-install-paths.ts";
 import { defaultHarnessPath } from "./aidlc-machine-config.ts";
+import { configureProjectPin } from "./aidlc-lifecycle.ts";
 import {
   type TransactionOperation,
   type TransactionPlan,
@@ -776,9 +777,9 @@ function selectSource(
     if (selected.length === 1) return { root: selected[0].root };
     throw new Error(
       requiredVersion && versionFiltered.length === 0
-        ? `project requires ${requiredVersion}, which is not installed; run aidlc use ${requiredVersion}`
+        ? `project requires ${requiredVersion}, which is not installed; run aidlc config --pin ${requiredVersion}`
         : requiredVersion
-        ? `harness ${selectedName} is not installed in ${requiredVersion}; run aidlc use ${requiredVersion}`
+        ? `harness ${selectedName} is not installed in ${requiredVersion}; run aidlc config --pin ${requiredVersion}`
         : `harness ${selectedName} is not installed`,
     );
   }
@@ -791,7 +792,7 @@ function selectSource(
     if (versionFiltered.length > 0) {
       throw new Error(
         requiredVersion
-          ? `configured default harness ${configuredDefault} is not installed in ${requiredVersion}; run aidlc use ${requiredVersion}`
+          ? `configured default harness ${configuredDefault} is not installed in ${requiredVersion}; run aidlc config --pin ${requiredVersion}`
           : `configured default harness ${configuredDefault} is unavailable; pass --harness <name>`,
       );
     }
@@ -800,7 +801,7 @@ function selectSource(
   if (versionFiltered.length === 0) {
     throw new Error(
       requiredVersion
-        ? `project requires ${requiredVersion}, which is not installed; run aidlc use ${requiredVersion}`
+        ? `project requires ${requiredVersion}, which is not installed; run aidlc config --pin ${requiredVersion}`
         : "no installed harness runtime is available",
     );
   }
@@ -1356,6 +1357,10 @@ function planRemovedRootIntegrations(
 export async function main(input: string[]): Promise<void> {
   const argv = stripVerb(input);
   const options = globalOptions(argv);
+  if (argv.includes("--pin") || argv.includes("--unpin")) {
+    emitResult(await configureProjectPin(argv), options);
+    return;
+  }
   const requestedHarnesses = valuesAfter(argv, "--harness");
   const requestedHarness = requestedHarnesses[0];
   const from = valueAfter(argv, "--from");
@@ -1410,7 +1415,7 @@ export async function main(input: string[]): Promise<void> {
     if (existing.distribution) assertRefreshSafe(projectDir);
     if (regularFile(pinPath) && readFileSync(pinPath, "utf-8").trim() !== stamp.frameworkVersion) {
       throw new Error(
-        `project pin requires ${readFileSync(pinPath, "utf-8").trim()}, but source is ${stamp.frameworkVersion}; run aidlc use ${readFileSync(pinPath, "utf-8").trim()}`,
+        `project pin requires ${readFileSync(pinPath, "utf-8").trim()}, but source is ${stamp.frameworkVersion}; run aidlc config --pin ${readFileSync(pinPath, "utf-8").trim()}`,
       );
     }
     const baselinePath = join(projectDir, descriptor.harnessDir, "tools", "data", "aidlc-manifest.json");

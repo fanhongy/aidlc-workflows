@@ -41,9 +41,10 @@ diagnostic and lifecycle routes.
 | `/aidlc config set <key> <value>` | Change active workflow config (`depth`, `test-strategy`) |
 | `/aidlc config list` | List active workflow config (`--json` for structured output) |
 | `aidlc config [options]` | Initialize or refresh a project from an installed or local harness projection |
+| `aidlc config --pin <version>` | Install an exact release when needed and write the shared `.aidlc-version` project pin |
+| `aidlc config --unpin` | Remove the project pin so engine commands follow the machine-active release |
 | `aidlc update [options]` | Install and activate a complete release |
 | `aidlc use <version>` | Select an exact machine-active release, installing it first when needed |
-| `aidlc use <version> --pin` | Install an exact release when needed and write the shared `.aidlc-version` project pin |
 | `aidlc version [--json]` | Print binary and runtime versions |
 | `aidlc doctor [options]` | Report machine, project, version, and plugin composition health |
 | `aidlc uninstall [--purge]` | Remove the command and versions; optionally remove machine state |
@@ -80,26 +81,29 @@ options, or current project state changed after the preview.
 Machine lifecycle commands never follow a project pin. Engine commands do:
 a valid `.aidlc-version` re-executes that retained binary before project data
 loads, while a missing retained version fails with `aidlc use <version>`
-remediation.
+remediation for machine selection or `aidlc config --pin <version>` remediation
+for a project pin.
 
 Commit `.aidlc-version`: it is a team-shared toolchain pin and the managed
 AI-DLC `.gitignore` block deliberately does not ignore it. A fresh clone or CI
 runner must install that exact version with
 `curl -fsSL https://github.com/awslabs/aidlc-workflows/releases/latest/download/install.sh | bash -s -- --version "$(cat .aidlc-version)"`, use
-`aidlc use "$(cat .aidlc-version)"` when an active binary already exists, or
+`aidlc config --pin "$(cat .aidlc-version)"` when an active binary already
+exists, or
 consume the reviewed release asset set in a restricted pipeline.
 
 ```bash
 aidlc use 2.5.0
-aidlc use 2.5.0 --pin
+aidlc config --pin 2.5.0
+aidlc config --unpin
 aidlc update --version 2.5.1
 aidlc update --check
 aidlc doctor
 ```
 
 `update` retains the prior active version and every registered project pin,
-then prunes older unprotected versions automatically. `use` is the only
-intentional version-selection command. `uninstall` prompts on a TTY and
+then prunes older unprotected versions automatically. `use` owns machine
+version selection; `config` owns project pinning. `uninstall` prompts on a TTY and
 requires `--yes` when stdin is not interactive.
 `aidlc uninstall` leaves project trees untouched and preserves machine config,
 cache, pins, and the harness default unless `--purge` is supplied.

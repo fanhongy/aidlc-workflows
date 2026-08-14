@@ -53,19 +53,23 @@ const HOOK_WIRING: Array<{ event: string; matcher?: string; target: string }> = 
   { event: "Stop", target: "stop" },
 ];
 
-const adapterCmd = (harnessName: string, target: string) =>
-  `{{INVOKE}} engine adapter ${harnessName} ${target}`;
+const adapterCmd = (
+  harnessName: string,
+  target: string,
+  trustedNamespace: string,
+) => `{{INVOKE}} ${trustedNamespace} adapter ${harnessName} ${target}`;
 
 function emitHooksJson(
   substituteToken: (value: string) => string,
   harnessName: string,
+  trustedNamespace: string,
 ): string {
   const hooks: Record<string, Array<Record<string, unknown>>> = {};
   for (const { event, matcher, target } of HOOK_WIRING) {
     const group: Record<string, unknown> = {
       hooks: [{
         type: "command",
-        command: substituteToken(adapterCmd(harnessName, target)),
+        command: substituteToken(adapterCmd(harnessName, target, trustedNamespace)),
       }],
     };
     if (matcher) group.matcher = matcher;
@@ -137,10 +141,17 @@ status_line = ["model-with-reasoning", "git-branch", "task-progress", "context-u
 `;
 }
 
-export function emitDefaultRules(harnessDir: string, invoke = "aidlc"): string {
+export function emitDefaultRules(
+  harnessDir: string,
+  invoke: string,
+  trustedNamespace: string,
+): string {
+  const trustedPattern = ["aidlc", trustedNamespace]
+    .map((token) => JSON.stringify(token))
+    .join(", ");
   const runtimeRules = invoke === "aidlc"
     ? `# Native runtime allowlist: framework commands invoke the self-contained binary.
-prefix_rule(pattern = ["aidlc", "engine"], decision = "allow")`
+prefix_rule(pattern = [${trustedPattern}], decision = "allow")`
     : `# Bun copy-channel allowlist: deterministic framework tools stay under the harness tree.
 prefix_rule(pattern = ["bun", "${harnessDir}/tools/"], decision = "allow")`;
   return `# dist/codex shipped permission rules (Starlark) — ${harnessDir}/rules/ is
@@ -202,7 +213,9 @@ export function trustEntries(
   harnessDir = ".codex",
   harnessName = "codex",
   invoke = "aidlc",
+  trustedNamespace?: string,
 ): string {
+  if (!trustedNamespace) throw new Error("trusted route namespace is required");
   // A supplied hooks path is already the Codex trust identity: preserve it
   // exactly. For the default, choose the path implementation from the project
   // spelling so Windows installers can generate native paths even when this
@@ -219,7 +232,8 @@ export function trustEntries(
     const snake = SNAKE[event];
     const idx = counters[snake] ?? 0;
     counters[snake] = idx + 1;
-    const command = adapterCmd(harnessName, target).replace("{{INVOKE}}", invoke);
+    const command = adapterCmd(harnessName, target, trustedNamespace)
+      .replace("{{INVOKE}}", invoke);
     const hash = trustHash(snake, command);
     state[`${path}:${snake}:${idx}:0`] = { trusted_hash: hash };
   }
@@ -230,8 +244,10 @@ export function emitTrustSeed(
   harnessDir: string,
   harnessName = "codex",
   invoke = "aidlc",
+  trustedNamespace?: string,
 ): string {
-  const recipe = `# This template hashes the projected \`${invoke} engine adapter ${harnessName} ...\`
+  if (!trustedNamespace) throw new Error("trusted route namespace is required");
+  const recipe = `# This template hashes the projected \`${invoke} ${trustedNamespace} adapter ${harnessName} ...\`
 # commands in hooks.json. Start one interactive Codex session and choose
 # "Trust all and continue" to register the project-specific hook identities.
 `;
@@ -245,7 +261,14 @@ export function emitTrustSeed(
     `# only the key changes per install. Codex then runs the hooks without a\n` +
     `# TUI trust pass (the --dangerously-bypass-hook-trust flag does NOT fire\n` +
     `# untrusted hooks at 0.137-0.139; never rely on it).\n\n` +
-    trustEntries("<PROJECT_DIR>", undefined, harnessDir, harnessName, invoke)
+    trustEntries(
+      "<PROJECT_DIR>",
+      undefined,
+      harnessDir,
+      harnessName,
+      invoke,
+      trustedNamespace,
+    )
   );
 }
 
@@ -296,6 +319,7 @@ export default function emit(ctx: EmitContext): void {
     harnessName,
     distRoot,
     harnessDir,
+    trustedRouteNamespace,
     substituteToken,
     tierCap,
   } = ctx;
@@ -398,16 +422,19 @@ export default function emit(ctx: EmitContext): void {
   // codex-only config + wiring + trust + AGENTS.md
   emissions.push({
     path: join(CODEX_ROOT, "hooks.json"),
-    content: () => emitHooksJson(substituteToken, harnessName),
+    content: () =>
+      emitHooksJson(substituteToken, harnessName, trustedRouteNamespace),
   });
   emissions.push({ path: join(CODEX_ROOT, "config.toml"), content: emitConfigToml });
   emissions.push({
     path: join(CODEX_ROOT, "rules", "default.rules"),
-    content: () => emitDefaultRules(harnessDir, invoke),
+    content: () =>
+      emitDefaultRules(harnessDir, invoke, trustedRouteNamespace),
   });
   emissions.push({
     path: join(CODEX_ROOT, "trust-seed.toml"),
-    content: () => emitTrustSeed(harnessDir, harnessName, invoke),
+    content: () =>
+      emitTrustSeed(harnessDir, harnessName, invoke, trustedRouteNamespace),
   });
   emissions.push({ path: join(distRoot, "AGENTS.md"), content: emitAgentsMd });
 

@@ -749,7 +749,7 @@ describe("t230 dispatcher global flag translation", () => {
       ok: false,
       code: 1,
       message: "this project requires 99.0.0, which is not installed completely",
-      remediation: "aidlc use 99.0.0",
+      remediation: "aidlc config --pin 99.0.0",
     }));
 
     const bootstrap = viaDispatcher(
@@ -908,10 +908,10 @@ describe("t230 dispatcher route completeness", () => {
       .toEqual(expect.objectContaining({
         tool: "aidlc-doctor.ts",
         pinPolicy: "active",
-        mutationScope: "project-and-machine",
+        mutationScope: "machine",
       }));
     expect(ROUTES.find((route) => route.id === "top-use"))
-      .toEqual(expect.objectContaining({ pinPolicy: "active", mutationScope: "project-and-machine" }));
+      .toEqual(expect.objectContaining({ pinPolicy: "active", mutationScope: "machine" }));
     const publicPolicy = new Map(
       ROUTES.filter((route) => route.visibility === "public")
         .map((route) => [route.id, {
@@ -920,11 +920,15 @@ describe("t230 dispatcher route completeness", () => {
         }]),
     );
     expect(Object.fromEntries(publicPolicy)).toEqual(expect.objectContaining({
-      "top-config": { networkPolicy: "forbidden", mutationScope: "project" },
+      "top-config": { networkPolicy: "explicit-only", mutationScope: "project" },
       "top-update": { networkPolicy: "explicit-only", mutationScope: "machine" },
-      "top-use": { networkPolicy: "explicit-only", mutationScope: "project-and-machine" },
+      "top-use": { networkPolicy: "explicit-only", mutationScope: "machine" },
       "top-uninstall": { networkPolicy: "forbidden", mutationScope: "machine" },
     }));
+    expect(
+      ROUTES.filter((route) => route.visibility === "public")
+        .some((route) => route.mutationScope === "project-and-machine"),
+    ).toBe(false);
     expect(
       ROUTES.filter((route) => route.visibility === "public" && route.id !== "top-help")
         .map((route) => route.id)

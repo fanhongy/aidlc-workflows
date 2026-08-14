@@ -313,6 +313,9 @@
     ".codex/sensors/aidlc-upstream-coverage.md": [
       "sha256:d7433accad6d1a8119a87be016cfd70189de4deaeb44cf2a48dd68a69dbb8940"
     ],
+    ".codex/tools/aidlc-command.ts": [
+      "sha256:e4d8b2ba801069e4c95887665608f2f2df322a0b7263ecab3ed8ef88d787db5d"
+    ],
     ".codex/tools/aidlc-runtime-paths.ts": [
       "sha256:69b6299bd1349d8c5eefeaa05d3a980cd8df13a635d0621243d59fffa1a4fedf"
     ],
