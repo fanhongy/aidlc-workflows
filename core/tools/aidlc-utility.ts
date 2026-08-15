@@ -149,6 +149,7 @@ import {
   activeVersion,
   binRoot,
   commandPath,
+  inspectProjectPinTarget,
   inspectInstalledVersion,
   installRoot,
   readActiveExecutable,
@@ -1369,10 +1370,9 @@ export async function collectDoctorReport(
     let pointerValid = false;
     try {
       pointerValid = Boolean(expectedExecutable) &&
-        (isWindows
-          ? existsSync(command) &&
-            readActiveExecutable() === resolve(expectedExecutable)
-          : realpathSync(command) === realpathSync(expectedExecutable));
+        existsSync(command) &&
+        statSync(command).isFile() &&
+        readActiveExecutable() === resolve(expectedExecutable);
     } catch {
       pointerValid = false;
     }
@@ -1639,6 +1639,14 @@ export async function collectDoctorReport(
         label: pinState.complete
           ? `Project pin: ${pinned} is installed`
           : `Project pin: ${pinned} is not installed completely`,
+        fix: `run \`aidlc config --pin ${pinned}\``,
+      });
+      const targetState = inspectProjectPinTarget(projectDir, pinned);
+      results.push({
+        pass: targetState.valid,
+        label: targetState.valid
+          ? `Project pin target: ${pinned} resolves before engine startup`
+          : `Project pin target: ${targetState.reason ?? "invalid"}`,
         fix: `run \`aidlc config --pin ${pinned}\``,
       });
     }

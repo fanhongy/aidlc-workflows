@@ -254,8 +254,8 @@ Successful config prints the host-specific next step:
 | `aidlc update` | Install latest with the complete all-harness runtime, then atomically activate. Accepts `--version <x.y.z>`, `--from <release-dir>`, `--release-base-url <url>`, `--ca-bundle <path>`, `--offline`, and `--dry-run`. |
 | `aidlc update --check` | Refresh update metadata without installing. Returns 5 when behind, 0 when current, 3 when unavailable/offline, and 1 when checks are disabled. |
 | `aidlc use <x.y.z>` | Install the exact version when it is not retained, then make it machine-active without changing project files. |
-| `aidlc config --pin <x.y.z>` | Install the exact version when needed, then write `.aidlc-version` and register the project pin without changing the machine-active pointer. |
-| `aidlc config --unpin` | Remove `.aidlc-version` and its machine-local registry entry. |
+| `aidlc config --pin <x.y.z>` | Install and validate the exact version when needed, then atomically write `.aidlc-version`, record its machine-local resolved target, and register the project pin without changing the machine-active pointer. |
+| `aidlc config --unpin` | Remove `.aidlc-version`, its machine-local resolved target, and its registry entry. |
 
 Update downloads and fully validates a candidate before changing the active
 pointer. Failed updates automatically restore the prior consistent
@@ -270,16 +270,19 @@ aidlc config --pin 2.5.45
 git add .aidlc-version
 ```
 
-`aidlc config --pin <version>` installs the version if needed, writes
-`.aidlc-version`, and registers the real project path in machine-local
-`pins.json`.
+`aidlc config --pin <version>` installs and validates the version if needed,
+writes `.aidlc-version`, records the absolute binary target under the
+gitignored `aidlc/.aidlc-sessions/` runtime directory, and registers the real
+project path in machine-local `pins.json`.
 
-Commit `.aidlc-version`. Engine commands validate the exact retained binary
-and project harness before loading project data, then re-execute that binary
-when it differs from the active version. A missing or incomplete pin fails
-closed with `aidlc config --pin <version>` remediation. Machine lifecycle commands use
-the active binary; `doctor`, `config`, and `use` are never trapped behind a
-broken pin.
+Commit only `.aidlc-version`. For normal installed invocations, the stable
+`aidlc` launcher validates the machine-local target and starts the pinned
+binary directly before project data loads. A direct binary invocation retains
+the dispatcher validation fallback. A missing, malformed, or unavailable
+target fails closed with `aidlc config --pin <version>` remediation, and
+`aidlc doctor` reports the same condition. Machine lifecycle commands use the
+active binary; `doctor`, `config`, and `use` are never trapped behind a broken
+pin.
 
 A fresh clone or CI runner installs the committed version before config:
 

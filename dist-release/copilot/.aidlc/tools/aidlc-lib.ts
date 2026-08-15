@@ -509,11 +509,6 @@ export const RESERVED_FUTURE: ReadonlySet<string> = new Set([
   "archive",
   "rename",
   "show",
-  // Retired verb, still reserved: `intent birth` was the create verb before it
-  // was renamed, so a record named "birth" could not exist in an install made
-  // while it was grammar. Keeping it reserved means such a record stays
-  // switch-reachable and doctor keeps flagging it, instead of the name silently
-  // becoming creatable and colliding.
   "birth",
 ]);
 
@@ -543,10 +538,9 @@ function missingWorkspaceName(
   noun: WorkspaceNoun,
   verb: "switch" | "create" | "space-create",
 ): WorkspaceCommand {
-  const usage =
-    verb === "space-create"
-      ? "space-create <name>"
-      : `${noun} ${verb} <name>`;
+  const usage = verb === "space-create"
+    ? "space-create <name>"
+    : `${noun} ${verb} <name>`;
   return {
     kind: "error",
     noun,
@@ -556,13 +550,18 @@ function missingWorkspaceName(
   };
 }
 
-function reservedFutureWorkspaceVerb(noun: WorkspaceNoun, verb: string): WorkspaceCommand {
+function reservedFutureWorkspaceVerb(
+  noun: WorkspaceNoun,
+  verb: string,
+): WorkspaceCommand {
   return {
     kind: "error",
     noun,
     code: "reserved-future-verb",
     verb,
-    message: `${noun} ${verb} is reserved for a future workspace verb and is not implemented yet. Use ${noun} switch ${verb} to select an existing record with that name.`,
+    message:
+      `${noun} ${verb} is reserved for a future workspace verb and is not implemented yet. ` +
+      `Use ${noun} switch ${verb} to select an existing record with that name.`,
   };
 }
 
@@ -570,11 +569,16 @@ function isWorkspaceNoun(token: string | undefined): token is WorkspaceNoun {
   return token === "intent" || token === "space";
 }
 
-function isReservedFutureWorkspaceVerb(token: string | undefined): token is string {
+function isReservedFutureWorkspaceVerb(
+  token: string | undefined,
+): token is string {
   return token !== undefined && RESERVED_FUTURE.has(token);
 }
 
-function explicitWorkspaceList(noun: WorkspaceNoun, tokens: string[]): WorkspaceCommand {
+function explicitWorkspaceList(
+  noun: WorkspaceNoun,
+  tokens: string[],
+): WorkspaceCommand {
   return { kind: "list", noun, json: tokens[2] === "--json" };
 }
 
@@ -583,7 +587,9 @@ export function parseWorkspaceCommand(tokens: string[]): WorkspaceCommand {
 
   if (head === "space-create") {
     const name = tokens[1];
-    if (name === undefined) return missingWorkspaceName("space", "space-create");
+    if (name === undefined) {
+      return missingWorkspaceName("space", "space-create");
+    }
     return { kind: "create", noun: "space", name };
   }
 
@@ -591,19 +597,15 @@ export function parseWorkspaceCommand(tokens: string[]): WorkspaceCommand {
 
   const noun = head;
   const verbOrName = tokens[1];
-
   if (verbOrName === undefined) {
     return { kind: "list", noun, json: false };
   }
-
   if (verbOrName === "--json") {
     return { kind: "list", noun, json: true };
   }
-
   if (verbOrName === "help" || verbOrName === "-h") {
     return { kind: "help", noun };
   }
-
   if (isReservedFutureWorkspaceVerb(verbOrName)) {
     return reservedFutureWorkspaceVerb(noun, verbOrName);
   }
@@ -637,21 +639,13 @@ export function parseWorkspaceCommand(tokens: string[]): WorkspaceCommand {
   return { kind: "switch", noun, name: verbOrName, explicit: false };
 }
 
-export function workspaceCommandUtilityArgv(command: WorkspaceCommand): string[] | null {
+export function workspaceCommandUtilityArgv(
+  command: WorkspaceCommand,
+): string[] | null {
   switch (command.kind) {
     case "list":
       return command.json ? [command.noun, "--json"] : [command.noun];
     case "switch":
-      // Explicit `switch <name>` must forward the literal "switch" token so
-      // the utility reads <name> as the switch target even when it shadows a
-      // verb (e.g. `intent switch create` reaching a pre-existing intent named
-      // "create" instead of re-reading "create" as the create verb). Bare-name
-      // sugar (`space teamB`, explicit: false) is unaffected by that bug and
-      // must keep the original 2-token shape: the utility's bare
-      // `[noun, name]` form IS the switch (see handleIntent/handleSpace's
-      // "verbOrTarget = name when not a recognized verb" branch), and every
-      // downstream consumer (the classifier's terminal print, the Kiro
-      // adapter, t114/t178/t198) pins that shape as still-desired behavior.
       return command.explicit
         ? [command.noun, "switch", command.name]
         : [command.noun, command.name];
@@ -699,13 +693,38 @@ export const RESERVED_RECORD_NAME_LIST = Object.freeze(
   [...new Set(["help", ...INTENT_VERBS, ...SPACE_VERBS, ...RESERVED_FUTURE])],
 );
 
-// Slugs a record (intent or space) may never take. These names are grammar:
-// help, current workspace verbs, and reserved future verbs all change how the
-// router reads `intent <token>` / `space <token>`. Refusing them at the
-// creation chokepoints keeps new records reachable. Pre-existing records with
-// these names remain reachable via explicit `switch`; doctor flags them as an
-// advisory so humans can rename them deliberately.
-export const RESERVED_RECORD_NAMES: ReadonlySet<string> = new Set(RESERVED_RECORD_NAME_LIST);
+export const RESERVED_RECORD_NAMES: ReadonlySet<string> = new Set(
+  RESERVED_RECORD_NAME_LIST,
+);
+
+export type PluginCommand =
+  | { kind: "not-plugin" }
+  | { kind: "help" }
+  | { kind: "error"; message: string }
+  | { kind: "run"; argv: string[] };
+
+export function parsePluginCommand(args: string[]): PluginCommand {
+  if (args[0] !== "plugin") return { kind: "not-plugin" };
+  const verb = args[1];
+  if (verb === "help" || verb === "-h" || verb === "--help") {
+    return { kind: "help" };
+  }
+  const target = verb === "select"
+    ? "select-plugins"
+    : verb === "list"
+    ? "plugin-list"
+    : verb === "sync"
+    ? "plugin-sync"
+    : undefined;
+  if (target !== undefined) {
+    return { kind: "run", argv: [target, ...args.slice(2)] };
+  }
+  const detail = verb ? `unknown verb '${verb}'` : "missing verb";
+  return {
+    kind: "error",
+    message: `aidlc: ${detail} for noun 'plugin'; try 'aidlc help --all'`,
+  };
+}
 
 // A classified terminal command: the aidlc-utility.ts subcommand to run, plus an
 // optional positional arg (the <name> for a workspace verb). `source` records
@@ -717,38 +736,6 @@ export interface TerminalCommand {
   error?: string;
   display?: string;
   source: "read-only-flag" | "workspace-verb" | "plugin-verb";
-}
-
-export type PluginCommand =
-  | { kind: "not-plugin" }
-  | { kind: "help" }
-  | { kind: "error"; message: string }
-  | { kind: "run"; argv: string[] };
-
-// Parse the public `plugin` noun once for every entrypoint. The slash
-// orchestrator, Kiro's pre-LLM interceptor, and the binary dispatcher must all
-// agree that these are terminal utilities rather than freeform workflow text.
-export function parsePluginCommand(args: string[]): PluginCommand {
-  if (args[0] !== "plugin") return { kind: "not-plugin" };
-  const verb = args[1];
-  if (verb === "help" || verb === "-h" || verb === "--help") {
-    return { kind: "help" };
-  }
-  const target = verb === "select"
-    ? "select-plugins"
-    : verb === "list"
-      ? "plugin-list"
-      : verb === "sync"
-        ? "plugin-sync"
-        : undefined;
-  if (target !== undefined) {
-    return { kind: "run", argv: [target, ...args.slice(2)] };
-  }
-  const detail = verb ? `unknown verb '${verb}'` : "missing verb";
-  return {
-    kind: "error",
-    message: `aidlc: ${detail} for noun 'plugin'; try 'aidlc help --all'`,
-  };
 }
 
 function terminalCommandFromPluginCommand(

@@ -151,7 +151,7 @@
       "sha256:e64a0e750f231a3e62abf859a4cbc540788944d80d9a175fd9ae4cb23a231920"
     ],
     ".cursor/hooks/aidlc-statusline.ts": [
-      "sha256:595f10fba24fa5d74c44a0d0a3a0088076d161d658e8f3f3f6baca594729daf3"
+      "sha256:313c3190a31fd417991aa0f4247d8a536ce0fae6a91bdfcf647642ef7ee00f6a"
     ],
     ".cursor/hooks.json": [
       "sha256:5783b9260a41896dcf4c6603654af54d477a7be3ea9f10ee8847de3c5bc20d38"
@@ -313,7 +313,7 @@
       "sha256:326d7e6a0d2b754a0f939ec1bdf4afd88f2c6b25c15058a2eb87b525a624dcd3"
     ],
     ".cursor/tools/aidlc-command.ts": [
-      "sha256:727c4bf666bb962984e1408b6a73e781171cba9aa315343cea9e268786b7f3e7"
+      "sha256:8ec4770586914cf652cfc5f1b31b830646b6b21282266b2a513263da35424845"
     ],
     ".cursor/tools/aidlc-runtime-paths.ts": [
       "sha256:99747d215c2f768ee1cb83289fbec4ec4f25106fc1f830e8b4d156243e82e555"

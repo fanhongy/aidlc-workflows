@@ -23,11 +23,13 @@ import {
   TOOLS,
   type Route,
   renderAllHelp,
+  renderEngineHelp,
   renderHumanHelp,
   renderNamespaceHelp,
   resolveAction,
   routePolicyFor,
 } from "../../core/tools/aidlc.ts";
+import { launcherRouteUsesPin } from "../../core/tools/aidlc-command.ts";
 import { targetTriple } from "../../core/tools/aidlc-install-paths.ts";
 import {
   discoverProjectHarnesses,
@@ -569,6 +571,21 @@ describe("t230 dispatcher route parity", () => {
 });
 
 describe("t230 version-aware startup", () => {
+  test("stable launcher pin classification matches every registered route", () => {
+    for (const route of ROUTES) {
+      const verb = route.verbs[0]?.split(/\s+/)[0] ?? "";
+      const argv = route.namespace === "public"
+        ? [verb]
+        : route.group === "top"
+        ? [route.namespace, verb]
+        : [route.namespace, route.group, verb];
+      expect(
+        launcherRouteUsesPin(argv),
+        `${route.id}: ${argv.join(" ")}`,
+      ).toBe(route.pinPolicy === "pinned");
+    }
+  });
+
   test("unpinned engine routes refuse a project from another major", () => {
     const project = makeProject();
     const stampPath = join(project, ".claude", "tools", "data", "aidlc-stamp.json");
@@ -1186,8 +1203,8 @@ describe("t230 dispatcher route completeness", () => {
     expect(result.stderr.toString()).toBe("aidlc: --project-dir requires a path value\n");
   });
 
-  test("engine help is generated from the route table", () => {
-    const text = renderNamespaceHelp(ENGINE_NAMESPACE_HELP);
+  test("engine help is generated from the route table", async () => {
+    const text = await renderEngineHelp();
     expect(text).toContain("Engine machinery");
     const actualGroups = new Set(
       text.split("\n")
@@ -1218,6 +1235,7 @@ describe("t230 dispatcher route completeness", () => {
       "aidlc-claim-sources.md",
       "aidlc-linter.md",
       "aidlc-required-sections.md",
+      "aidlc-traceability.md",
       "aidlc-type-check.md",
       "aidlc-upstream-coverage.md",
     ]) {

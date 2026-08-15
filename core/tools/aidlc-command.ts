@@ -28,6 +28,220 @@ export function trustedCommand(suffix = ""): string {
   return suffix ? `${TRUSTED_COMMAND_PREFIX} ${suffix}` : TRUSTED_COMMAND_PREFIX;
 }
 
+// Lightweight dispatcher grammar. aidlc-lib.ts retains the same public
+// workspace helpers for methodology callers; keeping this copy in the existing
+// command module avoids loading the full methodology graph at CLI startup.
+export const PINNED_TOP_LEVEL_ROUTES = [
+  "next",
+  "continue",
+  "report",
+  "park",
+  "compose",
+  "--status",
+] as const;
+
+export const PINNED_SYSTEM_GROUPS = ["workspace-sync"] as const;
+
+const LAUNCHER_FLAG_VALUES = new Set(["--project-dir"]);
+const LAUNCHER_GLOBAL_FLAGS = new Set([
+  "--json",
+  "--quiet",
+  "--no-color",
+  "--yes",
+  "--offline",
+  "--verbose",
+]);
+
+export function launcherRouteUsesPin(argv: readonly string[]): boolean {
+  const route: string[] = [];
+  for (let index = 0; index < argv.length && route.length < 2; index++) {
+    const token = argv[index];
+    if (LAUNCHER_FLAG_VALUES.has(token)) {
+      index++;
+      continue;
+    }
+    if (LAUNCHER_GLOBAL_FLAGS.has(token)) continue;
+    route.push(token);
+  }
+  const [head, noun] = route;
+  if (head === "engine") {
+    return Boolean(noun && noun !== "--help" && noun !== "-h");
+  }
+  if (head === "system") {
+    return PINNED_SYSTEM_GROUPS.includes(
+      noun as (typeof PINNED_SYSTEM_GROUPS)[number],
+    );
+  }
+  return PINNED_TOP_LEVEL_ROUTES.includes(
+    head as (typeof PINNED_TOP_LEVEL_ROUTES)[number],
+  );
+}
+
+type DispatcherWorkspaceNoun = "intent" | "space";
+
+const DISPATCHER_INTENT_VERBS = new Set(["list", "switch", "create"]);
+const DISPATCHER_SPACE_VERBS = new Set(["list", "switch", "create"]);
+const DISPATCHER_RESERVED_FUTURE = new Set([
+  "archive",
+  "rename",
+  "show",
+  "birth",
+]);
+
+export type DispatcherWorkspaceCommand =
+  | { kind: "list"; noun: DispatcherWorkspaceNoun; json: boolean }
+  | {
+      kind: "switch";
+      noun: DispatcherWorkspaceNoun;
+      name: string;
+      explicit: boolean;
+    }
+  | { kind: "create"; noun: "space"; name: string }
+  | { kind: "create-intent"; noun: "intent"; rest: string[] }
+  | { kind: "help"; noun: DispatcherWorkspaceNoun }
+  | {
+      kind: "error";
+      noun: DispatcherWorkspaceNoun;
+      message: string;
+    }
+  | { kind: "not-workspace" };
+
+function missingDispatcherWorkspaceName(
+  noun: DispatcherWorkspaceNoun,
+  verb: "switch" | "create" | "space-create",
+): DispatcherWorkspaceCommand {
+  const usage = verb === "space-create"
+    ? "space-create <name>"
+    : `${noun} ${verb} <name>`;
+  return {
+    kind: "error",
+    noun,
+    message: `Usage: aidlc ${usage}`,
+  };
+}
+
+function isDispatcherWorkspaceNoun(
+  token: string | undefined,
+): token is DispatcherWorkspaceNoun {
+  return token === "intent" || token === "space";
+}
+
+export function parseDispatcherWorkspaceCommand(
+  tokens: string[],
+): DispatcherWorkspaceCommand {
+  const head = tokens[0];
+  if (head === "space-create") {
+    const name = tokens[1];
+    return name === undefined
+      ? missingDispatcherWorkspaceName("space", "space-create")
+      : { kind: "create", noun: "space", name };
+  }
+  if (!isDispatcherWorkspaceNoun(head)) return { kind: "not-workspace" };
+  const noun = head;
+  const verbOrName = tokens[1];
+  if (verbOrName === undefined) return { kind: "list", noun, json: false };
+  if (verbOrName === "--json") return { kind: "list", noun, json: true };
+  if (verbOrName === "help" || verbOrName === "-h") {
+    return { kind: "help", noun };
+  }
+  if (DISPATCHER_RESERVED_FUTURE.has(verbOrName)) {
+    return {
+      kind: "error",
+      noun,
+      message:
+        `${noun} ${verbOrName} is reserved for a future workspace verb and is not implemented yet. ` +
+        `Use ${noun} switch ${verbOrName} to select an existing record with that name.`,
+    };
+  }
+  if (noun === "intent") {
+    if (verbOrName === "list") return { kind: "list", noun, json: tokens[2] === "--json" };
+    if (verbOrName === "switch") {
+      const name = tokens[2];
+      return name === undefined
+        ? missingDispatcherWorkspaceName(noun, "switch")
+        : { kind: "switch", noun, name, explicit: true };
+    }
+    if (verbOrName === "create") {
+      return { kind: "create-intent", noun, rest: tokens.slice(2) };
+    }
+  }
+  if (noun === "space") {
+    if (verbOrName === "list") return { kind: "list", noun, json: tokens[2] === "--json" };
+    if (verbOrName === "switch") {
+      const name = tokens[2];
+      return name === undefined
+        ? missingDispatcherWorkspaceName(noun, "switch")
+        : { kind: "switch", noun, name, explicit: true };
+    }
+    if (verbOrName === "create") {
+      const name = tokens[2];
+      return name === undefined
+        ? missingDispatcherWorkspaceName(noun, "create")
+        : { kind: "create", noun, name };
+    }
+  }
+  if (
+    (noun === "intent" && DISPATCHER_INTENT_VERBS.has(verbOrName)) ||
+    (noun === "space" && DISPATCHER_SPACE_VERBS.has(verbOrName))
+  ) {
+    return { kind: "error", noun, message: `invalid ${noun} command` };
+  }
+  return { kind: "switch", noun, name: verbOrName, explicit: false };
+}
+
+export function dispatcherWorkspaceUtilityArgv(
+  command: DispatcherWorkspaceCommand,
+): string[] | null {
+  switch (command.kind) {
+    case "list":
+      return command.json ? [command.noun, "--json"] : [command.noun];
+    case "switch":
+      return command.explicit
+        ? [command.noun, "switch", command.name]
+        : [command.noun, command.name];
+    case "create":
+      return ["space-create", command.name];
+    case "create-intent":
+      return ["intent-create", ...command.rest];
+    case "help":
+      return ["help"];
+    case "error":
+    case "not-workspace":
+      return null;
+  }
+}
+
+export type DispatcherPluginCommand =
+  | { kind: "not-plugin" }
+  | { kind: "help" }
+  | { kind: "error"; message: string }
+  | { kind: "run"; argv: string[] };
+
+export function parseDispatcherPluginCommand(
+  args: string[],
+): DispatcherPluginCommand {
+  if (args[0] !== "plugin") return { kind: "not-plugin" };
+  const verb = args[1];
+  if (verb === "help" || verb === "-h" || verb === "--help") {
+    return { kind: "help" };
+  }
+  const target = verb === "select"
+    ? "select-plugins"
+    : verb === "list"
+    ? "plugin-list"
+    : verb === "sync"
+    ? "plugin-sync"
+    : undefined;
+  if (target !== undefined) {
+    return { kind: "run", argv: [target, ...args.slice(2)] };
+  }
+  const detail = verb ? `unknown verb '${verb}'` : "missing verb";
+  return {
+    kind: "error",
+    message: `aidlc: ${detail} for noun 'plugin'; try 'aidlc help --all'`,
+  };
+}
+
 export type NamespaceRouteShape = {
   namespace: string;
   group: string;

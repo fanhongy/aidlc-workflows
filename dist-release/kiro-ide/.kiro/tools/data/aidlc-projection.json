@@ -245,7 +245,7 @@
       "sha256:afa52635c90edae7ca5b7841d7747553144d9fd5ec4678963dbd4f0ff35a556c"
     ],
     ".kiro/hooks/aidlc-statusline.ts": [
-      "sha256:4a5b2ea551385a1e7dbcc53c92d0b599171016b8a5e14e11e0894f82be01c669"
+      "sha256:28b9cb2ae63fd15eba6a6a9485613eeff56ed894c18be233c712c6053c803882"
     ],
     ".kiro/hooks/aidlc-sync-workflow-state.json": [
       "sha256:a7c0c42f6046e7bcf054bb1cc2cd8e188af600082922bcb212a0653aaf4605f7"
@@ -407,7 +407,7 @@
       "sha256:36433acbe9be3df5dc4d3029ca3f8bd39c6ed4f7268700288764543185565414"
     ],
     ".kiro/tools/aidlc-command.ts": [
-      "sha256:dee25e620792bdf0b5b06cd92abb953798c94d77cf564688fc328d0bab5fb858"
+      "sha256:116630ea1377ebe020d04d03415cd60586c60881abc24937ca648b4500964d62"
     ],
     ".kiro/tools/aidlc-runtime-paths.ts": [
       "sha256:aa58a529cb01b5506795ed0628fba31df5a10867d58dbedea588bb69ccd1d986"

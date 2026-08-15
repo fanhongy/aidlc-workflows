@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -15,6 +16,10 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { extractTarGz } from "./aidlc-archive.ts";
+import {
+  PINNED_SYSTEM_GROUPS,
+  PINNED_TOP_LEVEL_ROUTES,
+} from "./aidlc-command.ts";
 import {
   renderCompletion,
   type Shell,
@@ -41,14 +46,17 @@ import {
   commandPath,
   installedExecutablePath,
   inspectInstalledVersion,
+  installedVersionFingerprint,
   installRoot,
   machineTransactionRoot,
   packageManagerForExecutable,
+  projectPinTargetPath,
   projectDirFrom,
   requireVersion,
   readActiveExecutable,
   rollbackVersionPath,
   runtimeRoot,
+  STRICT_SEMVER,
   targetTriple,
   versionRoot,
   versionsRoot,
@@ -78,6 +86,7 @@ import {
   discoverProjectHarnesses,
   runtimeHarnessDir,
 } from "./aidlc-runtime-paths.ts";
+import { AIDLC_VERSION } from "./aidlc-version.ts";
 
 class LifecycleCommandError extends Error {
   constructor(
@@ -165,8 +174,18 @@ function requireConfirmation(argv: readonly string[], message: string): void {
 
 function windowsLauncherOwnedByInstaller(): boolean {
   try {
+    const helper = readFileSync(windowsShimPath(), "utf-8");
     return readFileSync(commandPath(), "utf-8") === windowsShim() &&
-      readFileSync(windowsShimPath(), "utf-8") === windowsShimHelper();
+      (helper === windowsShimHelper() || helper === legacyWindowsShimHelper());
+  } catch {
+    return false;
+  }
+}
+
+function unixLauncherOwnedByInstaller(): boolean {
+  try {
+    return lstatSync(commandPath()).isFile() &&
+      readFileSync(commandPath(), "utf-8") === unixShim();
   } catch {
     return false;
   }
@@ -178,8 +197,14 @@ function commandOwnedByInstaller(version: string): boolean {
       return windowsLauncherOwnedByInstaller() &&
         readActiveExecutable() === resolve(installedExecutablePath(version));
     }
-    return lstatSync(commandPath()).isSymbolicLink() &&
-      realpathSync(commandPath()) === realpathSync(installedExecutablePath(version));
+    if (
+      lstatSync(commandPath()).isSymbolicLink() &&
+      realpathSync(commandPath()) === realpathSync(installedExecutablePath(version))
+    ) {
+      return true;
+    }
+    return unixLauncherOwnedByInstaller() &&
+      readActiveExecutable() === resolve(installedExecutablePath(version));
   } catch {
     return false;
   }
@@ -246,24 +271,42 @@ function registeredPins(strict = false): {
 function commitProjectPin(projectDir: string, version: string | null): void {
   const project = existsSync(projectDir) ? realpathSync(projectDir) : resolve(projectDir);
   const pinPath = join(projectDir, ".aidlc-version");
+  const targetPath = projectPinTargetPath(projectDir);
   const registryPath = join(installRoot(), "pins.json");
   const pins = readPinRegistry(true).pins;
   if (version === null) delete pins[project];
   else pins[project] = version;
 
   const projectOperations = version === null
-    ? existsSync(pinPath)
-      ? [{
-          kind: "remove" as const,
-          path: ".aidlc-version",
-          expected: transactionState(pinPath) as string,
-        }]
-      : []
-    : [writeOperation(
-        ".aidlc-version",
-        `${version}\n`,
-        transactionState(pinPath),
-      )];
+    ? [
+        ...(existsSync(pinPath)
+          ? [{
+              kind: "remove" as const,
+              path: ".aidlc-version",
+              expected: transactionState(pinPath) as string,
+            }]
+          : []),
+        ...(existsSync(targetPath)
+          ? [{
+              kind: "remove" as const,
+              path: relative(projectDir, targetPath),
+              expected: transactionState(targetPath) as string,
+            }]
+          : []),
+      ]
+    : [
+        writeOperation(
+          ".aidlc-version",
+          `${version}\n`,
+          transactionState(pinPath),
+        ),
+        writeOperation(
+          relative(projectDir, targetPath),
+          `${resolve(installedExecutablePath(version))}\n`,
+          transactionState(targetPath),
+          0o600,
+        ),
+      ];
 
   const root = machineTransactionRoot();
   executePlan({
@@ -285,6 +328,261 @@ function commitProjectPin(projectDir: string, version: string | null): void {
       });
     },
   });
+}
+
+type PinResolutionCache = {
+  schemaVersion: 1;
+  session: string;
+  version: string;
+  distribution: string | null;
+  fingerprint: string;
+  validatedAt: number;
+};
+
+export type PinnedDispatchResult =
+  | { kind: "none" }
+  | {
+      kind: "failure";
+      code: number;
+      message: string;
+      remediation: string;
+    }
+  | { kind: "execute"; executable: string; version: string };
+
+const PIN_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function withoutProjectDirFlag(argv: readonly string[]): string[] {
+  const clean: string[] = [];
+  for (let index = 0; index < argv.length; index++) {
+    if (
+      ["--json", "--quiet", "--no-color", "--yes", "--offline", "--verbose"]
+        .includes(argv[index])
+    ) {
+      continue;
+    }
+    if (argv[index] === "--project-dir") {
+      index++;
+      continue;
+    }
+    clean.push(argv[index]);
+  }
+  return clean;
+}
+
+function hashIdentity(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function pinSessionId(
+  argv: readonly string[],
+  input: string | null,
+): string | null {
+  if (input) {
+    try {
+      const value = JSON.parse(input) as { session_id?: unknown };
+      if (typeof value.session_id === "string" && value.session_id.length > 0) {
+        return value.session_id;
+      }
+    } catch {
+      // Host-specific fallbacks below cover transports without JSON stdin.
+    }
+  }
+  const clean = withoutProjectDirFlag(argv);
+  if (
+    clean[0] === "engine" &&
+    clean[1] === "adapter" &&
+    clean[2] === "kiro-ide"
+  ) {
+    const vscodePid = process.env.VSCODE_PID?.trim();
+    const vscodeIpc = process.env.VSCODE_IPC_HOOK?.trim();
+    if (vscodePid || vscodeIpc) {
+      return `kiro-ide:${vscodePid ?? ""}:${vscodeIpc ?? ""}`;
+    }
+  }
+  return null;
+}
+
+function pinCachePath(projectDir: string, sessionId: string): string {
+  const project = existsSync(projectDir)
+    ? realpathSync(projectDir)
+    : resolve(projectDir);
+  return join(
+    installRoot(),
+    "pin-resolution-cache",
+    `${hashIdentity(project)}-${hashIdentity(sessionId)}.json`,
+  );
+}
+
+function readPinCache(
+  projectDir: string,
+  sessionId: string,
+): PinResolutionCache | null {
+  try {
+    const value = JSON.parse(
+      readFileSync(pinCachePath(projectDir, sessionId), "utf-8"),
+    ) as PinResolutionCache;
+    return value.schemaVersion === 1 &&
+        typeof value.session === "string" &&
+        typeof value.version === "string" &&
+        (value.distribution === null || typeof value.distribution === "string") &&
+        typeof value.fingerprint === "string" &&
+        typeof value.validatedAt === "number"
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePinCache(
+  projectDir: string,
+  sessionId: string,
+  version: string,
+  distribution: string | null,
+  fingerprint: string,
+): void {
+  const path = pinCachePath(projectDir, sessionId);
+  const root = machineTransactionRoot();
+  const value: PinResolutionCache = {
+    schemaVersion: 1,
+    session: hashIdentity(sessionId),
+    version,
+    distribution,
+    fingerprint,
+    validatedAt: Date.now(),
+  };
+  executePlan({
+    schemaVersion: 1,
+    root,
+    operations: [writeOperation(
+      relative(root, path),
+      `${JSON.stringify(value, null, 2)}\n`,
+      transactionState(path),
+    )],
+  });
+}
+
+function completePinnedVersion(
+  projectDir: string,
+  sessionId: string | null,
+  version: string,
+  distribution: string | null,
+): boolean {
+  try {
+    const fingerprint = installedVersionFingerprint(version);
+    if (sessionId && fingerprint) {
+      const cache = readPinCache(projectDir, sessionId);
+      if (
+        cache &&
+        cache.session === hashIdentity(sessionId) &&
+        cache.version === version &&
+        cache.distribution === distribution &&
+        cache.fingerprint === fingerprint &&
+        Date.now() - cache.validatedAt >= 0 &&
+        Date.now() - cache.validatedAt <= PIN_CACHE_MAX_AGE_MS
+      ) {
+        return true;
+      }
+    }
+    const inspection = inspectInstalledVersion(version, distribution);
+    if (!inspection.complete) return false;
+    const verifiedFingerprint = installedVersionFingerprint(version);
+    if (!verifiedFingerprint || (fingerprint && fingerprint !== verifiedFingerprint)) {
+      return false;
+    }
+    if (sessionId) {
+      try {
+        writePinCache(
+          projectDir,
+          sessionId,
+          version,
+          distribution,
+          verifiedFingerprint,
+        );
+      } catch {
+        // Cache failure may cost latency, but cannot weaken direct-binary fallback.
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function reconcilePinRegistration(projectDir: string, version: string): void {
+  const path = join(installRoot(), "pins.json");
+  let pins: Record<string, string> = {};
+  try {
+    if (existsSync(path)) {
+      pins = JSON.parse(readFileSync(path, "utf-8")) as Record<string, string>;
+    }
+  } catch {
+    return;
+  }
+  const project = existsSync(projectDir)
+    ? realpathSync(projectDir)
+    : resolve(projectDir);
+  let changed = pins[project] !== version;
+  for (const [registered, pinned] of Object.entries(pins)) {
+    if (pinned === version && registered !== project && !existsSync(registered)) {
+      delete pins[registered];
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  pins[project] = version;
+  const root = machineTransactionRoot();
+  executePlan({
+    schemaVersion: 1,
+    root,
+    operations: [writeOperation(
+      relative(root, path),
+      `${JSON.stringify(pins, null, 2)}\n`,
+      transactionState(path),
+    )],
+  });
+}
+
+export function resolvePinnedDispatch(
+  argv: string[],
+  input: string | null,
+): PinnedDispatchResult {
+  const projectDir = projectDirFrom(argv);
+  const pinPath = join(projectDir, ".aidlc-version");
+  if (!existsSync(pinPath)) return { kind: "none" };
+  const version = readFileSync(pinPath, "utf-8").trim();
+  if (!STRICT_SEMVER.test(version)) {
+    return {
+      kind: "failure",
+      code: EXIT.usage,
+      message: `${pinPath} must contain one strict semver`,
+      remediation: "aidlc config --unpin",
+    };
+  }
+  if (process.env.AIDLC_PIN_DISPATCHED === version) return { kind: "none" };
+  const distribution = projectDistribution(projectDir);
+  if (
+    !completePinnedVersion(
+      projectDir,
+      pinSessionId(argv, input),
+      version,
+      distribution,
+    )
+  ) {
+    return {
+      kind: "failure",
+      code: EXIT.failure,
+      message: `this project requires ${version}, which is not installed completely`,
+      remediation: `aidlc config --pin ${version}`,
+    };
+  }
+  reconcilePinRegistration(projectDir, version);
+  if (version === AIDLC_VERSION) return { kind: "none" };
+  return {
+    kind: "execute",
+    executable: installedExecutablePath(version),
+    version,
+  };
 }
 
 function lifecycleFailureResult(error: unknown, argv: readonly string[]): CommandResult {
@@ -387,7 +685,7 @@ export function activate(version: string, options: { failAfter?: number } = {}):
   const root = machineTransactionRoot();
   const target = installedExecutablePath(version);
   const windows = process.platform === "win32";
-  const shim = windows ? windowsShim() : null;
+  const shim = windows ? windowsShim() : unixShim();
   const shimHelper = windows ? windowsShimHelper() : null;
   if (
     pathEntryExists(commandPath()) &&
@@ -407,7 +705,9 @@ export function activate(version: string, options: { failAfter?: number } = {}):
   if (
     windows &&
     existsSync(windowsShimPath()) &&
-    readFileSync(windowsShimPath(), "utf-8") !== shimHelper
+    ![shimHelper, legacyWindowsShimHelper()].includes(
+      readFileSync(windowsShimPath(), "utf-8"),
+    )
   ) {
     commandError("existing aidlc-shim.ps1 is not owned by this AI-DLC install", EXIT.integrity);
   }
@@ -423,35 +723,33 @@ export function activate(version: string, options: { failAfter?: number } = {}):
     ),
     ...(windows
       ? [
-          ...(!existsSync(windowsShimPath())
-            ? [writeOperation(
-                relative(root, windowsShimPath()),
-                shimHelper as string,
-                "absent",
-                0o700,
-              )]
-            : []),
+          writeOperation(
+            relative(root, windowsShimPath()),
+            shimHelper as string,
+            transactionState(windowsShimPath()),
+            0o700,
+          ),
           ...(!existsSync(commandPath())
             ? [writeOperation(
                 relative(root, commandPath()),
-                shim as string,
+                shim,
                 "absent",
                 0o700,
               )]
             : []),
-          writeOperation(
-            relative(root, activeExecutablePath()),
-            `${target}\r\n`,
-            transactionState(activeExecutablePath()),
-            0o600,
-          ),
         ]
-      : [{
-          kind: "symlink" as const,
-          path: relative(root, commandPath()),
-          target,
-          expected: transactionState(commandPath()),
-        }]),
+      : [writeOperation(
+          relative(root, commandPath()),
+          shim,
+          transactionState(commandPath()),
+          0o700,
+        )]),
+    writeOperation(
+      relative(root, activeExecutablePath()),
+      `${target}${windows ? "\r\n" : "\n"}`,
+      transactionState(activeExecutablePath()),
+      0o600,
+    ),
     ...(Object.entries(COMPLETION_FILES) as Array<[Shell, string]>)
       .map(([shell, file]) => {
         const path = join(installRoot(), "completions", file);
@@ -471,9 +769,10 @@ export function activate(version: string, options: { failAfter?: number } = {}):
     ...options,
     validateCommitted: () => {
       if (
-        windows
-          ? readActiveExecutable() !== resolve(target)
-          : realpathSync(commandPath()) !== realpathSync(target)
+        readActiveExecutable() !== resolve(target) ||
+        (windows
+          ? !windowsLauncherOwnedByInstaller()
+          : !unixLauncherOwnedByInstaller())
       ) {
         throw new Error(`command pointer validation failed for ${version}`);
       }
@@ -494,6 +793,117 @@ export function activate(version: string, options: { failAfter?: number } = {}):
   });
 }
 
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function unixShim(): string {
+  const pointer = shellSingleQuote(activeExecutablePath());
+  const versionPointer = shellSingleQuote(activeVersionPath());
+  const versions = shellSingleQuote(versionsRoot());
+  const topRoutes = PINNED_TOP_LEVEL_ROUTES.join("|");
+  const systemGroups = PINNED_SYSTEM_GROUPS.join("|");
+  return [
+    "#!/bin/sh",
+    "# aidlc-native-launcher-v1",
+    `active_pointer=${pointer}`,
+    `active_version_pointer=${versionPointer}`,
+    `versions_root=${versions}`,
+    "fail_pin() {",
+    "  printf 'aidlc: %s\\n' \"$1\" >&2",
+    "  printf 'Run: %s\\n' \"$2\" >&2",
+    "  exit 1",
+    "}",
+    "read_one_line() {",
+    "  line=",
+    "  extra=",
+    "  {",
+    "    IFS= read -r line || [ -n \"$line\" ] || return 1",
+    "    if IFS= read -r extra; then return 1; fi",
+    "  } < \"$1\"",
+    "  [ -n \"$line\" ] || return 1",
+    "  return 0",
+    "}",
+    "valid_number() {",
+    "  case \"$1\" in ''|*[!0-9]*) return 1 ;; 0) return 0 ;; 0*) return 1 ;; *) return 0 ;; esac",
+    "}",
+    "valid_version() {",
+    "  version_value=$1",
+    "  case \"$version_value\" in *[!0-9.]*|'') return 1 ;; esac",
+    "  old_ifs=$IFS",
+    "  IFS=.",
+    "  set -- $version_value",
+    "  IFS=$old_ifs",
+    "  [ \"$#\" -eq 3 ] && valid_number \"$1\" && valid_number \"$2\" && valid_number \"$3\"",
+    "}",
+    "route_one=",
+    "route_two=",
+    "project_arg=",
+    "expect_project=0",
+    "for argument in \"$@\"; do",
+    "  if [ \"$expect_project\" -eq 1 ]; then project_arg=$argument; expect_project=0; continue; fi",
+    "  case \"$argument\" in",
+    "    --project-dir) expect_project=1; continue ;;",
+    "    --json|--quiet|--no-color|--yes|--offline|--verbose) continue ;;",
+    "  esac",
+    "  if [ -z \"$route_one\" ]; then route_one=$argument; continue; fi",
+    "  if [ -z \"$route_two\" ]; then route_two=$argument; break; fi",
+    "done",
+    "use_pin=0",
+    "if [ \"$route_one\" = engine ] && [ -n \"$route_two\" ] && [ \"$route_two\" != --help ] && [ \"$route_two\" != -h ]; then",
+    "  use_pin=1",
+    "else",
+    "  case \"$route_one\" in",
+    `    ${topRoutes}) use_pin=1 ;;`,
+    "    system)",
+    "      case \"$route_two\" in",
+    `        ${systemGroups}) use_pin=1 ;;`,
+    "      esac",
+    "      ;;",
+    "  esac",
+    "fi",
+    "if [ \"$use_pin\" -eq 1 ]; then",
+    `  project=\${project_arg:-\${AIDLC_PROJECT_DIR:-\${CLAUDE_PROJECT_DIR:-\${KIRO_PROJECT_DIR:-$PWD}}}}`,
+    "  case \"$project\" in /*) ;; *) project=$PWD/$project ;; esac",
+    "  pin_path=$project/.aidlc-version",
+    "  target_path=$project/aidlc/.aidlc-sessions/pin-target",
+    "  if [ -e \"$pin_path\" ] || [ -L \"$pin_path\" ]; then",
+    "    if [ ! -f \"$pin_path\" ] || ! read_one_line \"$pin_path\" || ! valid_version \"$line\"; then",
+    "      fail_pin \"$pin_path must contain one strict semver\" 'aidlc config --unpin'",
+    "    fi",
+    "    pin=$line",
+    "    if ! read_one_line \"$target_path\"; then",
+    "      fail_pin \"resolved target for project pin $pin is missing or malformed\" \"aidlc config --pin $pin\"",
+    "    fi",
+    "    target=$line",
+    "    expected=$versions_root/$pin/aidlc",
+    "    if [ \"$target\" != \"$expected\" ] || [ ! -f \"$target\" ] || [ ! -x \"$target\" ]; then",
+    "      fail_pin \"resolved target for project pin $pin is unavailable\" \"aidlc config --pin $pin\"",
+    "    fi",
+    "    AIDLC_PIN_DISPATCHED=$pin",
+    "    export AIDLC_PIN_DISPATCHED",
+    "    exec \"$target\" \"$@\"",
+    "  fi",
+    "fi",
+    "if ! read_one_line \"$active_version_pointer\" || ! valid_version \"$line\"; then",
+    "  printf 'aidlc: active version marker is missing or malformed\\n' >&2",
+    "  printf 'Run: aidlc update --version <version> --from <release-directory>\\n' >&2",
+    "  exit 4",
+    "fi",
+    "active_version=$line",
+    "if ! read_one_line \"$active_pointer\"; then",
+    "  printf 'aidlc: active command target is missing or malformed\\n' >&2",
+    "  printf 'Run: aidlc update --version <version> --from <release-directory>\\n' >&2",
+    "  exit 4",
+    "fi",
+    "target=$line",
+    "expected=$versions_root/$active_version/aidlc",
+    "if [ \"$target\" != \"$expected\" ] || [ ! -f \"$target\" ] || [ ! -x \"$target\" ]; then exit 4; fi",
+    "exec \"$target\" \"$@\"",
+    "",
+  ].join("\n");
+}
+
 function windowsShim(): string {
   const helper = windowsShimPath().replaceAll("%", "%%");
   return [
@@ -509,6 +919,86 @@ function windowsShimPath(): string {
 }
 
 function windowsShimHelper(): string {
+  const pointer = activeExecutablePath().replaceAll("'", "''");
+  const root = versionsRoot().replaceAll("'", "''");
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `$pointer = '${pointer}'`,
+    `$versions = [IO.Path]::GetFullPath('${root}')`,
+    "try {",
+    "  $route = [Collections.Generic.List[string]]::new()",
+    "  $projectArg = $null",
+    "  $expectProject = $false",
+    "  foreach ($argument in $args) {",
+    "    if ($expectProject) { $projectArg = $argument; $expectProject = $false; continue }",
+    "    if ($argument -eq '--project-dir') { $expectProject = $true; continue }",
+    "    if ($argument -in @('--json', '--quiet', '--no-color', '--yes', '--offline', '--verbose')) { continue }",
+    "    if ($route.Count -lt 2) { $route.Add($argument) }",
+    "  }",
+    "  $usePin = ($route.Count -ge 2 -and $route[0] -eq 'engine' -and $route[1] -notin @('--help', '-h')) -or",
+    `    ($route.Count -ge 1 -and $route[0] -in @(${PINNED_TOP_LEVEL_ROUTES.map((value) => `'${value}'`).join(", ")})) -or`,
+    `    ($route.Count -ge 2 -and $route[0] -eq 'system' -and $route[1] -in @(${PINNED_SYSTEM_GROUPS.map((value) => `'${value}'`).join(", ")}))`,
+    "  if ($usePin) {",
+    "    $project = if ($projectArg) { $projectArg } elseif ($env:AIDLC_PROJECT_DIR) { $env:AIDLC_PROJECT_DIR } elseif ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } elseif ($env:KIRO_PROJECT_DIR) { $env:KIRO_PROJECT_DIR } else { [Environment]::CurrentDirectory }",
+    "    $project = [IO.Path]::GetFullPath($project)",
+    "    $pinPath = [IO.Path]::Combine($project, '.aidlc-version')",
+    "    $targetPath = [IO.Path]::Combine($project, 'aidlc', '.aidlc-sessions', 'pin-target')",
+    "    if ([IO.File]::Exists($pinPath) -or [IO.Directory]::Exists($pinPath)) {",
+    "      if (-not [IO.File]::Exists($pinPath)) {",
+    "        [Console]::Error.WriteLine(\"aidlc: $pinPath must contain one strict semver\")",
+    "        [Console]::Error.WriteLine('Run: aidlc config --unpin')",
+    "        exit 1",
+    "      }",
+    "      $pinRaw = [IO.File]::ReadAllText($pinPath)",
+    "      if ($pinRaw -notmatch '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\r?\\n?$') {",
+    "        [Console]::Error.WriteLine(\"aidlc: $pinPath must contain one strict semver\")",
+    "        [Console]::Error.WriteLine('Run: aidlc config --unpin')",
+    "        exit 1",
+    "      }",
+    "      $pin = $pinRaw.TrimEnd(\"`r\", \"`n\")",
+    "      if (-not [IO.File]::Exists($targetPath)) {",
+    "        [Console]::Error.WriteLine(\"aidlc: resolved target for project pin $pin is missing or malformed\")",
+    "        [Console]::Error.WriteLine(\"Run: aidlc config --pin $pin\")",
+    "        exit 1",
+    "      }",
+    "      $targetRaw = [IO.File]::ReadAllText($targetPath)",
+    "      if ($targetRaw -notmatch '^[^\\r\\n]+\\r?\\n?$') {",
+    "        [Console]::Error.WriteLine(\"aidlc: resolved target for project pin $pin is missing or malformed\")",
+    "        [Console]::Error.WriteLine(\"Run: aidlc config --pin $pin\")",
+    "        exit 1",
+    "      }",
+    "      $target = [IO.Path]::GetFullPath($targetRaw.TrimEnd(\"`r\", \"`n\"))",
+    "      $expected = [IO.Path]::Combine($versions, $pin, 'aidlc.exe')",
+    "      if (-not $target.Equals($expected, [StringComparison]::OrdinalIgnoreCase) -or -not [IO.File]::Exists($target)) {",
+    "        [Console]::Error.WriteLine(\"aidlc: resolved target for project pin $pin is unavailable\")",
+    "        [Console]::Error.WriteLine(\"Run: aidlc config --pin $pin\")",
+    "        exit 1",
+    "      }",
+    "      $env:AIDLC_PIN_DISPATCHED = $pin",
+    "      $env:AIDLC_SHIM_PID = [string]$PID",
+    "      & $target @args",
+    "      exit $LASTEXITCODE",
+    "    }",
+    "  }",
+    "  $raw = [IO.File]::ReadAllText($pointer)",
+    "  if ($raw -notmatch '^[^\\r\\n]+\\r?\\n?$') { exit 4 }",
+    "  $executable = [IO.Path]::GetFullPath($raw.TrimEnd(\"`r\", \"`n\"))",
+    "  $prefix = $versions.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar",
+    "  if (-not $executable.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { exit 4 }",
+    "  $relative = $executable.Substring($prefix.Length)",
+    "  if ($relative -notmatch '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\\\aidlc\\.exe$') { exit 4 }",
+    "  if (-not [IO.File]::Exists($executable)) { exit 4 }",
+    "  $env:AIDLC_SHIM_PID = [string]$PID",
+    "  & $executable @args",
+    "  exit $LASTEXITCODE",
+    "} catch {",
+    "  exit 4",
+    "}",
+    "",
+  ].join("\r\n");
+}
+
+function legacyWindowsShimHelper(): string {
   const pointer = activeExecutablePath().replaceAll("'", "''");
   const root = versionsRoot().replaceAll("'", "''");
   return [

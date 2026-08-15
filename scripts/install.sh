@@ -197,12 +197,32 @@ fi
 
 command_target="$BIN_DIR/aidlc"
 if [ -e "$command_target" ] || [ -L "$command_target" ]; then
-  if [ ! -L "$command_target" ]; then
+  if [ -L "$command_target" ]; then
+    existing_target=$(readlink "$command_target")
+  elif [ -f "$command_target" ] &&
+    [ "$(sed -n '2p' "$command_target")" = "# aidlc-native-launcher-v1" ]; then
+    pointer="$INSTALL_ROOT/active-executable"
+    existing_target=
+    extra=
+    if [ ! -f "$pointer" ]; then
+      fail 4 failed \
+        "existing $command_target has no installer-owned active pointer" \
+        "choose an empty AIDLC_BIN_DIR or remove the mixed-ownership command"
+    fi
+    {
+      IFS= read -r existing_target || [ -n "$existing_target" ] || existing_target=
+      if IFS= read -r extra; then existing_target=; fi
+    } < "$pointer"
+    if [ -z "$existing_target" ]; then
+      fail 4 failed \
+        "existing $command_target has a malformed installer-owned active pointer" \
+        "choose an empty AIDLC_BIN_DIR or remove the mixed-ownership command"
+    fi
+  else
     fail 4 failed \
       "existing $command_target is not owned by the AI-DLC installer" \
       "choose an empty AIDLC_BIN_DIR or remove the mixed-ownership command"
   fi
-  existing_target=$(readlink "$command_target")
   case "$existing_target" in
     "$INSTALL_ROOT"/versions/*/aidlc)
       existing_version=${existing_target#"$INSTALL_ROOT"/versions/}

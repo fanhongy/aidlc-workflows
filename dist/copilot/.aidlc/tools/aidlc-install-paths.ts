@@ -94,6 +94,10 @@ export function activeExecutablePath(): string {
   return join(installRoot(), "active-executable");
 }
 
+export function projectPinTargetPath(projectDir: string): string {
+  return join(resolve(projectDir), "aidlc", ".aidlc-sessions", "pin-target");
+}
+
 export function windowsUninstallFencePath(): string {
   const key = createHash("sha256")
     .update(resolve(installRoot()))
@@ -113,13 +117,11 @@ export function readVersionMarker(path: string): string | null {
 }
 
 export function activeVersion(): string | null {
-  if (platform() === "win32") {
-    try {
-      const executable = readActiveExecutable();
-      if (executable) return basename(dirname(executable));
-    } catch {
-      // The marker fallback lets doctor report a damaged pointer.
-    }
+  try {
+    const executable = readActiveExecutable();
+    if (executable) return basename(dirname(executable));
+  } catch {
+    // The marker fallback lets doctor report a damaged pointer.
   }
   for (const candidatePath of [process.execPath, commandPath()]) {
     try {
@@ -154,14 +156,64 @@ export function readActiveExecutable(): string | null {
   const normalized = resolve(executable);
   const parent = dirname(normalized);
   const version = basename(parent);
+  const expectedName = platform() === "win32" ? "aidlc.exe" : "aidlc";
   if (
-    basename(normalized).toLowerCase() !== "aidlc.exe" ||
+    basename(normalized).toLowerCase() !== expectedName ||
     dirname(parent) !== resolve(versionsRoot()) ||
     !STRICT_SEMVER.test(version)
   ) {
     throw new Error(`${path} points outside the installed versions root`);
   }
   return normalized;
+}
+
+export function inspectProjectPinTarget(
+  projectDir: string,
+  version: string,
+): { valid: boolean; target: string; reason?: string } {
+  const path = projectPinTargetPath(projectDir);
+  if (!existsSync(path)) {
+    return { valid: false, target: path, reason: "resolved target marker is missing" };
+  }
+  let raw: string;
+  try {
+    if (!statSync(path).isFile()) {
+      return { valid: false, target: path, reason: "resolved target marker is not a regular file" };
+    }
+    raw = readFileSync(path, "utf-8");
+  } catch (error) {
+    return {
+      valid: false,
+      target: path,
+      reason: `resolved target marker is unreadable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+  if (!/^[^\r\n]+\r?\n?$/.test(raw)) {
+    return { valid: false, target: path, reason: "resolved target marker must contain one path" };
+  }
+  const target = resolve(raw.replace(/\r?\n$/, ""));
+  const expected = resolve(installedExecutablePath(version));
+  if (target !== expected) {
+    return {
+      valid: false,
+      target,
+      reason: `resolved target does not select retained version ${version}`,
+    };
+  }
+  try {
+    const stat = statSync(target);
+    if (!stat.isFile()) {
+      return { valid: false, target, reason: "resolved target is not a regular file" };
+    }
+    if (platform() !== "win32" && (stat.mode & 0o111) === 0) {
+      return { valid: false, target, reason: "resolved target is not executable" };
+    }
+  } catch {
+    return { valid: false, target, reason: "resolved target is missing" };
+  }
+  return { valid: true, target };
 }
 
 function realpathOrResolved(path: string): string {

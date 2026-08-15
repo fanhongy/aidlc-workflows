@@ -11,7 +11,6 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -31,7 +30,9 @@ import { sha256Bytes, walkFiles } from "../../core/tools/aidlc-distribution.ts";
 import {
   machineTransactionRoot,
   packageManagerForExecutable,
+  projectPinTargetPath,
   projectDirFrom,
+  readActiveExecutable,
   targetTriple,
   windowsUninstallFencePath,
 } from "../../core/tools/aidlc-install-paths.ts";
@@ -1951,6 +1952,9 @@ describe("t243 release lifecycle", () => {
     );
     expect(pin.status, pin.stdout + pin.stderr).toBe(0);
     expect(readFileSync(join(project, ".aidlc-version"), "utf-8")).toBe(`${NEXT_VERSION}\n`);
+    expect(readFileSync(projectPinTargetPath(project), "utf-8")).toBe(
+      `${join(machine, "versions", NEXT_VERSION, "aidlc")}\n`,
+    );
     expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
     const pins = readFileSync(join(machine, "pins.json"), "utf-8");
     expect(pins).toContain(NEXT_VERSION);
@@ -1963,6 +1967,7 @@ describe("t243 release lifecycle", () => {
     const unpinned = run(INIT, ["config", "--unpin", "--project-dir", project], project, env);
     expect(unpinned.status, unpinned.stdout + unpinned.stderr).toBe(0);
     expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
+    expect(existsSync(projectPinTargetPath(project))).toBe(false);
     expect(readFileSync(join(machine, "pins.json"), "utf-8")).not.toContain(project);
     writeFileSync(
       join(machine, "pins.json"),
@@ -1993,19 +1998,99 @@ describe("t243 release lifecycle", () => {
     expect(run(LIFECYCLE, [
       "use", AIDLC_VERSION, "--from", release,
     ], project, env).status).toBe(0);
-    mkdirSync(join(project, ".aidlc-version"));
-    writeFileSync(join(project, ".aidlc-version", "owned.txt"), "keep\n");
+    const targetPath = projectPinTargetPath(project);
+    mkdirSync(targetPath, { recursive: true });
+    writeFileSync(join(targetPath, "owned.txt"), "keep\n");
 
     const failed = run(INIT, [
       "config", "--pin", AIDLC_VERSION, "--project-dir", project,
     ], project, env);
     expect(failed.status).toBe(1);
-    expect(readFileSync(join(project, ".aidlc-version", "owned.txt"), "utf-8")).toBe("keep\n");
+    expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
+    expect(readFileSync(join(targetPath, "owned.txt"), "utf-8")).toBe("keep\n");
     expect(
       !existsSync(join(machine, "pins.json")) ||
         !readFileSync(join(machine, "pins.json"), "utf-8").includes(project),
     ).toBe(true);
   }, 60_000);
+
+  test.skipIf(process.platform === "win32")(
+    "stable launcher selects the configured pin directly and fails closed when its target disappears",
+    () => {
+      const currentRelease = fixtureRelease();
+      const pinnedRelease = fixtureRelease(NEXT_VERSION);
+      const machine = temp("aidlc-t243-pin-launcher-machine-");
+      const project = temp("aidlc-t243-pin-launcher-project-");
+      const log = join(machine, "launches.log");
+      mkdirSync(join(project, ".git"));
+      const env = {
+        AIDLC_INSTALL_ROOT: machine,
+        AIDLC_BIN_DIR: join(machine, "bin"),
+      };
+      expect(run(LIFECYCLE, [
+        "use", AIDLC_VERSION, "--from", currentRelease,
+      ], project, env).status).toBe(0);
+      expect(run(INIT, [
+        "config", "--pin", NEXT_VERSION, "--from", pinnedRelease, "--project-dir", project,
+      ], project, env).status).toBe(0);
+
+      const active = join(machine, "versions", AIDLC_VERSION, "aidlc");
+      const pinned = join(machine, "versions", NEXT_VERSION, "aidlc");
+      writeFileSync(
+        active,
+        `#!/bin/sh\nprintf 'active\\n' >> ${JSON.stringify(log)}\nexit 0\n`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        pinned,
+        `#!/bin/sh\nprintf 'pinned\\n' >> ${JSON.stringify(log)}\nexit 0\n`,
+        { mode: 0o755 },
+      );
+
+      const command = join(machine, "bin", "aidlc");
+      const engine = spawnSync(command, ["engine", "status"], {
+        cwd: project,
+        env: { ...process.env, ...env },
+        encoding: "utf-8",
+      });
+      expect(engine.status, engine.stderr ?? "").toBe(0);
+      expect(readFileSync(log, "utf-8")).toBe("pinned\n");
+
+      const machineRoute = spawnSync(command, ["version"], {
+        cwd: project,
+        env: { ...process.env, ...env },
+        encoding: "utf-8",
+      });
+      expect(machineRoute.status, machineRoute.stderr ?? "").toBe(0);
+      expect(readFileSync(log, "utf-8")).toBe("pinned\nactive\n");
+
+      rmSync(pinned);
+      const missing = spawnSync(command, ["engine", "status"], {
+        cwd: project,
+        env: { ...process.env, ...env },
+        encoding: "utf-8",
+      });
+      expect(missing.status).toBe(1);
+      expect(missing.stderr).toContain(`resolved target for project pin ${NEXT_VERSION} is unavailable`);
+      expect(missing.stderr).toContain(`aidlc config --pin ${NEXT_VERSION}`);
+      expect(readFileSync(log, "utf-8")).toBe("pinned\nactive\n");
+
+      const doctor = run(
+        DISPATCHER,
+        ["doctor", "--json", "--project-dir", project],
+        project,
+        env,
+      );
+      const checks = (JSON.parse(doctor.stdout) as {
+        data: { checks: Array<{ pass: boolean; label: string; fix?: string }> };
+      }).data.checks;
+      expect(checks).toContainEqual(expect.objectContaining({
+        pass: false,
+        label: "Project pin target: resolved target is missing",
+        fix: `run \`aidlc config --pin ${NEXT_VERSION}\``,
+      }));
+    },
+  );
 
   test("activation fault rolls pointer, active marker, and rollback marker back together", () => {
     const currentRelease = fixtureRelease();
@@ -2034,16 +2119,19 @@ describe("t243 release lifecycle", () => {
     process.env.AIDLC_BIN_DIR = bin;
     try {
       const command = join(bin, "aidlc");
-      const oldTarget = realpathSync(command);
+      const oldTarget = readActiveExecutable();
+      const oldLauncher = readFileSync(command, "utf-8");
       for (const failAfter of [1, 2, 3]) {
         expect(() => activate(nextVersion, { failAfter })).toThrow("injected transaction failure");
         expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
-        expect(realpathSync(command)).toBe(oldTarget);
+        expect(readActiveExecutable()).toBe(oldTarget);
+        expect(readFileSync(command, "utf-8")).toBe(oldLauncher);
         expect(existsSync(join(machine, "rollback-version"))).toBe(false);
       }
 
       activate(nextVersion);
       expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(nextVersion);
+      expect(readActiveExecutable()).toBe(join(machine, "versions", nextVersion, "aidlc"));
       expect(readFileSync(join(machine, "rollback-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
     } finally {
       if (priorEnv.install === undefined) delete process.env.AIDLC_INSTALL_ROOT;
@@ -2076,8 +2164,7 @@ describe("t243 release lifecycle", () => {
     try {
       expect(() => activate(badVersion)).toThrow("version probe returned");
       expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
-      expect(realpathSync(join(bin, "aidlc")))
-        .toBe(join(machine, "versions", AIDLC_VERSION, "aidlc"));
+      expect(readActiveExecutable()).toBe(join(machine, "versions", AIDLC_VERSION, "aidlc"));
       expect(existsSync(join(machine, "rollback-version"))).toBe(false);
     } finally {
       if (priorInstallRoot === undefined) delete process.env.AIDLC_INSTALL_ROOT;

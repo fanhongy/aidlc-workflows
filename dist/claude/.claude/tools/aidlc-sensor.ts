@@ -60,10 +60,46 @@ import {
 	compiledExecutable,
 	resolveHarnessPath,
 } from "./aidlc-runtime-paths.ts";
+import { parseSensorManifest } from "./aidlc-sensor-schema.ts";
+import claimSourcesSensorSource from "../sensors/aidlc-claim-sources.md" with {
+	type: "text",
+};
+import linterSensorSource from "../sensors/aidlc-linter.md" with {
+	type: "text",
+};
+import requiredSectionsSensorSource from "../sensors/aidlc-required-sections.md" with {
+	type: "text",
+};
+import traceabilitySensorSource from "../sensors/aidlc-traceability.md" with {
+	type: "text",
+};
+import typeCheckSensorSource from "../sensors/aidlc-type-check.md" with {
+	type: "text",
+};
+import upstreamCoverageSensorSource from "../sensors/aidlc-upstream-coverage.md" with {
+	type: "text",
+};
 
 // --- Constants ---
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
+const SENSOR_HELP_SOURCES = [
+	claimSourcesSensorSource,
+	linterSensorSource,
+	requiredSectionsSensorSource,
+	traceabilitySensorSource,
+	typeCheckSensorSource,
+	upstreamCoverageSensorSource,
+] as const;
+
+export function sensorHelpSummaries(): ReadonlyMap<string, string> {
+	return new Map(
+		SENSOR_HELP_SOURCES.map((source) => {
+			const manifest = parseSensorManifest(source);
+			return [`sensor-${manifest.id}`, manifest.description] as const;
+		}),
+	);
+}
 
 // Locked at 100ms in the truth table to disambiguate timeout-induced SIGTERM
 // from external-SIGTERM (parent kill, Ctrl-C). Anything within GRACE of the

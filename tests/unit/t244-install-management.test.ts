@@ -792,12 +792,17 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(result.stdout + result.stderr).not.toContain("system PATH");
   });
 
-  test("strict Windows pointer accepts one versioned executable and rejects extra lines", () => {
+  test("strict active pointer accepts one versioned executable and rejects extra lines", () => {
     const machine = temp("aidlc-t241-pointer-");
     const saved = process.env.AIDLC_INSTALL_ROOT;
     process.env.AIDLC_INSTALL_ROOT = machine;
     try {
-      const executable = join(machine, "versions", "2.5.0", "aidlc.exe");
+      const executable = join(
+        machine,
+        "versions",
+        "2.5.0",
+        process.platform === "win32" ? "aidlc.exe" : "aidlc",
+      );
       mkdirSync(join(machine, "versions", "2.5.0"), { recursive: true });
       writeFileSync(activeExecutablePath(), `${executable}\r\n`);
       expect(readActiveExecutable()).toBe(executable);
@@ -805,7 +810,10 @@ describe("t244 Windows and completion release surfaces", () => {
       expect(() => readActiveExecutable()).toThrow("exactly one executable path");
       writeFileSync(activeExecutablePath(), `${executable} \r\n`);
       expect(() => readActiveExecutable()).toThrow();
-      writeFileSync(activeExecutablePath(), "C:\\outside\\aidlc.exe\r\n");
+      writeFileSync(
+        activeExecutablePath(),
+        `${join(machine, "outside", process.platform === "win32" ? "aidlc.exe" : "aidlc")}\r\n`,
+      );
       expect(() => readActiveExecutable()).toThrow();
     } finally {
       if (saved === undefined) delete process.env.AIDLC_INSTALL_ROOT;

@@ -28,19 +28,6 @@
 // throws (everything is wrapped), and exits 0 in every case.
 
 import { existsSync, readFileSync } from "node:fs";
-import {
-  resolveProjectDirFromHook,
-  isEngineToolCall,
-  stateFilePath,
-  writeCurrentSessionId,
-} from "../tools/aidlc-lib.ts";
-import { isLifecycleBoundaryCommand } from "./aidlc-state-transition-guard.ts";
-import {
-  type FoldMode,
-  foldTranscriptIntoLedger,
-  usageTrackingDisabled,
-  writeCurrentTranscriptPath,
-} from "../tools/aidlc-usage.ts";
 
 // The Current Stage slug from the state file - a minimal substring match,
 // replicating aidlc-continue-workflow.ts's currentStageSlug so byStage keys agree. Returns ""
@@ -50,7 +37,15 @@ function currentStageSlug(stateContent: string): string {
   return (stageMatch?.[1] ?? "").trim();
 }
 
-function isLifecycleBoundaryToolCall(name: string, input: unknown): boolean {
+async function isLifecycleBoundaryToolCall(
+  name: string,
+  input: unknown,
+): Promise<boolean> {
+  const [{ isEngineToolCall }, { isLifecycleBoundaryCommand }] =
+    await Promise.all([
+      import("../tools/aidlc-lib.ts"),
+      import("./aidlc-state-transition-guard.ts"),
+    ]);
   if (!/^(bash|shell|execute_bash)$/i.test(name)) {
     return isEngineToolCall(name, input);
   }
@@ -60,26 +55,50 @@ function isLifecycleBoundaryToolCall(name: string, input: unknown): boolean {
 }
 
 export async function run(input: string): Promise<number> {
-  if (usageTrackingDisabled()) return 0;
-  const projectDir = resolveProjectDirFromHook(import.meta.url);
+  if (process.env.AIDLC_DISABLE_USAGE_TRACKING === "1") return 0;
   let sessionId = "";
   let transcriptPath: string | null = null;
-  let foldMode: FoldMode = "holdback";
+  let hookEvent = "";
+  let toolName = "";
+  let toolInput: unknown;
   try {
     const raw: unknown = JSON.parse(input);
     if (raw !== null && typeof raw === "object") {
       const obj = raw as Record<string, unknown>;
       if (typeof obj.session_id === "string") sessionId = obj.session_id;
-      if (obj.hook_event_name === "PreToolUse") {
-        const toolName = typeof obj.tool_name === "string" ? obj.tool_name : "";
-        foldMode = isLifecycleBoundaryToolCall(toolName, obj.tool_input) ? "flush-all" : "seal-main";
-      }
+      hookEvent = typeof obj.hook_event_name === "string"
+        ? obj.hook_event_name
+        : "";
+      toolName = typeof obj.tool_name === "string" ? obj.tool_name : "";
+      toolInput = obj.tool_input;
       if (typeof obj.transcript_path === "string") transcriptPath = obj.transcript_path;
     }
   } catch {
     return 0;
   }
   if (!transcriptPath) return 0;
+  const [
+    {
+      resolveProjectDirFromHook,
+      stateFilePath,
+      writeCurrentSessionId,
+    },
+    {
+      foldTranscriptIntoLedger,
+      usageTrackingDisabled,
+      writeCurrentTranscriptPath,
+    },
+  ] = await Promise.all([
+    import("../tools/aidlc-lib.ts"),
+    import("../tools/aidlc-usage.ts"),
+  ]);
+  if (usageTrackingDisabled()) return 0;
+  const projectDir = resolveProjectDirFromHook(import.meta.url);
+  const foldMode = hookEvent === "PreToolUse"
+    ? await isLifecycleBoundaryToolCall(toolName, toolInput)
+      ? "flush-all"
+      : "seal-main"
+    : "holdback";
   let currentStage: string | null = null;
   try {
     const statePath = stateFilePath(projectDir);
