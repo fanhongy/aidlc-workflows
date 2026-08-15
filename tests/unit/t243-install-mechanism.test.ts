@@ -839,6 +839,55 @@ describe("t243 project initialization", () => {
     expect(readFileSync(skill, "utf-8")).not.toContain("Local orchestrator edit.");
   }, 60_000);
 
+  test("refresh updates shipped skills while preserving project-only skill overlays", () => {
+    const project = temp("aidlc-t243-skill-overlay-");
+    mkdirSync(join(project, ".git"));
+    const installed = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      CLAUDE_RELEASE,
+      "--harness",
+      "claude",
+    ], project);
+    expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+
+    const projectOnly = join(
+      project,
+      ".claude",
+      "skills",
+      "test-pro-project-only",
+      "SKILL.md",
+    );
+    mkdirSync(dirname(projectOnly), { recursive: true });
+    writeFileSync(
+      projectOnly,
+      "---\nname: test-pro-project-only\nuser-invocable: true\n---\n\nProject-only skill.\n",
+    );
+
+    const upstream = temp("aidlc-t243-skill-overlay-upstream-");
+    cpSync(CLAUDE_RELEASE, upstream, { recursive: true });
+    const orchestratorRel = join(".claude", "skills", "aidlc", "SKILL.md");
+    writeFileSync(
+      join(upstream, orchestratorRel),
+      `${readFileSync(join(upstream, orchestratorRel), "utf-8")}\nUpstream overlay probe.\n`,
+    );
+
+    const refreshed = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      upstream,
+    ], project);
+    expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0);
+    expect(readFileSync(join(project, orchestratorRel), "utf-8")).toContain(
+      "Upstream overlay probe.",
+    );
+    expect(readFileSync(projectOnly, "utf-8")).toContain("Project-only skill.");
+  }, 60_000);
+
   test("pre-manifest adoption preserves all mutable harness policy keys", () => {
     const project = temp("aidlc-t243-policy-adoption-");
     cpSync(CLAUDE_COPY, project, { recursive: true });

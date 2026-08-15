@@ -3,9 +3,11 @@ import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -38,6 +40,20 @@ function temp(prefix: string): string {
   const path = mkdtempSync(join(tmpdir(), prefix));
   TEMP.push(path);
   return path;
+}
+
+function surfaceSnapshot(root: string): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+  const visit = (directory: string, prefix: string): void => {
+    for (const entry of readdirSync(directory).sort()) {
+      const path = join(directory, entry);
+      const rel = prefix ? `${prefix}/${entry}` : entry;
+      if (lstatSync(path).isDirectory()) visit(path, rel);
+      else snapshot[rel] = readFileSync(path).toString("base64");
+    }
+  };
+  visit(root, "");
+  return snapshot;
 }
 
 function pluginRoot(
@@ -574,23 +590,12 @@ describe("t242 transactional sync and ownership-safe prune", () => {
   test("one transaction rolls back all plugin bytes on an injected commit fault", async () => {
     const project = installedProject();
     withClaudeFixture(TEST_PRO);
+    const before = surfaceSnapshot(project);
     process.env.AIDLC_PLUGIN_SYNC_FAIL_AFTER = "1";
     await expect(syncPlugins(project, [], ".claude")).rejects.toThrow("injected transaction failure");
-    expect(existsSync(join(
-      project,
-      ".claude",
-      "aidlc-common",
-      "stages",
-      "construction",
-      "test-pro-integration.md",
-    ))).toBe(false);
-    expect(existsSync(join(
-      project,
-      ".claude",
-      "tools",
-      "data",
-      "plugin-compose-test-pro.json",
-    ))).toBe(false);
+    expect(surfaceSnapshot(project)).toEqual(before);
+    expect(existsSync(join(project, ".aidlc-transaction.lock"))).toBe(false);
+    expect(readdirSync(project).some((entry) => entry.startsWith(".aidlc-txn-"))).toBe(false);
   }, 60_000);
 
   test("sync rejects content whose plugin owner differs from the host manifest key", async () => {
