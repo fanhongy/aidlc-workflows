@@ -54,11 +54,19 @@ import { absorbReviewerKnowledge, agentNameFromPath } from "./agent-knowledge.ts
 import { renderOnboarding } from "./onboarding.ts";
 import {
   type Harness,
-  kiroModelDefaults,
-  projectTier,
   readEnvCap,
   readMemoryCap,
+  type Tier,
 } from "../core/tools/aidlc-tiers.ts";
+import {
+  agentTiersFromAuthoredDirectory,
+  modelAgentName,
+  resolveModelPolicy,
+  serializeAgentTiers,
+  writeKiroAgentSurface,
+  writeKiroCliSurface,
+  writeMarkdownAgentSurface,
+} from "../core/tools/aidlc-model-policy.ts";
 import {
   scanNamespaceInvocations,
   TRUSTED_COMMAND_PREFIX,
@@ -196,27 +204,16 @@ function projectTierFrontmatter(
   const posixPath = srcPath.split(sep).join("/");
   if (!posixPath.includes("/agents/") || !posixPath.endsWith("-agent.md")) return s;
   const tier = agentTierFromMd(s, srcPath);
-  const m = s.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
-  if (!m) throw new Error(`${srcPath}: agent .md has no closed frontmatter block.`);
-  const fm = m[1];
-  const proj = projectTier(tier, harness, TIER_CAP); // throws on unknown tier
-  const lines: string[] = [];
-  if (proj.model !== null) lines.push(`model: ${proj.model}`);
-  if ("effort" in proj && proj.effort !== null) lines.push(`effort: ${proj.effort}`);
-  // opencode's reasoning-effort key is `variant:` (its native agent
-  // frontmatter name), projected from the same tier table.
-  if ("variant" in proj && proj.variant !== null) lines.push(`variant: ${proj.variant}`);
-  // Rebuild the frontmatter line-wise: replace the tier line with the
-  // projected keys, or drop it entirely when every key is omitted. Line-wise
-  // filtering (not a regex splice) removes the tier line cleanly wherever it
-  // sits - first, last, or mid-frontmatter.
-  const newFm = fm
-    .split(/\r?\n/)
-    .flatMap((line) => (/^tier:/.test(line) ? lines : [line]))
-    .join("\n");
-  // Function replacement: a literal `$&`/`$'` in frontmatter must not be
-  // interpreted as a replacement pattern.
-  return s.replace(m[0], () => `---\n${newFm}\n---\n`);
+  const effective = resolveModelPolicy(
+    null,
+    modelAgentName(srcPath),
+    tier as Tier,
+    harness,
+    TIER_CAP,
+  );
+  return writeMarkdownAgentSurface(s, effective, {
+    effortKey: harness === "opencode" ? "variant" : "effort",
+  });
 }
 
 function projectCursorPluginAgent(s: string, srcPath: string): string {
@@ -250,31 +247,30 @@ function projectKiroAgentJson(srcPath: string, content: Buffer): Buffer {
   const coreMd = join(CORE_ROOT, "agents", name.replace(/\.json$/, ".md"));
   if (!existsSync(coreMd)) return content;
   const tier = agentTierFromMd(readFileSync(coreMd, "utf-8"), coreMd);
-  const proj = projectTier(tier, "kiro", TIER_CAP);
-  const parsed = JSON.parse(content.toString("utf-8")) as Record<string, unknown>;
-  if (proj.model === null) delete parsed.model;
-  else parsed.model = proj.model;
-  // Canonical re-serialization (2-space indent, trailing newline). Key order
-  // is preserved, but authored inline arrays re-expand one-per-line and
-  // authored unicode escapes re-emit as raw UTF-8 - the dist form is the
-  // stringify form, byte-stable under --check, not the authored bytes.
-  return Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf-8");
+  const effective = resolveModelPolicy(
+    null,
+    modelAgentName(name),
+    tier as Tier,
+    "kiro",
+    TIER_CAP,
+  );
+  return Buffer.from(
+    writeKiroAgentSurface(content.toString("utf-8"), effective),
+    "utf-8",
+  );
 }
 
 // Merge the tier-derived chat.modelDefaults entries into an authored Kiro
 // settings/cli.json: one entry per distinct pinned Kiro model, carrying the
 // highest sharing tier's effort (the collapse rule - kiroModelDefaults()).
 // Authored entries (the orchestrator's opus-4.8 -> xhigh) are preserved and
-// win on collision, so a hand-tuned override in harness/kiro*/settings/
-// cli.json survives regeneration. CLI-only: the Kiro IDE ignores cli.json.
+// join the same higher-effort collapse on collision. CLI-only: the Kiro IDE
+// ignores cli.json.
 function projectKiroCliJson(content: Buffer): Buffer {
-  const parsed = JSON.parse(content.toString("utf-8")) as Record<string, unknown>;
-  const defaults = (parsed["chat.modelDefaults"] ?? {}) as Record<string, unknown>;
-  for (const [model, effort] of Object.entries(kiroModelDefaults(TIER_CAP))) {
-    if (!(model in defaults)) defaults[model] = { output_config: { effort } };
-  }
-  parsed["chat.modelDefaults"] = defaults;
-  return Buffer.from(`${JSON.stringify(parsed, null, 2)}\n`, "utf-8");
+  return Buffer.from(
+    writeKiroCliSurface(content.toString("utf-8"), [], TIER_CAP),
+    "utf-8",
+  );
 }
 
 function transform(
@@ -406,6 +402,7 @@ const COMPILED_DATA = ["tools/data/stage-graph.json", "tools/data/scope-grid.jso
 // runtime reads tools/data/harness.json to learn this harness's rules-subdir
 // without a hardcoded map. Derived from the manifest, written into every tree.
 const HARNESS_DATA = "tools/data/harness.json";
+const AGENT_TIERS_DATA = "tools/data/agent-tiers.json";
 const STAMP_DATA = "tools/data/aidlc-stamp.json";
 const PROJECTION_DATA = "tools/data/aidlc-projection.json";
 
@@ -470,6 +467,15 @@ function writeHarnessData(treeRoot: string, m: HarnessManifest): void {
   const dst = join(treeRoot, HARNESS_DATA);
   mkdirSync(dirname(dst), { recursive: true });
   writeFileSync(dst, `${JSON.stringify(data, null, 2)}\n`);
+}
+
+function writeAgentTiersData(treeRoot: string): void {
+  const dst = join(treeRoot, AGENT_TIERS_DATA);
+  mkdirSync(dirname(dst), { recursive: true });
+  writeFileSync(
+    dst,
+    serializeAgentTiers(agentTiersFromAuthoredDirectory(join(CORE_ROOT, "agents"))),
+  );
 }
 
 function writeProjectionData(outRoot: string, treeRoot: string, m: HarnessManifest): void {
@@ -784,6 +790,7 @@ function buildTree(
   //     the compile step just created, hence walked + byte-diffed by --check
   //     like any other generated file.
   writeHarnessData(treeRoot, m);
+  writeAgentTiersData(treeRoot);
 
   // 4. Generate runners by composing aidlc-runner-gen's CLIs against the
   //    assembled tree (write + scopes). AIDLC_HARNESS_DIR steers harnessDir()

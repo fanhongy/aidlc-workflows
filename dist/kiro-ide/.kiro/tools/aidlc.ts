@@ -311,6 +311,8 @@ export const ROUTES: readonly Route[] = [
     human: [{ command: "config [args]", summary: "configure, pin, or refresh this project" }],
     all: [
       "config [--harness <name>] [--from <path>] [--dry-run] [--force]",
+      "config models [--show [--json]|--check|--reset|--preset <name>|--from <preset|profile> --save-as <name>]",
+      "config models [--deciding-effort <e>] [--reviewing-effort <e>] [--writing-up-effort <e>] [--agent <name> --effort <e> [--model <raw-id>]] [--dry-run] [--yes]",
       "config --pin <version> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline]",
       "config --unpin",
     ],

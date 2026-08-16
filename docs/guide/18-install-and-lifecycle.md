@@ -146,6 +146,71 @@ an ownership baseline. It does not create a workflow intent.
 | `--quiet` | Emit one summary or remediation line |
 | `--no-color` | Disable color output |
 
+### Model Policy
+
+`aidlc config models` records project model policy under the selected harness's
+`tools/data/harness.json` and applies it through the normal config plan,
+confirmation, refresh guard, and transaction. It never contacts a model
+provider.
+
+The public groups are:
+
+| Group | Agents | Shipped tier |
+|-------|--------|--------------|
+| Deciding | 9 design, implementation, product, security, and quality agents | judgment |
+| Reviewing | product lead and architecture reviewer | balanced |
+| Writing up | delivery, pipeline and deploy, and operations | templated |
+
+Policy resolves per agent in this order:
+
+1. Per-agent exception
+2. Group dial, set directly or through a preset
+3. Shipped tier default
+4. Session inherit
+
+Pins bind in both directions. A pinned agent stays pinned if the session later
+moves to a larger model. The framework never raises an agent above the session
+on its own; shipped tiers only step down.
+
+```bash
+aidlc config models --show
+aidlc config models --reviewing-effort xhigh --yes
+aidlc config models --agent architect --effort xhigh --model provider/raw-id --yes
+aidlc config models --check
+aidlc config models --reset --yes
+```
+
+`--show --json` prints every agent's effective model, effort, and provenance.
+`--check` is the CI inverse and exits non-zero when the recorded policy is not
+fully reflected in the harness surfaces.
+
+Two immutable presets ship:
+
+- `thorough`: reviewing effort xhigh
+- `economical`: reviewing effort medium, writing-up effort low
+
+Derive a project profile from a preset or an existing profile:
+
+```bash
+aidlc config models --from thorough --reviewing-effort medium \
+  --save-as my-profile --yes
+```
+
+Presets and profiles contain group efforts only. Raw model IDs are allowed only
+on per-agent exceptions. `--yes` confirms a mutation but never chooses a
+policy. Without decisive flags, a TTY opens the model policy wizard; a non-TTY
+run fails with usage guidance.
+
+Harnesses receive only settings they can read. Codex clamps `max` effort down
+to `xhigh`. opencode clamps `xhigh` down to `high`. Kiro CLI cannot express
+group effort dials, but a per-agent model exception can carry effort through
+`chat.modelDefaults`. Kiro IDE cannot express effort. Cursor and GitHub Copilot
+cannot portably pin agent models or effort, so the command records the policy
+and reports the unsupported fields instead of writing inert keys.
+
+Model policy is agent-scoped. Stage files never carry model or effort keys;
+scopes continue to own stage criticality.
+
 An existing project stamp fixes the harness for a refresh. A fresh interactive
 project prompts for a harness; a non-interactive run requires `--harness`.
 If `.aidlc-version` exists, config

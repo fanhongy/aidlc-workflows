@@ -23,7 +23,12 @@ import type { EmitContext } from "../../scripts/manifest-types.ts";
 import { absorbReviewerKnowledge } from "../../scripts/agent-knowledge.ts";
 import { renderOnboarding } from "../../scripts/onboarding.ts";
 import onboardingFills from "./onboarding.fills.ts";
-import { projectTier } from "../../core/tools/aidlc-tiers.ts";
+import type { Tier } from "../../core/tools/aidlc-tiers.ts";
+import {
+  modelAgentName,
+  resolveModelPolicy,
+  writeCodexAgentSurface,
+} from "../../core/tools/aidlc-model-policy.ts";
 
 // ---------------------------------------------------------------------------
 // Hook wiring (kiro-normative shape: register ONLY events with a real core-hook
@@ -376,16 +381,19 @@ export default function emit(ctx: EmitContext): void {
     // packager's own reader strips it for the other harnesses).
     const tier = fm.tier?.trim();
     if (!tier) throw new Error(`${mdPath}: agent frontmatter has no tier: line.`);
-    const proj = projectTier(tier, "codex", tierCap); // throws on unknown tier
+    const effective = resolveModelPolicy(
+      null,
+      modelAgentName(mdPath),
+      tier as Tier,
+      "codex",
+      tierCap,
+    );
     const instructions = rewriteProse(absorbedBody);
-    const modelLines =
-      (proj.model !== null ? `model = "${proj.model}"\n` : "") +
-      (proj.effort !== null ? `model_reasoning_effort = "${proj.effort}"\n` : "");
-    return (
+    return writeCodexAgentSurface(
       `name = "${name}"\n` +
       `description = "${description.replace(/"/g, '\\"')}"\n` +
-      modelLines +
-      `developer_instructions = ${tomlMultiline(instructions.trim())}\n`
+      `developer_instructions = ${tomlMultiline(instructions.trim())}\n`,
+      effective,
     );
   }
 

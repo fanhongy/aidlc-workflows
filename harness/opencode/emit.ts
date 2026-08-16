@@ -22,7 +22,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join } from "node:path";
 import type { EmitContext } from "../../scripts/manifest-types.ts";
 import { absorbReviewerKnowledge } from "../../scripts/agent-knowledge.ts";
-import { projectTier } from "../../core/tools/aidlc-tiers.ts";
+import type { Tier } from "../../core/tools/aidlc-tiers.ts";
+import {
+  modelAgentName,
+  resolveModelPolicy,
+  writeMarkdownAgentSurface,
+} from "../../core/tools/aidlc-model-policy.ts";
 
 // Rewrite a core persona .md into its opencode-native subagent twin. The
 // frontmatter tier becomes model/variant plus mode, and the core Task denial
@@ -41,20 +46,21 @@ function emitSubagentMd(raw: string, srcPath: string, tierCap: EmitContext["tier
       `${srcPath}: opencode emission cannot project disallowedTools: ${disallowedMatch[1]}.`,
     );
   }
-  const proj = projectTier(tierMatch[1], "opencode", tierCap); // throws on unknown tier
-  const lines: string[] = [];
-  if (proj.model !== null) lines.push(`model: ${proj.model}`);
-  if (proj.variant !== null) lines.push(`variant: ${proj.variant}`);
-  lines.push("mode: subagent");
-  if (disallowedMatch) lines.push("permission:", "  task: deny");
-  const newFm = fm
-    .split(/\r?\n/)
-    .flatMap((line) => {
-      if (/^disallowedTools:/.test(line)) return [];
-      return /^tier:/.test(line) ? lines : [line];
-    })
-    .join("\n");
-  return raw.replace(m[0], () => `---\n${newFm}\n---\n`);
+  const effective = resolveModelPolicy(
+    null,
+    modelAgentName(srcPath),
+    tierMatch[1] as Tier,
+    "opencode",
+    tierCap,
+  );
+  return writeMarkdownAgentSurface(raw, effective, {
+    effortKey: "variant",
+    removeKeys: ["disallowedTools"],
+    afterProjectionLines: [
+      "mode: subagent",
+      ...(disallowedMatch ? ["permission:", "  task: deny"] : []),
+    ],
+  });
 }
 
 function projectActiveMemoryReferences(raw: string): string {

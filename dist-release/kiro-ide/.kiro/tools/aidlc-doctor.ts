@@ -21,6 +21,11 @@ import {
 } from "./aidlc-update.ts";
 import { collectPluginStatus } from "./aidlc-plugin.ts";
 import { scanWindowsUninstallJournals } from "./aidlc-windows-uninstall.ts";
+import { discoverProjectHarnesses } from "./aidlc-runtime-paths.ts";
+import {
+  isModelHarness,
+  modelPolicyDoctorIssues,
+} from "./aidlc-model-policy.ts";
 
 function windowsRecoveryCheck(): DoctorCheck | null {
   if (process.platform !== "win32") return null;
@@ -103,6 +108,48 @@ function pluginCheck(projectDir: string, verbose: boolean): DoctorCheck {
     label: statuses.length === 0
       ? "Plugins: no AIDLC plugins installed"
       : `Plugins: composed state is current${detail}`,
+  };
+}
+
+export function modelsPolicyCheck(projectDir: string, verbose: boolean): DoctorCheck {
+  const harnesses = discoverProjectHarnesses(projectDir);
+  if (harnesses.length === 0) {
+    return {
+      pass: true,
+      label: "Models: no installed project harness",
+    };
+  }
+  const issues: string[] = [];
+  for (const harness of harnesses) {
+    if (!isModelHarness(harness.distribution)) {
+      issues.push(`unsupported harness policy surface: ${harness.distribution}`);
+      continue;
+    }
+    try {
+      issues.push(
+        ...modelPolicyDoctorIssues(harness.root, harness.distribution)
+          .map((issue) => `${harness.distribution}: ${issue}`),
+      );
+    } catch (error) {
+      issues.push(
+        `${harness.distribution}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  const detail = verbose && issues.length > 0 ? ` - ${issues.join("; ")}` : "";
+  if (issues.length > 0) {
+    return {
+      pass: false,
+      severity: "warn",
+      label: `Models: ${issues.length} policy issue(s)${detail}`,
+      fix: issues.join("; "),
+    };
+  }
+  return {
+    pass: true,
+    label: "Models: recorded policy is expressible",
   };
 }
 
@@ -213,6 +260,7 @@ export async function main(argv: string[]): Promise<void> {
   if (recovery) checks.push(recovery);
   checks.push(updateCheck(update));
   checks.push(pluginCheck(projectDir, flags.verbose === "true"));
+  checks.push(modelsPolicyCheck(projectDir, flags.verbose === "true"));
   const report = await collectDoctorReport(projectDir, checks);
   // One fresh analysis, shared by the live report AND the --export writer
   // (issue #575): the structured condition->remedy findings and the

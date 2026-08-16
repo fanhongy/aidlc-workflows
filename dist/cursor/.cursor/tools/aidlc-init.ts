@@ -62,6 +62,29 @@ import {
 import {
   discoverProjectHarnesses,
 } from "./aidlc-runtime-paths.ts";
+import {
+  activeModelGroups,
+  applyModelPolicyToProjection,
+  harnessHonestyNotes,
+  isModelEffort,
+  isModelPreset,
+  MODEL_EFFORTS,
+  MODEL_GROUPS,
+  MODEL_PRESETS,
+  modelPolicyIsEmpty,
+  modelPolicySurfaceDrift,
+  normalizeModelPolicy,
+  profileGroups,
+  readAgentTiers,
+  resolveModelPolicy,
+  type AgentTiers,
+  type ModelEffort,
+  type ModelGroup,
+  type ModelHarness,
+  type ModelPolicyRecord,
+  type ModelProfile,
+} from "./aidlc-model-policy.ts";
+import { resolveTierCap } from "./aidlc-tiers.ts";
 
 type RootContribution =
   | { policy: "managed-block"; hash: string; marker?: string }
@@ -84,6 +107,448 @@ type PlannedAction = {
   action: "create" | "update" | "merge" | "preserve" | "remove" | "conflict";
   detail?: string;
 };
+
+type ModelsMutationContext = {
+  harness: ModelHarness;
+  harnessDir: string;
+  previous: ModelPolicyRecord | null;
+  next: ModelPolicyRecord | null;
+  tiers: AgentTiers;
+  summaryLines: string[];
+  notes: string[];
+};
+
+const CONFIG_VALUE_FLAGS = new Set([
+  "--agent",
+  "--ca-bundle",
+  "--deciding-effort",
+  "--effort",
+  "--from",
+  "--harness",
+  "--mcp",
+  "--model",
+  "--output",
+  "--pin",
+  "--plan-token",
+  "--preset",
+  "--project-dir",
+  "--release-base-url",
+  "--reviewing-effort",
+  "--save-as",
+  "--writing-up-effort",
+]);
+
+const MODELS_VALUE_FLAGS = new Set([
+  "--agent",
+  "--deciding-effort",
+  "--effort",
+  "--from",
+  "--harness",
+  "--model",
+  "--plan-token",
+  "--preset",
+  "--project-dir",
+  "--reviewing-effort",
+  "--save-as",
+  "--writing-up-effort",
+]);
+
+const MODELS_BARE_FLAGS = new Set([
+  "--check",
+  "--dry-run",
+  "--help",
+  "--json",
+  "--no-color",
+  "--quiet",
+  "--reset",
+  "--show",
+  "--verbose",
+  "--yes",
+]);
+
+function configPositionals(argv: readonly string[]): Array<{ value: string; index: number }> {
+  const positionals: Array<{ value: string; index: number }> = [];
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (CONFIG_VALUE_FLAGS.has(token)) {
+      index++;
+      continue;
+    }
+    if (!token.startsWith("--")) positionals.push({ value: token, index });
+  }
+  return positionals;
+}
+
+function modelHarness(value: string): ModelHarness {
+  if (
+    value === "claude" ||
+    value === "codex" ||
+    value === "copilot" ||
+    value === "cursor" ||
+    value === "kiro" ||
+    value === "kiro-ide" ||
+    value === "opencode"
+  ) {
+    return value;
+  }
+  throw new Error(`models policy is not supported for harness ${JSON.stringify(value)}`);
+}
+
+function modelPolicyFromHarnessRoot(harnessRoot: string): ModelPolicyRecord | null {
+  const path = join(harnessRoot, "tools", "data", "harness.json");
+  const value = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  return normalizeModelPolicy(value.models);
+}
+
+function cloneModelPolicy(policy: ModelPolicyRecord | null): ModelPolicyRecord {
+  return policy
+    ? JSON.parse(JSON.stringify(policy)) as ModelPolicyRecord
+    : { schemaVersion: 1 };
+}
+
+function validateModelsArgs(argv: readonly string[]): string | null {
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (!token.startsWith("--")) {
+      return `unexpected models positional ${JSON.stringify(token)}`;
+    }
+    if (MODELS_VALUE_FLAGS.has(token)) {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) return `${token} requires a value`;
+      index++;
+      continue;
+    }
+    if (!MODELS_BARE_FLAGS.has(token)) return `unknown models option ${token}`;
+  }
+  if (valuesAfter(argv, "--harness").length > 1) {
+    return "multi-harness config is not supported yet; pass one --harness <name>";
+  }
+  if (valuesAfter(argv, "--agent").length > 1) {
+    return "one models mutation may target only one --agent";
+  }
+  return null;
+}
+
+function modelPolicyHelp(): string {
+  return [
+    "Usage: aidlc config models [options]",
+    "",
+    "Pins bind in both directions: a pinned agent stays pinned if the session later moves to a larger model.",
+    "The framework never raises an agent above the session on its own; shipped tiers only step down.",
+    "",
+    "Policy:",
+    "  --preset <thorough|economical>",
+    "  --from <preset|profile> [--save-as <name>]",
+    "  --deciding-effort <low|medium|high|xhigh|max>",
+    "  --reviewing-effort <low|medium|high|xhigh|max>",
+    "  --writing-up-effort <low|medium|high|xhigh|max>",
+    "  --agent <name> --effort <value> [--model <raw-id>]",
+    "  --reset",
+    "",
+    "Inspection:",
+    "  --show [--json]",
+    "  --check",
+    "",
+    "Mutation control:",
+    "  --dry-run",
+    "  --yes",
+  ].join("\n");
+}
+
+function modelStateData(
+  policy: ModelPolicyRecord | null,
+  tiers: AgentTiers,
+  harness: ModelHarness,
+  projectDir: string,
+): {
+  harness: ModelHarness;
+  policy: ModelPolicyRecord | null;
+  effective: ReturnType<typeof resolveModelPolicy>[];
+  notes: string[];
+} {
+  const cap = resolveTierCap(join(projectDir, "aidlc", "spaces", "default", "memory"));
+  const effective = Object.entries(tiers).sort(([left], [right]) =>
+    left.localeCompare(right)
+  ).map(([name, tier]) => resolveModelPolicy(policy, name, tier, harness, cap));
+  return {
+    harness,
+    policy,
+    effective,
+    notes: harnessHonestyNotes(policy, tiers, harness, cap),
+  };
+}
+
+function showModels(
+  policy: ModelPolicyRecord | null,
+  tiers: AgentTiers,
+  harness: ModelHarness,
+  projectDir: string,
+  options: ReturnType<typeof globalOptions>,
+): void {
+  const data = modelStateData(policy, tiers, harness, projectDir);
+  if (options.mode === "json") {
+    emitResult(success(`model policy for ${harness}`, data), options);
+    return;
+  }
+  let output = `Model policy for ${harness}\n`;
+  for (const item of data.effective) {
+    output += `  ${item.agent} [${MODEL_GROUPS[item.group].label}] ${
+      item.model ?? "inherit"
+    }/${item.effort ?? "inherit"}\n`;
+    output += `    provenance: ${item.layer}`;
+    if (item.unexpressed.length > 0) {
+      output += `; not expressible: ${item.unexpressed.join(", ")}`;
+    }
+    output += "\n";
+  }
+  for (const note of data.notes) output += `  Note: ${note}\n`;
+  process.stdout.write(output);
+  process.exitCode = EXIT.ok;
+}
+
+function modelsPipelineArgv(argv: readonly string[]): string[] {
+  const out: string[] = [];
+  const keptValues = new Set(["--harness", "--plan-token", "--project-dir"]);
+  const keptBare = new Set([
+    "--dry-run",
+    "--json",
+    "--no-color",
+    "--quiet",
+    "--verbose",
+    "--yes",
+  ]);
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (keptValues.has(token)) {
+      out.push(token, argv[++index]);
+    } else if (keptBare.has(token)) {
+      out.push(token);
+    } else if (MODELS_VALUE_FLAGS.has(token)) {
+      index++;
+    }
+  }
+  return out;
+}
+
+function modelEffortFlag(
+  argv: readonly string[],
+  group: ModelGroup,
+): ModelEffort | undefined {
+  const flag = `--${group}-effort`;
+  const value = valueAfter(argv, flag);
+  if (value === undefined) return undefined;
+  if (!isModelEffort(value)) {
+    throw new Error(`${flag} must be one of ${MODEL_EFFORTS.join(", ")}`);
+  }
+  return value;
+}
+
+function applyModelsFlags(
+  current: ModelPolicyRecord | null,
+  argv: readonly string[],
+  tiers: AgentTiers,
+): ModelPolicyRecord | null {
+  if (argv.includes("--reset")) {
+    const conflicting = [
+      "--agent",
+      "--deciding-effort",
+      "--effort",
+      "--from",
+      "--model",
+      "--preset",
+      "--reviewing-effort",
+      "--save-as",
+      "--writing-up-effort",
+    ].find((flag) => argv.includes(flag));
+    if (conflicting) throw new Error(`--reset cannot be combined with ${conflicting}`);
+    return null;
+  }
+  const next = cloneModelPolicy(current);
+  const preset = valueAfter(argv, "--preset");
+  const from = valueAfter(argv, "--from");
+  const saveAs = valueAfter(argv, "--save-as");
+  if (preset && from) throw new Error("--preset and --from are mutually exclusive");
+  if (preset) {
+    if (!isModelPreset(preset)) {
+      throw new Error(`--preset must be one of ${Object.keys(MODEL_PRESETS).join(", ")}`);
+    }
+    next.preset = preset;
+    delete next.groups;
+  }
+  if (saveAs && !from) throw new Error("--save-as requires --from <preset|profile>");
+  if (saveAs && !/^[a-z0-9][a-z0-9-]*$/.test(saveAs)) {
+    throw new Error("--save-as must use lowercase letters, digits, and hyphens");
+  }
+  if (from) {
+    const groups = profileGroups(current, from);
+    next.groups = groups;
+    if (isModelPreset(from) && !saveAs) next.preset = from;
+    else delete next.preset;
+  }
+  for (const group of Object.keys(MODEL_GROUPS) as ModelGroup[]) {
+    const effort = modelEffortFlag(argv, group);
+    if (!effort) continue;
+    next.groups ??= {};
+    next.groups[group] = { effort };
+  }
+  if (saveAs) {
+    next.profiles ??= {};
+    next.profiles[saveAs] = {
+      groups: JSON.parse(JSON.stringify(next.groups ?? {})) as ModelProfile["groups"],
+    };
+  }
+  const agent = valueAfter(argv, "--agent");
+  const effort = valueAfter(argv, "--effort");
+  const model = valueAfter(argv, "--model");
+  if (agent && !(agent in tiers)) {
+    throw new Error(
+      `unknown agent ${JSON.stringify(agent)}; use one of ${Object.keys(tiers).sort().join(", ")}`,
+    );
+  }
+  if (agent && !effort) throw new Error("--agent requires --effort <value>");
+  if (!agent && (effort || model)) throw new Error("--effort and --model require --agent <name>");
+  if (effort && !isModelEffort(effort)) {
+    throw new Error(`--effort must be one of ${MODEL_EFFORTS.join(", ")}`);
+  }
+  if (agent && effort) {
+    next.agents ??= {};
+    next.agents[agent] = {
+      ...(next.agents[agent] ?? {}),
+      effort: effort as ModelEffort,
+      ...(model ? { model } : {}),
+    };
+  }
+  return modelPolicyIsEmpty(next) ? null : normalizeModelPolicy(next);
+}
+
+function groupPolicyEffort(
+  policy: ModelPolicyRecord | null,
+  group: ModelGroup,
+): ModelEffort | undefined {
+  return activeModelGroups(policy)[group]?.effort;
+}
+
+function effortTradeoff(group: ModelGroup, effort: ModelEffort): string {
+  if (group === "reviewing" && effort === "xhigh") {
+    return "Deeper review passes. Cost: roughly 9x the wall-clock per review (#612 data).";
+  }
+  if (effort === "low" || effort === "medium") {
+    return group === "deciding"
+      ? "Faster decisions with less deliberation."
+      : group === "reviewing"
+      ? "Faster review passes with less deliberation."
+      : "Faster plans, pipelines, and runbooks with less polish.";
+  }
+  return MODEL_GROUPS[group].tradeoff;
+}
+
+function modelSummaryLines(
+  previous: ModelPolicyRecord | null,
+  next: ModelPolicyRecord | null,
+  tiers: AgentTiers,
+  harness: ModelHarness,
+  projectDir: string,
+): { lines: string[]; notes: string[] } {
+  const cap = resolveTierCap(join(projectDir, "aidlc", "spaces", "default", "memory"));
+  const lines: string[] = [];
+  for (const group of Object.keys(MODEL_GROUPS) as ModelGroup[]) {
+    const beforeDial = groupPolicyEffort(previous, group);
+    const afterDial = groupPolicyEffort(next, group);
+    if (beforeDial === afterDial) continue;
+    const names = Object.entries(tiers)
+      .filter(([, tier]) => MODEL_GROUPS[group].tier === tier)
+      .map(([name]) => name)
+      .sort();
+    const name = names[0];
+    if (!name) continue;
+    const tier = tiers[name];
+    const before = resolveModelPolicy(previous, name, tier, harness, cap);
+    const after = resolveModelPolicy(next, name, tier, harness, cap);
+    if (after.unexpressed.includes("effort")) {
+      lines.push(
+        `  ${MODEL_GROUPS[group].label.padEnd(11)} ${names.length} agents   ` +
+          `${afterDial ?? "inherit"} requested; ${harnessHonestyNotes(next, tiers, harness, cap)[0]}`,
+      );
+      continue;
+    }
+    const beforeModel = before.model ?? "inherit";
+    const afterModel = after.model ?? "inherit";
+    const suffix = beforeModel === afterModel ? " (model unchanged)" : "";
+    lines.push(
+      `  ${MODEL_GROUPS[group].label.padEnd(11)} ${names.length} agents   ` +
+        `${beforeModel}/${before.effort ?? "inherit"} -> ` +
+        `${afterModel}/${after.effort ?? "inherit"}${suffix}`,
+    );
+    if (afterDial) lines.push(`  ${effortTradeoff(group, afterDial)}`);
+  }
+  const notes = harnessHonestyNotes(next, tiers, harness, cap);
+  return { lines, notes };
+}
+
+function modelsWizard(
+  current: ModelPolicyRecord | null,
+  tiers: AgentTiers,
+  harness: ModelHarness,
+  projectDir: string,
+): ModelPolicyRecord | null {
+  showModels(current, tiers, harness, projectDir, {
+    mode: "human",
+    color: false,
+    yes: false,
+    offline: true,
+    verbose: false,
+  });
+  process.stdout.write(
+    "Pins bind in both directions, and shipped tiers never raise an agent above the session.\n",
+  );
+  const choice = prompt(
+    "Models [Enter keep everything, 1 preset, 2 group efforts, 3 set each one myself]:",
+  )?.trim();
+  if (!choice) return current;
+  if (choice === "1") {
+    const selected = prompt("Preset [thorough/economical]:")?.trim() ?? "";
+    if (!isModelPreset(selected)) throw new Error("preset selection cancelled");
+    return applyModelsFlags(current, ["--preset", selected], tiers);
+  }
+  if (choice === "2") {
+    const args: string[] = [];
+    for (const group of Object.keys(MODEL_GROUPS) as ModelGroup[]) {
+      const currentValue = groupPolicyEffort(current, group) ?? "shipped";
+      process.stdout.write(
+        `${MODEL_GROUPS[group].label}: current ${currentValue}. ${MODEL_GROUPS[group].tradeoff}\n`,
+      );
+      const answer = prompt(
+        `${MODEL_GROUPS[group].label} effort [low/medium/high/xhigh/max, Enter keep]:`,
+      )?.trim();
+      if (!answer) continue;
+      if (!isModelEffort(answer)) throw new Error(`invalid effort ${JSON.stringify(answer)}`);
+      args.push(`--${group}-effort`, answer);
+    }
+    return args.length > 0 ? applyModelsFlags(current, args, tiers) : current;
+  }
+  if (choice === "3") {
+    let next = current;
+    for (const name of Object.keys(tiers).sort()) {
+      const currentValue = resolveModelPolicy(next, name, tiers[name], harness);
+      process.stdout.write(
+        `${name}: current ${currentValue.model ?? "inherit"}/${currentValue.effort ?? "inherit"}.\n`,
+      );
+      const effort = prompt(
+        `${name} effort [low/medium/high/xhigh/max, Enter keep]:`,
+      )?.trim();
+      if (!effort) continue;
+      if (!isModelEffort(effort)) throw new Error(`invalid effort ${JSON.stringify(effort)}`);
+      const model = prompt(`${name} raw model id [Enter inherit]:`)?.trim();
+      next = applyModelsFlags(
+        next,
+        ["--agent", name, "--effort", effort, ...(model ? ["--model", model] : [])],
+        tiers,
+      );
+    }
+    return next;
+  }
+  throw new Error("models selection cancelled");
+}
 
 function stripVerb(argv: string[]): string[] {
   return argv[0] === "config" || argv[0] === "init" ? argv.slice(1) : argv;
@@ -404,10 +869,11 @@ function prepareRefreshSource(
   sourceRoot: string,
   descriptor: ProjectionDescriptor,
   prior: Baseline | null,
+  modelsOverride?: ModelPolicyRecord | null,
 ): { root: string; cleanup?: string; regenerated: Set<string> } {
   const currentHarness = join(projectDir, descriptor.harnessDir);
   const currentHarnessData = join(currentHarness, "tools", "data", "harness.json");
-  if (!prior && !regularFile(currentHarnessData)) {
+  if (!prior && !regularFile(currentHarnessData) && modelsOverride === undefined) {
     return { root: sourceRoot, regenerated: new Set() };
   }
   const cleanup = mkdtempSync(join(tmpdir(), "aidlc-init-refresh-"));
@@ -418,15 +884,29 @@ function prepareRefreshSource(
   const stagedHarness = join(root, descriptor.harnessDir);
 
   const stagedHarnessData = join(stagedHarness, "tools", "data", "harness.json");
+  const staged = JSON.parse(readFileSync(stagedHarnessData, "utf-8")) as Record<string, unknown>;
   if (regularFile(currentHarnessData)) {
     const current = JSON.parse(readFileSync(currentHarnessData, "utf-8")) as Record<string, unknown>;
-    const staged = JSON.parse(readFileSync(stagedHarnessData, "utf-8")) as Record<string, unknown>;
     for (const [key, value] of Object.entries(current)) {
       if (!HARNESS_IDENTITY_KEYS.has(key)) staged[key] = value;
     }
+  }
+  if (modelsOverride === null) delete staged.models;
+  else if (modelsOverride !== undefined) staged.models = modelsOverride;
+  if (regularFile(currentHarnessData) || modelsOverride !== undefined) {
     writeFileSync(stagedHarnessData, `${JSON.stringify(staged, null, 2)}\n`);
     regenerated.add(`${descriptor.harnessDir}/tools/data/harness.json`);
   }
+  const distribution = staged.distribution;
+  if (typeof distribution !== "string") {
+    throw new Error(`${stagedHarnessData}: distribution must be a string`);
+  }
+  applyModelPolicyToProjection(
+    root,
+    descriptor.harnessDir,
+    modelHarness(distribution),
+    normalizeModelPolicy(staged.models),
+  );
 
   const currentGrid = join(currentHarness, "tools", "data", "scope-grid.json");
   const stagedGrid = join(stagedHarness, "tools", "data", "scope-grid.json");
@@ -1354,9 +1834,185 @@ function planRemovedRootIntegrations(
   }
 }
 
+function prepareModelsSection(
+  argv: string[],
+  options: ReturnType<typeof globalOptions>,
+): { argv: string[]; context: ModelsMutationContext } | null {
+  const validation = validateModelsArgs(argv);
+  if (validation) {
+    emitResult(usage(validation, "aidlc config models --help"), options);
+    return null;
+  }
+  if (argv.includes("--help")) {
+    process.stdout.write(`${modelPolicyHelp()}\n`);
+    process.exitCode = EXIT.ok;
+    return null;
+  }
+  const mutationFlags = [
+    "--agent",
+    "--deciding-effort",
+    "--effort",
+    "--from",
+    "--model",
+    "--preset",
+    "--reset",
+    "--reviewing-effort",
+    "--save-as",
+    "--writing-up-effort",
+  ];
+  const hasMutationFlags = mutationFlags.some((flag) => argv.includes(flag));
+  if (
+    (argv.includes("--show") || argv.includes("--check")) &&
+    (hasMutationFlags || argv.includes("--dry-run") || argv.includes("--yes"))
+  ) {
+    emitResult(
+      usage("--show and --check cannot be combined with model policy mutations"),
+      options,
+    );
+    return null;
+  }
+  if (argv.includes("--show") && argv.includes("--check")) {
+    emitResult(usage("--show and --check are mutually exclusive"), options);
+    return null;
+  }
+  const projectDir = projectDirFrom(argv);
+  const requested = valueAfter(argv, "--harness");
+  const harnesses = discoverProjectHarnesses(projectDir);
+  const selected = requested
+    ? harnesses.find((candidate) => candidate.distribution === requested)
+    : harnesses[0];
+  if (!selected) {
+    emitResult(
+      usage(
+        requested && harnesses.length > 0
+          ? `project uses ${harnesses.map((item) => item.distribution).join(", ")}; refusing ${requested}`
+          : "aidlc config models requires an installed project harness; run aidlc config first",
+      ),
+      options,
+    );
+    return null;
+  }
+  if (!requested && harnesses.length > 1) {
+    emitResult(
+      usage("multiple project harnesses are present; pass one --harness <name>"),
+      options,
+    );
+    return null;
+  }
+  const harness = modelHarness(selected.distribution);
+  const current = modelPolicyFromHarnessRoot(selected.root);
+  const tiers = readAgentTiers(selected.root);
+  if (argv.includes("--show")) {
+    showModels(current, tiers, harness, projectDir, options);
+    return null;
+  }
+  if (argv.includes("--check")) {
+    const drift = modelPolicySurfaceDrift(
+      projectDir,
+      selected.harnessDir,
+      harness,
+    );
+    emitResult(
+      drift.length === 0
+        ? success(`model policy is reflected on ${harness}`, {
+            harness,
+            drift: [],
+          })
+        : failure(
+            `model policy drift: ${drift.join("; ")}`,
+            EXIT.failure,
+            "aidlc config models --show",
+          ),
+      options,
+    );
+    return null;
+  }
+
+  let next: ModelPolicyRecord | null;
+  if (hasMutationFlags) {
+    next = applyModelsFlags(current, argv, tiers);
+  } else {
+    if (!process.stdin.isTTY) {
+      emitResult(
+        usage(
+          "non-interactive model configuration requires a policy flag: --preset, --from, a group effort flag, --agent, or --reset; --yes confirms but never chooses a policy",
+          "aidlc config models --help",
+        ),
+        options,
+      );
+      return null;
+    }
+    next = modelsWizard(current, tiers, harness, projectDir);
+  }
+  if (canonical(current) === canonical(next)) {
+    emitResult(success("model policy unchanged"), options);
+    return null;
+  }
+  if (!argv.includes("--dry-run") && !options.yes) {
+    if (!process.stdin.isTTY) {
+      emitResult(
+        usage(
+          "non-interactive model policy mutation requires --yes; --yes confirms the selected policy but never chooses one",
+        ),
+        options,
+      );
+      return null;
+    }
+    const answer = prompt("Apply model policy changes? [y/N]:");
+    if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+      emitResult(usage("model policy change cancelled"), options);
+      return null;
+    }
+  }
+  const summary = modelSummaryLines(current, next, tiers, harness, projectDir);
+  return {
+    argv: modelsPipelineArgv(argv),
+    context: {
+      harness,
+      harnessDir: selected.harnessDir,
+      previous: current,
+      next,
+      tiers,
+      summaryLines: summary.lines,
+      notes: summary.notes,
+    },
+  };
+}
+
 export async function main(input: string[]): Promise<void> {
-  const argv = stripVerb(input);
+  let argv = stripVerb(input);
   const options = globalOptions(argv);
+  const positionals = configPositionals(argv);
+  const section = positionals[0];
+  if (section && section.value !== "models") {
+    emitResult(
+      usage(
+        `unknown config section ${JSON.stringify(section.value)}; valid sections: models`,
+        "aidlc config models --help",
+      ),
+      options,
+    );
+    return;
+  }
+  let modelsContext: ModelsMutationContext | null = null;
+  if (section?.value === "models") {
+    argv = [...argv.slice(0, section.index), ...argv.slice(section.index + 1)];
+    try {
+      const preparedModels = prepareModelsSection(argv, options);
+      if (!preparedModels) return;
+      argv = preparedModels.argv;
+      modelsContext = preparedModels.context;
+    } catch (error) {
+      emitResult(
+        usage(
+          error instanceof Error ? error.message : String(error),
+          "aidlc config models --help",
+        ),
+        options,
+      );
+      return;
+    }
+  }
   if (argv.includes("--pin") || argv.includes("--unpin")) {
     emitResult(await configureProjectPin(argv), options);
     return;
@@ -1420,7 +2076,13 @@ export async function main(input: string[]): Promise<void> {
     }
     const baselinePath = join(projectDir, descriptor.harnessDir, "tools", "data", "aidlc-manifest.json");
     const prior = readBaseline(baselinePath);
-    prepared = prepareRefreshSource(projectDir, selected.root, descriptor, prior);
+    prepared = prepareRefreshSource(
+      projectDir,
+      selected.root,
+      descriptor,
+      prior,
+      modelsContext?.next,
+    );
     let mcpMode = (mcpValue ?? prior?.mcpMode) as "defaults" | "none" | undefined;
     if (
       !mcpMode &&
@@ -1530,9 +2192,31 @@ export async function main(input: string[]): Promise<void> {
     };
     const planToken = sha256Bytes(canonical(approvalPlan));
     if (argv.includes("--dry-run")) {
+      if (modelsContext && options.mode === "human") {
+        for (const line of modelsContext.summaryLines) process.stdout.write(`${line}\n`);
+        for (const note of modelsContext.notes) process.stdout.write(`  Note: ${note}\n`);
+      }
       emitResult(success(
-        `config plan for ${projectDir}: ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" ")}`,
-        { projectDir, distribution: stamp.distribution, counts, actions, planToken },
+        `${modelsContext ? "model policy" : "config"} plan for ${projectDir}: ${
+          Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" ")
+        }`,
+        {
+          projectDir,
+          distribution: stamp.distribution,
+          counts,
+          actions,
+          planToken,
+          ...(modelsContext
+            ? {
+                models: {
+                  previous: modelsContext.previous,
+                  next: modelsContext.next,
+                  summaries: modelsContext.summaryLines,
+                  notes: modelsContext.notes,
+                },
+              }
+            : {}),
+        },
       ), options);
       return;
     }
@@ -1563,8 +2247,14 @@ export async function main(input: string[]): Promise<void> {
     } else {
       executePlan(plan);
     }
+    if (modelsContext && options.mode === "human") {
+      for (const line of modelsContext.summaryLines) process.stdout.write(`${line}\n`);
+      for (const note of modelsContext.notes) process.stdout.write(`  Note: ${note}\n`);
+    }
     emitResult(success(
-      `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`,
+      modelsContext
+        ? `configured model policy for ${projectDir}`
+        : `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`,
       {
         projectDir,
         distribution: stamp.distribution,
@@ -1572,6 +2262,16 @@ export async function main(input: string[]): Promise<void> {
         counts,
         actions,
         planToken,
+        ...(modelsContext
+          ? {
+              models: {
+                previous: modelsContext.previous,
+                next: modelsContext.next,
+                summaries: modelsContext.summaryLines,
+                notes: modelsContext.notes,
+              },
+            }
+          : {}),
       },
     ), options);
   } catch (error) {

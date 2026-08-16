@@ -301,7 +301,10 @@ under `tools/data/`:
 
 - `harness.json` is runtime configuration: distribution identity, product
   name, next-step text, harness/rules directories, and mutable project choices
-  such as plugin selection.
+  such as plugin selection and the optional `models` policy record.
+- `agent-tiers.json` is the shipped agent-name to tier map generated from
+  `core/agents/*.md` frontmatter. Runtime model policy reads this file instead
+  of hardcoding agent rosters.
 - `aidlc-stamp.json` is immutable projection identity: schema, framework
   version, distribution, and harness directory.
 - `aidlc-projection.json` is the exhaustive install descriptor. It classifies
@@ -318,6 +321,48 @@ baseline to update unchanged framework bytes, preserve local modifications,
 merge root integrations, and remove retired owned content. Copy-channel hashes
 recorded in the native descriptor allow an exact, unmodified legacy copy install
 to be adopted; unknown bytes are never inferred as framework-owned.
+
+### Model policy projection
+
+`aidlc config models` is a section under the existing public `config` command,
+not a seventh public command. Its record lives at `models` in `harness.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "preset": "thorough",
+  "groups": {
+    "reviewing": { "effort": "xhigh" }
+  },
+  "agents": {
+    "architect": { "effort": "xhigh", "model": "provider/raw-id" }
+  },
+  "profiles": {
+    "my-profile": {
+      "groups": {
+        "reviewing": { "effort": "medium" }
+      }
+    }
+  }
+}
+```
+
+The resolver applies per-agent exception, group dial, shipped tier default, then
+session inherit. The shipped-default layer calls the shared tier projection
+module and the active tier cap resolver; it does not duplicate model tables.
+The same surface writers are used at package time and config refresh time for
+Claude and Cursor Markdown, Codex TOML, opencode Markdown, and Kiro agent JSON
+plus `chat.modelDefaults`.
+
+Refresh merges the recorded `models` key into a pristine staged projection and
+rewrites model surfaces before `planManagedFiles` hashes staged bytes. A later
+plain `aidlc config` therefore reapplies the recorded policy, while manual edits
+to owned agent surfaces still produce normal refresh conflicts.
+
+Unsupported policy is explicit. The resolver reports harness honesty and
+clamps only downward to the nearest vocabulary value. It never writes a key the
+selected harness ignores, never validates against a live provider, and never
+routes model policy through stage files.
 
 ### Dispatcher route policy
 

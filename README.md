@@ -141,6 +141,19 @@ transactional. In automation, pass `--harness <name>` to `aidlc config`,
 plus `--project-dir <path>`,
 and, for Claude Code, `--mcp defaults` or `--mcp none` explicitly.
 
+Project agent model policy is a section under config:
+
+```bash
+aidlc config models --show
+aidlc config models --reviewing-effort xhigh --yes
+aidlc config models --check
+```
+
+The policy uses Deciding, Reviewing, and Writing up groups, with raw model IDs
+allowed only for per-agent exceptions. Pins bind in both directions, shipped
+tiers only step down from the session, and unsupported harness settings are
+reported instead of written as inert keys.
+
 Refresh projects between workflows after an update:
 
 ```bash

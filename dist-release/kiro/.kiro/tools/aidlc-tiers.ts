@@ -260,7 +260,10 @@ export function projectTier<H extends Harness>(
  *  entry. NOTE: the orchestrator's own model entry (claude-opus-4.8 ->
  *  xhigh) is authored in the per-harness kiro settings cli.json, outside
  *  this table - the orchestrator agent is not a tier-carrying persona. */
-export function kiroModelDefaults(cap: Tier | null = null): Record<string, KiroEffort> {
+export function kiroModelDefaults(
+  cap: Tier | null = null,
+  additions: readonly { model: string; effort: KiroEffort }[] = [],
+): Record<string, KiroEffort> {
   const out: Record<string, KiroEffort> = {};
   // TIERS is ordered high to low, so the first tier to claim a model wins -
   // exactly the "higher tier's effort" collapse rule.
@@ -269,6 +272,13 @@ export function kiroModelDefaults(cap: Tier | null = null): Record<string, KiroE
     const effort = KIRO_TIER_EFFORT[capTier(tier, cap)];
     if (!model || !effort) continue;
     if (!(model in out)) out[model] = effort;
+  }
+  const effortOrder: readonly KiroEffort[] = ["low", "medium", "high", "xhigh", "max"];
+  for (const { model, effort } of additions) {
+    const current = out[model];
+    if (!current || effortOrder.indexOf(effort) > effortOrder.indexOf(current)) {
+      out[model] = effort;
+    }
   }
   return out;
 }
