@@ -49,7 +49,10 @@ import {
   getField,
   listIntents,
   listSpaces,
+  normalizeProjectFlagsRecord,
+  RECORDABLE_PROJECT_BYPASSES,
   stateFilePath,
+  type ProjectFlagsRecord,
   withAuditLock,
 } from "./aidlc-lib.ts";
 import { regenerateRunnerSurfaces } from "./aidlc-runner-gen.ts";
@@ -87,14 +90,25 @@ import {
 import { resolveTierCap } from "./aidlc-tiers.ts";
 import {
   applyConfigDiagnosticRecords,
+  availableScopeNames,
+  completionInstruction,
   detectAwsCredentials,
+  discoverInstalledPluginNames,
+  effectiveProjectFlagValues,
+  flagFiles,
+  flagIssues,
   normalizeProvidersRecord,
+  normalizeProjectChoicesRecord,
   normalizeRuntimeRecord,
   normalizeTrustRecord,
   pendingProviderIssues,
   probeRuntime,
   providerFiles,
   providerIssues,
+  projectChoiceFiles,
+  projectChoiceIssues,
+  projectMcpNote,
+  readPluginSelection,
   readConfigDiagnosticRecords,
   reconcileProviderActions,
   runtimeCommandFiles,
@@ -102,6 +116,8 @@ import {
   trustStatus,
   type ConfigDiagnosticOverrides,
   type ConfigDiagnosticRecords,
+  type CompletionShell,
+  type ProjectChoicesRecord,
   type ProvidersRecord,
   type RuntimeRecord,
   type TrustRecord,
@@ -140,6 +156,7 @@ type ModelsMutationContext = {
 };
 
 type DiagnosticSection = "runtime" | "providers" | "trust";
+type ChoiceSection = "flags" | "project";
 
 type DiagnosticsMutationContext = {
   section: DiagnosticSection;
@@ -152,10 +169,25 @@ type DiagnosticsMutationContext = {
   notes: string[];
 };
 
+type ChoicesMutationContext = {
+  section: ChoiceSection;
+  harness: ModelHarness;
+  harnessDir: string;
+  previous: ProjectFlagsRecord | ProjectChoicesRecord | null;
+  next: ProjectFlagsRecord | ProjectChoicesRecord | null;
+  previousPlugins: string[] | null;
+  nextPlugins: string[] | null;
+  overrides: ConfigDiagnosticOverrides;
+  mcpMode?: "defaults" | "none";
+  summaryLines: string[];
+  notes: string[];
+};
+
 const CONFIG_VALUE_FLAGS = new Set([
   "--agent",
   "--ca-bundle",
   "--deciding-effort",
+  "--default-scope",
   "--effort",
   "--from",
   "--harness",
@@ -172,9 +204,44 @@ const CONFIG_VALUE_FLAGS = new Set([
   "--region",
   "--release-base-url",
   "--mark-done",
+  "--plugins",
+  "--completions",
   "--reviewing-effort",
   "--save-as",
+  "--sensor-timeout-ms",
+  "--swarm",
+  "--hook-debug",
+  "--bypass",
+  "--clear-bypass",
   "--writing-up-effort",
+]);
+
+const CHOICE_VALUE_FLAGS = new Set([
+  "--bypass",
+  "--clear-bypass",
+  "--completions",
+  "--default-scope",
+  "--harness",
+  "--hook-debug",
+  "--mcp",
+  "--plan-token",
+  "--plugins",
+  "--project-dir",
+  "--sensor-timeout-ms",
+  "--swarm",
+]);
+
+const CHOICE_BARE_FLAGS = new Set([
+  "--check",
+  "--dry-run",
+  "--help",
+  "--json",
+  "--no-color",
+  "--quiet",
+  "--reset",
+  "--show",
+  "--verbose",
+  "--yes",
 ]);
 
 const DIAGNOSTIC_VALUE_FLAGS = new Set([
@@ -703,7 +770,7 @@ function diagnosticHelp(section: DiagnosticSection): string {
 function selectedDiagnosticHarness(
   projectDir: string,
   requested: string | undefined,
-  section: DiagnosticSection,
+  section: DiagnosticSection | ChoiceSection,
 ): {
   distribution: string;
   harnessDir: string;
@@ -1269,6 +1336,626 @@ function prepareDiagnosticSection(
   };
 }
 
+function validateChoiceArgs(
+  section: ChoiceSection,
+  argv: readonly string[],
+): string | null {
+  const values = section === "flags"
+    ? new Set([
+        "--bypass",
+        "--clear-bypass",
+        "--default-scope",
+        "--harness",
+        "--hook-debug",
+        "--plan-token",
+        "--project-dir",
+        "--sensor-timeout-ms",
+        "--swarm",
+      ])
+    : new Set([
+        "--completions",
+        "--harness",
+        "--mcp",
+        "--plan-token",
+        "--plugins",
+        "--project-dir",
+      ]);
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (!token.startsWith("--")) {
+      return `unexpected ${section} positional ${JSON.stringify(token)}`;
+    }
+    if (CHOICE_VALUE_FLAGS.has(token)) {
+      if (!values.has(token)) return `${token} is not valid for config ${section}`;
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) return `${token} requires a value`;
+      index++;
+      continue;
+    }
+    if (!CHOICE_BARE_FLAGS.has(token)) return `unknown ${section} option ${token}`;
+  }
+  if (valuesAfter(argv, "--harness").length > 1) {
+    return "multi-harness config is not supported yet; pass one --harness <name>";
+  }
+  return null;
+}
+
+function choiceHelp(section: ChoiceSection): string {
+  const specific = section === "flags"
+    ? [
+        "Recorded flags:",
+        "  --default-scope <installed-scope>",
+        "  --swarm <on|off>",
+        "  --hook-debug <on|off>",
+        "  --sensor-timeout-ms <positive-integer>",
+        "  --bypass <AIDLC_SKIP_*|AIDLC_DISABLE_*>",
+        "  --clear-bypass <AIDLC_SKIP_*|AIDLC_DISABLE_*>",
+        "",
+        "Environment variables always override recorded answers.",
+        "Bypasses weaken deterministic guards and are accepted only through explicit --bypass flags.",
+      ]
+    : [
+        "Project choices:",
+        "  --plugins <comma-separated-installed-names|all>",
+        "  --mcp <defaults|none>",
+        "  --completions <bash|zsh|fish|powershell|none>",
+        "",
+        "--yes confirms but never implies MCP consent. Without an explicit answer, MCP consent records none.",
+      ];
+  return [
+    `Usage: aidlc config ${section} [options]`,
+    "",
+    ...specific,
+    "",
+    "Inspection:",
+    "  --show [--json]",
+    "  --check",
+    "",
+    "Mutation control:",
+    "  --reset",
+    "  --dry-run",
+    "  --yes",
+  ].join("\n");
+}
+
+function choicePipelineArgv(argv: readonly string[]): string[] {
+  const out: string[] = [];
+  const keptValues = new Set(["--harness", "--plan-token", "--project-dir"]);
+  const keptBare = new Set([
+    "--dry-run",
+    "--json",
+    "--no-color",
+    "--quiet",
+    "--verbose",
+    "--yes",
+  ]);
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (keptValues.has(token)) {
+      out.push(token, argv[++index]);
+    } else if (keptBare.has(token)) {
+      out.push(token);
+    } else if (CHOICE_VALUE_FLAGS.has(token)) {
+      index++;
+    }
+  }
+  return out;
+}
+
+function parseOnOff(value: string | undefined, flag: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "on" && value !== "off") {
+    throw new Error(`${flag} must be on or off`);
+  }
+  return value === "on";
+}
+
+function buildFlagsRecord(
+  current: ProjectFlagsRecord | null,
+  argv: readonly string[],
+  harnessRoot: string,
+): ProjectFlagsRecord {
+  const next: ProjectFlagsRecord = cloneDiagnosticRecord(current) ?? {
+    schemaVersion: 1,
+  };
+  const defaultScope = valueAfter(argv, "--default-scope");
+  if (defaultScope) {
+    const scopes = availableScopeNames(harnessRoot);
+    if (!scopes.includes(defaultScope)) {
+      throw new Error(
+        `--default-scope must be one of the installed scopes: ${scopes.join(", ")}`,
+      );
+    }
+    next.defaultScope = defaultScope;
+  }
+  const swarm = parseOnOff(valueAfter(argv, "--swarm"), "--swarm");
+  if (swarm !== undefined) next.swarm = swarm;
+  const hookDebug = parseOnOff(valueAfter(argv, "--hook-debug"), "--hook-debug");
+  if (hookDebug !== undefined) next.hookDebug = hookDebug;
+  const timeout = valueAfter(argv, "--sensor-timeout-ms");
+  if (timeout !== undefined) {
+    const parsed = Number(timeout);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error("--sensor-timeout-ms must be a positive integer");
+    }
+    next.sensorTimeoutMs = parsed;
+  }
+  const bypasses = new Set(next.bypasses ?? []);
+  for (const name of valuesAfter(argv, "--bypass")) {
+    if (!(RECORDABLE_PROJECT_BYPASSES as readonly string[]).includes(name)) {
+      throw new Error(
+        `--bypass must be one of ${RECORDABLE_PROJECT_BYPASSES.join(", ")}`,
+      );
+    }
+    bypasses.add(name as (typeof RECORDABLE_PROJECT_BYPASSES)[number]);
+  }
+  for (const name of valuesAfter(argv, "--clear-bypass")) {
+    if (!(RECORDABLE_PROJECT_BYPASSES as readonly string[]).includes(name)) {
+      throw new Error(
+        `--clear-bypass must be one of ${RECORDABLE_PROJECT_BYPASSES.join(", ")}`,
+      );
+    }
+    bypasses.delete(name as (typeof RECORDABLE_PROJECT_BYPASSES)[number]);
+  }
+  if (bypasses.size > 0) next.bypasses = [...bypasses].sort();
+  else delete next.bypasses;
+  return normalizeProjectFlagsRecord(next) as ProjectFlagsRecord;
+}
+
+function parsePluginAnswer(
+  value: string | undefined,
+  known: readonly string[],
+  current: string[] | null,
+): string[] | null {
+  if (value === undefined) return current;
+  if (value === "all") return null;
+  const names = [...new Set(value.split(",").map((name) => name.trim()).filter(Boolean))]
+    .sort();
+  if (names.length === 0) throw new Error("--plugins requires at least one name or all");
+  const knownSet = new Set(known);
+  const unknown = names.filter((name) => !knownSet.has(name));
+  if (unknown.length > 0) {
+    throw new Error(
+      `unknown plugin name(s): ${unknown.join(", ")}; installed plugins: ${known.join(", ")}`,
+    );
+  }
+  return names;
+}
+
+function buildProjectRecord(
+  current: ProjectChoicesRecord | null,
+  currentPlugins: string[] | null,
+  argv: readonly string[],
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+): {
+  record: ProjectChoicesRecord;
+  plugins: string[] | null;
+} {
+  const next: ProjectChoicesRecord = cloneDiagnosticRecord(current) ?? {
+    schemaVersion: 1,
+  };
+  const mcp = valueAfter(argv, "--mcp");
+  if (mcp !== undefined && mcp !== "defaults" && mcp !== "none") {
+    throw new Error("--mcp must be defaults or none");
+  }
+  next.mcp = (mcp as "defaults" | "none" | undefined) ?? next.mcp ?? "none";
+  const completions = valueAfter(argv, "--completions");
+  if (
+    completions !== undefined &&
+    !["bash", "zsh", "fish", "powershell", "none"].includes(completions)
+  ) {
+    throw new Error(
+      "--completions must be bash, zsh, fish, powershell, or none",
+    );
+  }
+  if (completions) next.completions = completions as CompletionShell;
+  const known = discoverInstalledPluginNames(
+    dirname(selected.root),
+    selected.harnessDir,
+  );
+  const plugins = parsePluginAnswer(
+    valueAfter(argv, "--plugins"),
+    known,
+    currentPlugins,
+  );
+  return {
+    record: normalizeProjectChoicesRecord(next) as ProjectChoicesRecord,
+    plugins,
+  };
+}
+
+function showChoiceSection(
+  section: ChoiceSection,
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  records: ConfigDiagnosticRecords,
+  options: ReturnType<typeof globalOptions>,
+): void {
+  const plugins = readPluginSelection(selected.root);
+  let data: Record<string, unknown>;
+  if (section === "flags") {
+    data = {
+      section,
+      harness: selected.harness,
+      record: records.flags,
+      effective: effectiveProjectFlagValues(records.flags),
+      issues: flagIssues(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.flags,
+      ),
+      files: flagFiles(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.flags,
+      ),
+    };
+  } else {
+    const completion = records.project?.completions;
+    data = {
+      section,
+      harness: selected.harness,
+      record: records.project,
+      plugins,
+      installedPlugins: discoverInstalledPluginNames(
+        projectDir,
+        selected.harnessDir,
+      ),
+      completionInstruction:
+        completion && completion !== "none"
+          ? completionInstruction(projectDir, selected.harnessDir, completion)
+          : null,
+      issues: projectChoiceIssues(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.project,
+        plugins,
+      ),
+      files: projectChoiceFiles(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.project,
+      ),
+      mcpNote: projectMcpNote(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.project,
+      ),
+    };
+  }
+  if (options.mode === "json") {
+    emitResult(success(`${section} configuration for ${selected.harness}`, data), options);
+    return;
+  }
+  let output = `${section[0].toUpperCase()}${section.slice(1)} configuration for ${selected.harness}\n`;
+  if (section === "flags") {
+    output += `  Default scope: ${records.flags?.defaultScope ?? "inherit"}\n`;
+    output += `  Swarm: ${records.flags?.swarm === undefined ? "inherit" : records.flags.swarm ? "on" : "off"}\n`;
+    output += `  Hook debug: ${records.flags?.hookDebug === undefined ? "inherit" : records.flags.hookDebug ? "on" : "off"}\n`;
+    output += `  Sensor timeout: ${records.flags?.sensorTimeoutMs ?? "inherit"}\n`;
+    for (const bypass of records.flags?.bypasses ?? []) {
+      output += `  Bypass enabled: ${bypass}\n`;
+    }
+    output += "  Files carrying flags:\n";
+    for (const entry of data.files as ReturnType<typeof flagFiles>) {
+      output += `    ${entry.setting}: ${entry.file}\n`;
+    }
+    for (const issue of data.issues as ReturnType<typeof flagIssues>) {
+      output += `  Override: ${issue.message}\n`;
+    }
+  } else {
+    output += `  Plugins: ${plugins === null ? "all installed" : plugins.join(", ")}\n`;
+    output += `  MCP consent: ${records.project?.mcp ?? "inherit"}\n`;
+    if (data.mcpNote) output += `  MCP note: ${data.mcpNote}\n`;
+    output += `  Completions: ${records.project?.completions ?? "not offered"}\n`;
+    if (data.completionInstruction) {
+      output += `  Install completions with: ${data.completionInstruction}\n`;
+    }
+    output += "  Files carrying project choices:\n";
+    for (const entry of data.files as ReturnType<typeof projectChoiceFiles>) {
+      output += `    ${entry.setting}: ${entry.file}\n`;
+    }
+  }
+  process.stdout.write(output);
+  process.exitCode = EXIT.ok;
+}
+
+function checkChoiceSection(
+  section: ChoiceSection,
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  records: ConfigDiagnosticRecords,
+  options: ReturnType<typeof globalOptions>,
+): void {
+  const plugins = readPluginSelection(selected.root);
+  const issues = section === "flags"
+    ? flagIssues(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.flags,
+      )
+    : projectChoiceIssues(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        records.project,
+        plugins,
+      );
+  emitResult(
+    issues.length === 0
+      ? success(`${section} configuration is clean for ${selected.harness}`, {
+          section,
+          harness: selected.harness,
+          issues: [],
+        })
+      : failure(
+          `${section} configuration has ${issues.length} unmet item(s): ${
+            issues.map((issue) => `${issue.id} (${issue.message})`).join("; ")
+          }`,
+          EXIT.failure,
+          `aidlc config ${section} --show`,
+        ),
+    options,
+  );
+}
+
+function choiceWizard(
+  section: ChoiceSection,
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  records: ConfigDiagnosticRecords,
+  options: ReturnType<typeof globalOptions>,
+): {
+  next: ProjectFlagsRecord | ProjectChoicesRecord;
+  plugins: string[] | null;
+} {
+  showChoiceSection(section, projectDir, selected, records, {
+    ...options,
+    mode: "human",
+  });
+  if (section === "flags") {
+    const args: string[] = [];
+    const scopes = availableScopeNames(selected.root);
+    const scope = prompt(
+      `Default scope [${scopes.join("/")}, Enter keep]:`,
+    )?.trim();
+    if (scope) args.push("--default-scope", scope);
+    for (const [flag, label] of [
+      ["--swarm", "Swarm"],
+      ["--hook-debug", "Hook debug"],
+    ] as const) {
+      const answer = prompt(`${label} [on/off, Enter keep]:`)?.trim();
+      if (answer) args.push(flag, answer);
+    }
+    const timeout = prompt("Sensor timeout ms [Enter keep]:")?.trim();
+    if (timeout) args.push("--sensor-timeout-ms", timeout);
+    return {
+      next: buildFlagsRecord(records.flags, args, selected.root),
+      plugins: readPluginSelection(selected.root),
+    };
+  }
+  const known = discoverInstalledPluginNames(projectDir, selected.harnessDir);
+  const currentPlugins = readPluginSelection(selected.root);
+  const args: string[] = [];
+  const pluginAnswer = prompt(
+    `Enabled plugins [${known.join(",")}; all; Enter keep]:`,
+  )?.trim();
+  if (pluginAnswer) args.push("--plugins", pluginAnswer);
+  const currentMcp = records.project?.mcp ?? "none";
+  const mcp = prompt(`MCP consent [defaults/none, Enter ${currentMcp}]:`)?.trim();
+  if (mcp) args.push("--mcp", mcp);
+  const completions = prompt(
+    "Completions [bash/zsh/fish/powershell/none, Enter keep]:",
+  )?.trim();
+  if (completions) args.push("--completions", completions);
+  const built = buildProjectRecord(records.project, currentPlugins, args, selected);
+  return { next: built.record, plugins: built.plugins };
+}
+
+function choiceSummary(
+  section: ChoiceSection,
+  next: ProjectFlagsRecord | ProjectChoicesRecord | null,
+  plugins: string[] | null,
+  projectDir: string,
+  harnessDir: string,
+): { lines: string[]; notes: string[] } {
+  if (section === "flags") {
+    const record = next as ProjectFlagsRecord | null;
+    return {
+      lines: [
+        record
+          ? `  Flags        default-scope=${record.defaultScope ?? "inherit"} swarm=${
+              record.swarm === undefined ? "inherit" : record.swarm ? "on" : "off"
+            }`
+          : "  Flags        reset to environment and shipped defaults",
+      ],
+      notes: (record?.bypasses ?? []).map((name) =>
+        `${name} weakens a deterministic guard and is enabled only by explicit opt-in.`
+      ),
+    };
+  }
+  const record = next as ProjectChoicesRecord | null;
+  const notes: string[] = [];
+  if (record?.completions && record.completions !== "none") {
+    notes.push(
+      `Install completions with: ${
+        completionInstruction(projectDir, harnessDir, record.completions)
+      }`,
+    );
+  }
+  return {
+    lines: [
+      record
+        ? `  Project      plugins=${plugins === null ? "all" : plugins.join(",")} mcp=${
+            record.mcp ?? "none"
+          } completions=${record.completions ?? "none"}`
+        : "  Project      reset to all plugins, no MCP consent, and no completion answer",
+    ],
+    notes,
+  };
+}
+
+function prepareChoiceSection(
+  section: ChoiceSection,
+  argv: string[],
+  options: ReturnType<typeof globalOptions>,
+): { argv: string[]; context: ChoicesMutationContext } | null {
+  const validation = validateChoiceArgs(section, argv);
+  if (validation) {
+    emitResult(usage(validation, `aidlc config ${section} --help`), options);
+    return null;
+  }
+  if (argv.includes("--help")) {
+    process.stdout.write(`${choiceHelp(section)}\n`);
+    process.exitCode = EXIT.ok;
+    return null;
+  }
+  const mutationFlags = section === "flags"
+    ? [
+        "--bypass",
+        "--clear-bypass",
+        "--default-scope",
+        "--hook-debug",
+        "--reset",
+        "--sensor-timeout-ms",
+        "--swarm",
+      ]
+    : ["--completions", "--mcp", "--plugins", "--reset"];
+  const hasMutationFlags = mutationFlags.some((flag) => argv.includes(flag));
+  if (
+    (argv.includes("--show") || argv.includes("--check")) &&
+    (hasMutationFlags || argv.includes("--dry-run") || argv.includes("--yes"))
+  ) {
+    emitResult(
+      usage(`--show and --check cannot be combined with ${section} mutations`),
+      options,
+    );
+    return null;
+  }
+  if (argv.includes("--show") && argv.includes("--check")) {
+    emitResult(usage("--show and --check are mutually exclusive"), options);
+    return null;
+  }
+  const projectDir = projectDirFrom(argv);
+  const selected = selectedDiagnosticHarness(
+    projectDir,
+    valueAfter(argv, "--harness"),
+    section,
+  );
+  const records = readConfigDiagnosticRecords(selected.root);
+  if (argv.includes("--show")) {
+    showChoiceSection(section, projectDir, selected, records, options);
+    return null;
+  }
+  if (argv.includes("--check")) {
+    checkChoiceSection(section, projectDir, selected, records, options);
+    return null;
+  }
+  const previous = section === "flags" ? records.flags : records.project;
+  const previousPlugins = readPluginSelection(selected.root);
+  let next: ProjectFlagsRecord | ProjectChoicesRecord | null;
+  let nextPlugins = previousPlugins;
+  let mcpMode: "defaults" | "none" | undefined;
+  if (argv.includes("--reset")) {
+    const conflict = mutationFlags.find((flag) => flag !== "--reset" && argv.includes(flag));
+    if (conflict) throw new Error(`--reset cannot be combined with ${conflict}`);
+    next = null;
+    if (section === "project") {
+      nextPlugins = null;
+      mcpMode = "none";
+    }
+  } else if (hasMutationFlags) {
+    if (section === "flags") {
+      next = buildFlagsRecord(records.flags, argv, selected.root);
+    } else {
+      const built = buildProjectRecord(
+        records.project,
+        previousPlugins,
+        argv,
+        selected,
+      );
+      next = built.record;
+      nextPlugins = built.plugins;
+      mcpMode = built.record.mcp;
+    }
+  } else {
+    if (!process.stdin.isTTY) {
+      const flags = section === "flags"
+        ? "--default-scope, --swarm, --hook-debug, --sensor-timeout-ms, --bypass, or --reset"
+        : "--plugins, --mcp, --completions, or --reset";
+      emitResult(
+        usage(
+          `non-interactive ${section} configuration requires ${flags}; --yes confirms but never chooses`,
+          `aidlc config ${section} --help`,
+        ),
+        options,
+      );
+      return null;
+    }
+    const built = choiceWizard(section, projectDir, selected, records, options);
+    next = built.next;
+    nextPlugins = built.plugins;
+    if (section === "project") {
+      mcpMode = (built.next as ProjectChoicesRecord).mcp;
+    }
+  }
+  if (
+    canonical(previous) === canonical(next) &&
+    canonical(previousPlugins) === canonical(nextPlugins)
+  ) {
+    emitResult(success(`${section} configuration unchanged`), options);
+    return null;
+  }
+  if (!argv.includes("--dry-run") && !options.yes) {
+    if (!process.stdin.isTTY) {
+      emitResult(
+        usage(
+          `non-interactive ${section} mutation requires --yes; --yes confirms but never chooses`,
+        ),
+        options,
+      );
+      return null;
+    }
+    const answer = prompt(`Apply ${section} configuration changes? [y/N]:`);
+    if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+      emitResult(usage(`${section} configuration change cancelled`), options);
+      return null;
+    }
+  }
+  const summary = choiceSummary(
+    section,
+    next,
+    nextPlugins,
+    projectDir,
+    selected.harnessDir,
+  );
+  return {
+    argv: choicePipelineArgv(argv),
+    context: {
+      section,
+      harness: selected.harness,
+      harnessDir: selected.harnessDir,
+      previous,
+      next,
+      previousPlugins,
+      nextPlugins,
+      overrides: {
+        [section]: next,
+        ...(section === "project" ? { plugins: nextPlugins } : {}),
+      },
+      ...(mcpMode ? { mcpMode } : {}),
+      summaryLines: summary.lines,
+      notes: summary.notes,
+    },
+  };
+}
+
 function stripVerb(argv: string[]): string[] {
   return argv[0] === "config" || argv[0] === "init" ? argv.slice(1) : argv;
 }
@@ -1618,11 +2305,15 @@ function prepareRefreshSource(
   }
   if (modelsOverride === null) delete staged.models;
   else if (modelsOverride !== undefined) staged.models = modelsOverride;
-  for (const key of ["runtime", "providers", "trust"] as const) {
+  for (const key of ["runtime", "providers", "trust", "flags", "project"] as const) {
     if (!diagnosticsOverride || !Object.hasOwn(diagnosticsOverride, key)) continue;
     const value = diagnosticsOverride[key];
     if (value === null) delete staged[key];
     else staged[key] = value;
+  }
+  if (diagnosticsOverride && Object.hasOwn(diagnosticsOverride, "plugins")) {
+    if (diagnosticsOverride.plugins === null) delete staged.plugins;
+    else staged.plugins = diagnosticsOverride.plugins;
   }
   if (
     regularFile(currentHarnessData) ||
@@ -1650,6 +2341,11 @@ function prepareRefreshSource(
       runtime: normalizeRuntimeRecord(staged.runtime),
       providers: normalizeProvidersRecord(staged.providers),
       trust: normalizeTrustRecord(staged.trust),
+      flags: normalizeProjectFlagsRecord(
+        staged.flags,
+        `${stagedHarnessData}: harness.json field "flags"`,
+      ),
+      project: normalizeProjectChoicesRecord(staged.project),
     },
   );
 
@@ -2729,12 +3425,19 @@ export async function main(input: string[]): Promise<void> {
   const options = globalOptions(argv);
   const positionals = configPositionals(argv);
   const section = positionals[0];
-  const validSections = new Set(["models", "runtime", "providers", "trust"]);
+  const validSections = new Set([
+    "models",
+    "runtime",
+    "providers",
+    "trust",
+    "flags",
+    "project",
+  ]);
   if (section && !validSections.has(section.value)) {
     emitResult(
       usage(
-        `unknown config section ${JSON.stringify(section.value)}; valid sections: models, runtime, providers, trust`,
-        "aidlc config <models|runtime|providers|trust> --help",
+        `unknown config section ${JSON.stringify(section.value)}; valid sections: models, runtime, providers, trust, flags, project`,
+        "aidlc config <models|runtime|providers|trust|flags|project> --help",
       ),
       options,
     );
@@ -2742,6 +3445,7 @@ export async function main(input: string[]): Promise<void> {
   }
   let modelsContext: ModelsMutationContext | null = null;
   let diagnosticsContext: DiagnosticsMutationContext | null = null;
+  let choicesContext: ChoicesMutationContext | null = null;
   if (section?.value === "models") {
     argv = [...argv.slice(0, section.index), ...argv.slice(section.index + 1)];
     try {
@@ -2780,6 +3484,28 @@ export async function main(input: string[]): Promise<void> {
         usage(
           error instanceof Error ? error.message : String(error),
           `aidlc config ${diagnosticSection} --help`,
+        ),
+        options,
+      );
+      return;
+    }
+  } else if (section?.value === "flags" || section?.value === "project") {
+    const choiceSection = section.value;
+    argv = [...argv.slice(0, section.index), ...argv.slice(section.index + 1)];
+    try {
+      const preparedChoices = prepareChoiceSection(
+        choiceSection,
+        argv,
+        options,
+      );
+      if (!preparedChoices) return;
+      argv = preparedChoices.argv;
+      choicesContext = preparedChoices.context;
+    } catch (error) {
+      emitResult(
+        usage(
+          error instanceof Error ? error.message : String(error),
+          `aidlc config ${choiceSection} --help`,
         ),
         options,
       );
@@ -2855,9 +3581,33 @@ export async function main(input: string[]): Promise<void> {
       descriptor,
       prior,
       modelsContext?.next,
-      diagnosticsContext?.overrides,
+      diagnosticsContext?.overrides ?? choicesContext?.overrides,
     );
-    let mcpMode = (mcpValue ?? prior?.mcpMode) as "defaults" | "none" | undefined;
+    let recordedProjectMcp: "defaults" | "none" | undefined;
+    try {
+      const stagedHarnessData = JSON.parse(
+        readFileSync(
+          join(
+            prepared.root,
+            descriptor.harnessDir,
+            "tools",
+            "data",
+            "harness.json",
+          ),
+          "utf-8",
+        ),
+      ) as Record<string, unknown>;
+      recordedProjectMcp =
+        normalizeProjectChoicesRecord(stagedHarnessData.project)?.mcp;
+    } catch {
+      recordedProjectMcp = undefined;
+    }
+    let mcpMode = (
+      mcpValue ??
+      choicesContext?.mcpMode ??
+      recordedProjectMcp ??
+      prior?.mcpMode
+    ) as "defaults" | "none" | undefined;
     if (
       !mcpMode &&
       process.stdin.isTTY &&
@@ -2974,7 +3724,12 @@ export async function main(input: string[]): Promise<void> {
         for (const line of diagnosticsContext.summaryLines) process.stdout.write(`${line}\n`);
         for (const note of diagnosticsContext.notes) process.stdout.write(`  Note: ${note}\n`);
       }
+      if (choicesContext && options.mode === "human") {
+        for (const line of choicesContext.summaryLines) process.stdout.write(`${line}\n`);
+        for (const note of choicesContext.notes) process.stdout.write(`  Note: ${note}\n`);
+      }
       const configuredSection = diagnosticsContext?.section ??
+        choicesContext?.section ??
         (modelsContext ? "models" : null);
       emitResult(success(
         `${configuredSection ? `${configuredSection} configuration` : "config"} plan for ${projectDir}: ${
@@ -3004,6 +3759,19 @@ export async function main(input: string[]): Promise<void> {
                   next: diagnosticsContext.next,
                   summaries: diagnosticsContext.summaryLines,
                   notes: diagnosticsContext.notes,
+                },
+              }
+            : {}),
+          ...(choicesContext
+            ? {
+                choices: {
+                  section: choicesContext.section,
+                  previous: choicesContext.previous,
+                  next: choicesContext.next,
+                  previousPlugins: choicesContext.previousPlugins,
+                  nextPlugins: choicesContext.nextPlugins,
+                  summaries: choicesContext.summaryLines,
+                  notes: choicesContext.notes,
                 },
               }
             : {}),
@@ -3046,8 +3814,14 @@ export async function main(input: string[]): Promise<void> {
       for (const line of diagnosticsContext.summaryLines) process.stdout.write(`${line}\n`);
       for (const note of diagnosticsContext.notes) process.stdout.write(`  Note: ${note}\n`);
     }
+    if (choicesContext && options.mode === "human") {
+      for (const line of choicesContext.summaryLines) process.stdout.write(`${line}\n`);
+      for (const note of choicesContext.notes) process.stdout.write(`  Note: ${note}\n`);
+    }
     emitResult(success(
-      diagnosticsContext
+      choicesContext
+        ? `configured ${choicesContext.section} settings for ${projectDir}`
+        : diagnosticsContext
         ? `configured ${diagnosticsContext.section} settings for ${projectDir}`
         : modelsContext
         ? `configured model policy for ${projectDir}`
@@ -3077,6 +3851,19 @@ export async function main(input: string[]): Promise<void> {
                 next: diagnosticsContext.next,
                 summaries: diagnosticsContext.summaryLines,
                 notes: diagnosticsContext.notes,
+              },
+            }
+          : {}),
+        ...(choicesContext
+          ? {
+              choices: {
+                section: choicesContext.section,
+                previous: choicesContext.previous,
+                next: choicesContext.next,
+                previousPlugins: choicesContext.previousPlugins,
+                nextPlugins: choicesContext.nextPlugins,
+                summaries: choicesContext.summaryLines,
+                notes: choicesContext.notes,
               },
             }
           : {}),

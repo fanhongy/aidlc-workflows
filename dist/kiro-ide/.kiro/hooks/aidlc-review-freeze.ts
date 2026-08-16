@@ -70,6 +70,7 @@ import {
   recordHookDrop,
   releaseAuditLock,
   resolveReviewClass,
+  resolveProjectFlag,
   resolveProjectDirFromHook,
   type StageEntry,
 } from "../tools/aidlc-lib.ts";
@@ -734,7 +735,7 @@ export function blockReason(v: FreezeVerdict): string {
 
 export async function run(input: string): Promise<number> {
   // Deterministic off-switch: enforcement disabled entirely.
-  if (process.env.AIDLC_DISABLE_REVIEW_FREEZE_HOOK === "1") return 0;
+  if (resolveProjectFlag("AIDLC_DISABLE_REVIEW_FREEZE_HOOK") === "1") return 0;
 
   const projectDir = resolveProjectDirFromHook(import.meta.url);
 

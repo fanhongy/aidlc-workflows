@@ -105,6 +105,8 @@ function emptyRecords(providers: ProvidersRecord | null): ConfigDiagnosticRecord
     runtime: null,
     providers,
     trust: null,
+    flags: null,
+    project: null,
   };
 }
 
@@ -125,7 +127,7 @@ describe("t294 config section dispatch", () => {
     ], project);
     expect(unknown.status).toBe(2);
     expect(unknown.stdout).toContain(
-      "valid sections: models, runtime, providers, trust",
+      "valid sections: models, runtime, providers, trust, flags, project",
     );
     expect(existsSync(join(project, ".claude"))).toBe(false);
 
@@ -970,6 +972,8 @@ describe("t294 invariants", () => {
       runtime: null,
       providers: null,
       trust: null,
+      flags: null,
+      project: null,
     });
     expect(readFileSync(join(project, ".claude", "settings.json"))).toEqual(
       beforeSettings,

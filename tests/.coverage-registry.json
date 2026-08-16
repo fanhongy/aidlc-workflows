@@ -20,9 +20,9 @@
     "render-surface": "tui"
   },
   "counts": {
-    "total": 551,
+    "total": 555,
     "enumeratedByClass": {
-      "function": 304,
+      "function": 308,
       "audit": 82,
       "scope": 9,
       "stage": 33,
@@ -31,7 +31,7 @@
       "render-surface": 7
     },
     "coveredByClass": {
-      "function": 145,
+      "function": 148,
       "audit": 40,
       "scope": 9,
       "stage": 11,
@@ -2558,6 +2558,18 @@
     },
     {
       "unitClass": "function",
+      "unitId": "function:normalizeProjectFlagsRecord",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t295-config-choices.test.ts",
+          "mechanism": "cli"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "function",
       "unitId": "function:numericStageOrder",
       "minMechanism": "none",
       "coveredBy": [],
@@ -2821,6 +2833,18 @@
     },
     {
       "unitClass": "function",
+      "unitId": "function:projectFlags",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t295-config-choices.test.ts",
+          "mechanism": "cli"
+        }
+      ],
+      "status": "covered"
+    },
+    {
+      "unitClass": "function",
       "unitId": "function:READ_ONLY_FLAGS",
       "minMechanism": "none",
       "coveredBy": [
@@ -2903,6 +2927,13 @@
     {
       "unitClass": "function",
       "unitId": "function:readStateFile",
+      "minMechanism": "none",
+      "coveredBy": [],
+      "status": "UNCOVERED"
+    },
+    {
+      "unitClass": "function",
+      "unitId": "function:RECORDABLE_PROJECT_BYPASSES",
       "minMechanism": "none",
       "coveredBy": [],
       "status": "UNCOVERED"
@@ -3157,6 +3188,18 @@
       "minMechanism": "none",
       "coveredBy": [],
       "status": "UNCOVERED"
+    },
+    {
+      "unitClass": "function",
+      "unitId": "function:resolveProjectFlag",
+      "minMechanism": "none",
+      "coveredBy": [
+        {
+          "file": "tests/unit/t295-config-choices.test.ts",
+          "mechanism": "cli"
+        }
+      ],
+      "status": "covered"
     },
     {
       "unitClass": "function",

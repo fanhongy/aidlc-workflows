@@ -305,6 +305,93 @@ The trust check also verifies the project siblings that copy installs often
 miss: `aidlc/` for every harness, `.agents/` for Codex, and the `.aidlc/`
 engine for opencode and Copilot.
 
+### Project Flags
+
+`aidlc config flags` records project answers for default scope, swarm mode,
+hook debug, sensor timeout, and explicit guard bypasses:
+
+```bash
+aidlc config flags --default-scope <installed-scope> \
+  --swarm on --hook-debug off --sensor-timeout-ms 90000 --yes
+aidlc config flags --bypass AIDLC_SKIP_ARTIFACT_GUARD --yes
+aidlc config flags --show
+aidlc config flags --check
+aidlc config flags --reset --yes
+```
+
+Real environment variables always win. Existing tools and hooks first read the
+environment and fall back to `flags` in `harness.json` only when the variable
+is absent. This keeps CI and one-shot shell exports scriptable.
+
+Default scope names are read from the installed scope files. The section does
+not branch on a built-in scope name, so scope renames and plugin scopes remain
+data. On Claude Code, config also rewrites the staged
+`AWS_AIDLC_DEFAULT_SCOPE` value in `.claude/settings.json`; otherwise the
+shipped session environment would shadow the lower-precedence record.
+
+The recordable bypass set is limited to the documented recovery switches:
+
+- `AIDLC_SKIP_ARTIFACT_GUARD`
+- `AIDLC_SKIP_HUMAN_PRESENCE_GUARD`
+- `AIDLC_SKIP_REVISION_BACKSTOP`
+- `AIDLC_SKIP_SUMMARY_CONFIRMATION_GUARD`
+- `AIDLC_DISABLE_ENSEMBLE_EVIDENCE`
+- `AIDLC_DISABLE_PLAN_APPROVAL_GUARD`
+- `AIDLC_DISABLE_REVIEWER_SCOPE_HOOK`
+- `AIDLC_DISABLE_REVIEW_FREEZE_HOOK`
+- `AIDLC_DISABLE_USAGE_TRACKING`
+
+The wizard never offers bypasses. They require an explicit `--bypass <name>`;
+`--show` surfaces every enabled bypass and its guard-weakening consequence.
+
+### Project Choices
+
+`aidlc config project` records the installed plugin selection, MCP consent,
+and the shell-completion answer:
+
+```bash
+aidlc config project --plugins aidlc,test-pro --mcp none \
+  --completions zsh --yes
+aidlc config project --show --json
+aidlc config project --check
+aidlc config project --reset --yes
+```
+
+Plugin names are discovered from the installed graph, scopes, and plugin
+sidecars. They are not hardcoded. The selection continues to use the existing
+top-level `plugins` array in `harness.json`, so graph and runner regeneration
+use the same selection seam as plugin composition. Project mutations run
+through the refresh safety guard and refuse while a workflow is active.
+
+MCP consent remains `defaults` or `none`. A non-interactive project mutation
+with no earlier consent records `none`; `--yes` only confirms the mutation and
+never adds MCP entries.
+
+On Claude Code, `.mcp.json` is the consent-managed surface: `--check` verifies
+both `defaults` and `none`, and later plain config refreshes reapply the answer.
+Kiro CLI always ships `.kiro/settings/mcp.json`; `defaults` is satisfied by
+that file and its five shipped servers, while `none` is an instruct-only
+preference and does not remove a framework-owned file. The current Codex,
+opencode, Copilot, Kiro IDE, and Cursor distributions ship no MCP surface, so
+their recorded answer is informational and does not make `--check`
+permanently red. `--show` names the actual MCP file whenever one exists.
+
+Completions are instruction-only and write no machine files. Native installs
+print commands such as:
+
+```bash
+eval "$(aidlc system completions bash)"
+```
+
+Copy-channel installs print the matching Bun invocation, for example:
+
+```bash
+eval "$(bun .claude/tools/aidlc.ts system completions bash)"
+```
+
+Fish uses `... completions fish | source`; PowerShell uses
+`... completions powershell | Out-String | Invoke-Expression`.
+
 An existing project stamp fixes the harness for a refresh. A fresh interactive
 project prompts for a harness; a non-interactive run requires `--harness`.
 If `.aidlc-version` exists, config

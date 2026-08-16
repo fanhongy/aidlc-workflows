@@ -302,7 +302,7 @@ under `tools/data/`:
 - `harness.json` is runtime configuration: distribution identity, product
   name, next-step text, harness/rules directories, and mutable project choices
   such as plugin selection and the optional `models`, `runtime`, `providers`,
-  and `trust` records.
+  `trust`, `flags`, and `project` records.
 - `agent-tiers.json` is the shipped agent-name to tier map generated from
   `core/agents/*.md` frontmatter. Runtime model policy reads this file instead
   of hardcoding agent rosters.
@@ -393,6 +393,37 @@ Trust diagnostics read the existing host surfaces. Codex checks the complete
 project-specific seed set in the user config, Kiro IDE checks the installed
 trusted command entry, and every harness checks required sibling directories.
 No trust seed or permission-rule generator is called by config trust.
+
+### Flags and project choices
+
+`aidlc config flags` stores a schema-versioned `flags` record in
+`harness.json`. `readShippedHarnessData` parses that record alongside the
+existing plugin selection, and `resolveProjectFlag` provides the common
+environment-first lookup. Existing tools and hooks keep their real environment
+variable behavior; only an absent variable falls back to the record. The
+orchestrator skills use the same precedence for the conductor-owned swarm
+choice.
+
+The flags record contains default scope, swarm, hook debug, sensor timeout, and
+the fixed inventory of documented bypass environment names. Scope validation
+reads the installed scope frontmatter. Claude's staged settings writer also
+updates `AWS_AIDLC_DEFAULT_SCOPE`, because the shipped session environment is
+otherwise higher precedence than the record.
+
+`aidlc config project` stores MCP and completion answers in a schema-versioned
+`project` record while continuing to store plugin selection in the established
+top-level `plugins` array. Installed plugins are discovered from graph, scope,
+and plugin sidecar data. The normal refresh guard protects all project choice
+mutations from changing a live workflow plan.
+
+Recorded MCP consent feeds the existing root-integration merge mode during the
+same transaction and on later plain refreshes for Claude's consent-managed
+`.mcp.json`. MCP diagnostics classify host surfaces instead of assuming the
+Claude layout: Kiro's settings file is always shipped, so `defaults` verifies
+its presence and `none` is instruct-only; a harness with no current MCP file
+records the answer without an unfixable drift. Completion answers produce an
+exact native or copy-channel instruction; config never writes a shell profile
+or another machine-scoped file.
 
 During refresh, the three records are merged into the pristine staged
 `harness.json`. The provider writer then updates staged host files before

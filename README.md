@@ -160,12 +160,17 @@ The remaining install diagnostics are also config sections:
 aidlc config runtime --check
 aidlc config providers --show
 aidlc config trust --check
+aidlc config flags --show
+aidlc config project --check
 ```
 
 Runtime checks the non-interactive hook PATH, providers records offline
 credential and region answers plus named manual actions, and trust verifies
 host allowlists and required sibling directories. All three are local-only,
 re-runnable, and available as `--show`, `--check`, and `--reset` surfaces.
+Flags records env-overridable project knobs without hardcoding scope names.
+Project records plugin selection, safe MCP consent, and shell-completion
+instructions without writing machine files.
 
 Refresh projects between workflows after an update:
 

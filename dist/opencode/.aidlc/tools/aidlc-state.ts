@@ -55,6 +55,7 @@ import {
   resolveBoltDag,
   reviewArtifactFingerprint,
   resolveReviewClass,
+  resolveProjectFlag,
   resolveProjectDir,
   resolveStage,
   setCheckbox,
@@ -1396,7 +1397,7 @@ function handleCount(args: string[]): void {
 // dodge the TDZ - the dispatch that calls this guard runs at module load.)
 
 function artifactGuardDisabled(): boolean {
-  return process.env.AIDLC_SKIP_ARTIFACT_GUARD === "1";
+  return resolveProjectFlag("AIDLC_SKIP_ARTIFACT_GUARD") === "1";
 }
 
 // Mirrors aidlc-orchestrate.ts isAutonomousSwarmCandidate for the lifecycle
@@ -1446,7 +1447,7 @@ function isSettledSwarmForArtifactGuard(
 // approve/reject test changes behaviour; the dedicated backstop test clears it
 // to exercise the real reconciliation.
 function revisionBackstopDisabled(): boolean {
-  return process.env.AIDLC_SKIP_REVISION_BACKSTOP === "1";
+  return resolveProjectFlag("AIDLC_SKIP_REVISION_BACKSTOP") === "1";
 }
 
 // Resolve the directories a stage's produces[] artifacts would live under,

@@ -197,7 +197,7 @@
       "sha256:7da3341d7bd6bda34fd2f0ac571254463e42e3838cde8d1321070a5d92f5afb9"
     ],
     ".claude/skills/aidlc/SKILL.md": [
-      "sha256:0691c534f13b906a08c4571aab12c11d95507cf42af1d741f3c9abedae0e0b01"
+      "sha256:1fea9155e46410d0d6aa7878c185c73ab400668e9b62e0ef687d57727c963e3f"
     ],
     ".claude/skills/aidlc-approval-handoff/SKILL.md": [
       "sha256:23f8053378a79c652a80125d66ab7ba4b7eb4b9724874452ce1c2ed50afb357a"
@@ -323,7 +323,7 @@
       "sha256:5d5e1a213d42dc3690ac9991cb981c3fcba42719746b4256ebba382f3ce0632c"
     ],
     ".claude/tools/aidlc-utility.ts": [
-      "sha256:0046634f1eb396f56dc63bf42742ba0876e0dc8a7db11e899b79bc65ee01ed23"
+      "sha256:64c5841a011356f62ca79d17e87b972e5d68d9d86278ac0587425df7465963aa"
     ],
     ".claude/tools/data/aidlc-projection.json": [
       "sha256:a3d97300caefa9f644fa8d7b84f7c2a768da334522e3c079f04a51b87aec5b9c"

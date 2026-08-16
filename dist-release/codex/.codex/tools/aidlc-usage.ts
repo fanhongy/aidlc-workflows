@@ -42,6 +42,7 @@ import {
   activeSpace,
   modelRatesPath,
   readSessionIntentUuid,
+  resolveProjectFlag,
   sessionsDir,
   withAuditLock,
   writeFileAtomic,
@@ -147,7 +148,7 @@ function readRatesFile(path: string): Record<string, PriceRow> {
 // call time, never cached - each hook/tool is a fresh process, and tests
 // toggle it mid-process.
 export function usageTrackingDisabled(): boolean {
-  return process.env.AIDLC_DISABLE_USAGE_TRACKING === "1";
+  return resolveProjectFlag("AIDLC_DISABLE_USAGE_TRACKING") === "1";
 }
 
 let _rates: Record<string, PriceRow> | null = null;

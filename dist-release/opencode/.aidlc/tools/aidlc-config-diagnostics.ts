@@ -12,6 +12,12 @@ import { homedir, platform as hostPlatform } from "node:os";
 import { delimiter, dirname, extname, join, resolve } from "node:path";
 import { discoverProjectHarnesses } from "./aidlc-runtime-paths.ts";
 import type { ModelHarness } from "./aidlc-model-policy.ts";
+import {
+  normalizeProjectFlagsRecord,
+  RECORDABLE_PROJECT_BYPASSES,
+  resolveProjectFlag,
+  type ProjectFlagsRecord,
+} from "./aidlc-lib.ts";
 
 export type RuntimeRecord = {
   schemaVersion: 1;
@@ -43,16 +49,29 @@ export type TrustRecord = {
   reviewed?: boolean;
 };
 
+export type CompletionShell = "bash" | "zsh" | "fish" | "powershell" | "none";
+
+export type ProjectChoicesRecord = {
+  schemaVersion: 1;
+  mcp?: "defaults" | "none";
+  completions?: CompletionShell;
+};
+
 export type ConfigDiagnosticRecords = {
   runtime: RuntimeRecord | null;
   providers: ProvidersRecord | null;
   trust: TrustRecord | null;
+  flags: ProjectFlagsRecord | null;
+  project: ProjectChoicesRecord | null;
 };
 
 export type ConfigDiagnosticOverrides = {
   runtime?: RuntimeRecord | null;
   providers?: ProvidersRecord | null;
   trust?: TrustRecord | null;
+  flags?: ProjectFlagsRecord | null;
+  project?: ProjectChoicesRecord | null;
+  plugins?: string[] | null;
 };
 
 export type RuntimeBinaryProbe = {
@@ -148,6 +167,7 @@ const PROVIDER_KEYS = new Set([
   "pendingActions",
 ]);
 const TRUST_KEYS = new Set(["schemaVersion", "reviewed"]);
+const PROJECT_KEYS = new Set(["schemaVersion", "mcp", "completions"]);
 const SAFE_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/;
 const PENDING_ACTION_IDS = [
   "bedrock-model-access",
@@ -311,6 +331,38 @@ export function normalizeTrustRecord(value: unknown): TrustRecord | null {
   };
 }
 
+export function normalizeProjectChoicesRecord(
+  value: unknown,
+): ProjectChoicesRecord | null {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || value.schemaVersion !== 1) {
+    throw new Error("project record must be an object with schemaVersion 1");
+  }
+  const unknown = unknownKeys(value, PROJECT_KEYS);
+  if (unknown.length > 0) {
+    throw new Error(`project record has unknown key(s): ${unknown.join(", ")}`);
+  }
+  const out: ProjectChoicesRecord = { schemaVersion: 1 };
+  if (value.mcp !== undefined) {
+    if (value.mcp !== "defaults" && value.mcp !== "none") {
+      throw new Error("project.mcp must be defaults or none");
+    }
+    out.mcp = value.mcp;
+  }
+  if (value.completions !== undefined) {
+    if (
+      typeof value.completions !== "string" ||
+      !["bash", "zsh", "fish", "powershell", "none"].includes(value.completions)
+    ) {
+      throw new Error(
+        "project.completions must be bash, zsh, fish, powershell, or none",
+      );
+    }
+    out.completions = value.completions as CompletionShell;
+  }
+  return out;
+}
+
 export function readConfigDiagnosticRecords(harnessRoot: string): ConfigDiagnosticRecords {
   const path = join(harnessRoot, "tools", "data", "harness.json");
   const value = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
@@ -318,6 +370,11 @@ export function readConfigDiagnosticRecords(harnessRoot: string): ConfigDiagnost
     runtime: normalizeRuntimeRecord(value.runtime),
     providers: normalizeProvidersRecord(value.providers),
     trust: normalizeTrustRecord(value.trust),
+    flags: normalizeProjectFlagsRecord(
+      value.flags,
+      `${path}: harness.json field "flags"`,
+    ),
+    project: normalizeProjectChoicesRecord(value.project),
   };
 }
 
@@ -952,12 +1009,29 @@ function writeOpenCodeProvider(
   writeJson(path, value);
 }
 
+function writeClaudeFlags(
+  projectionRoot: string,
+  harnessDir: string,
+  record: ProjectFlagsRecord,
+): void {
+  if (!record.defaultScope) return;
+  const path = join(projectionRoot, harnessDir, "settings.json");
+  const value = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  const env = isRecord(value.env) ? { ...value.env } : {};
+  env.AWS_AIDLC_DEFAULT_SCOPE = record.defaultScope;
+  value.env = env;
+  writeJson(path, value);
+}
+
 export function applyConfigDiagnosticRecords(
   projectionRoot: string,
   harnessDir: string,
   harness: ModelHarness,
   records: ConfigDiagnosticRecords,
 ): void {
+  if (records.flags && harness === "claude") {
+    writeClaudeFlags(projectionRoot, harnessDir, records.flags);
+  }
   const provider = records.providers;
   if (provider?.provider !== "amazon-bedrock" || !provider.region) return;
   if (harness === "claude") {
@@ -1014,6 +1088,360 @@ export function providerFiles(
     ...entry,
     file: resolve(projectDir, entry.file),
   }));
+}
+
+export function availableScopeNames(harnessRoot: string): string[] {
+  const root = join(harnessRoot, "scopes");
+  if (!existsSync(root)) return [];
+  const names = new Set<string>();
+  for (const file of readdirSync(root).filter((name) => name.endsWith(".md")).sort()) {
+    const path = join(root, file);
+    let content = "";
+    try {
+      content = readFileSync(path, "utf-8");
+    } catch {
+      continue;
+    }
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)?.[1];
+    const name = frontmatter ? /^name:\s*([a-z][a-z0-9-]*)\s*$/m.exec(frontmatter)?.[1] : null;
+    if (name) names.add(name);
+  }
+  return [...names].sort();
+}
+
+const FLAG_ENV_FIELDS: Array<{
+  env: string;
+  field: keyof ProjectFlagsRecord;
+}> = [
+  { env: "AWS_AIDLC_DEFAULT_SCOPE", field: "defaultScope" },
+  { env: "AIDLC_USE_SWARM", field: "swarm" },
+  { env: "AIDLC_HOOK_DEBUG", field: "hookDebug" },
+  { env: "AIDLC_SENSOR_TIMEOUT_MS", field: "sensorTimeoutMs" },
+];
+
+export function recordedFlagValue(
+  record: ProjectFlagsRecord,
+  envName: string,
+): string | undefined {
+  if (
+    (RECORDABLE_PROJECT_BYPASSES as readonly string[]).includes(envName)
+  ) {
+    return record.bypasses?.includes(
+      envName as (typeof RECORDABLE_PROJECT_BYPASSES)[number],
+    )
+      ? "1"
+      : undefined;
+  }
+  const field = FLAG_ENV_FIELDS.find((item) => item.env === envName)?.field;
+  const value = field ? record[field] : undefined;
+  if (typeof value === "boolean") return value ? "1" : "";
+  if (typeof value === "number") return String(value);
+  return typeof value === "string" ? value : undefined;
+}
+
+export function effectiveProjectFlagValues(
+  record: ProjectFlagsRecord | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string | undefined> {
+  const names = [
+    ...FLAG_ENV_FIELDS.map((item) => item.env),
+    ...RECORDABLE_PROJECT_BYPASSES,
+  ];
+  return Object.fromEntries(names.map((name) => [
+    name,
+    Object.hasOwn(env, name)
+      ? env[name]
+      : record
+      ? recordedFlagValue(record, name)
+      : undefined,
+  ]));
+}
+
+export function flagFiles(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+  record: ProjectFlagsRecord | null,
+): DiagnosticFileSetting[] {
+  const files: DiagnosticFileSetting[] = [{
+    setting: "recorded project flags",
+    file: join(projectDir, harnessDir, "tools", "data", "harness.json"),
+  }];
+  if (record?.defaultScope && harness === "claude") {
+    files.push({
+      setting: "AWS_AIDLC_DEFAULT_SCOPE session environment",
+      file: join(projectDir, harnessDir, "settings.json"),
+    });
+  }
+  return files;
+}
+
+export function flagIssues(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+  record: ProjectFlagsRecord | null,
+  env: NodeJS.ProcessEnv = process.env,
+): DiagnosticIssue[] {
+  if (!record) return [];
+  const issues: DiagnosticIssue[] = [];
+  for (const envName of [
+    ...FLAG_ENV_FIELDS.map((item) => item.env),
+    ...RECORDABLE_PROJECT_BYPASSES,
+  ]) {
+    const recorded = recordedFlagValue(record, envName);
+    if (
+      recorded !== undefined &&
+      Object.hasOwn(env, envName) &&
+      env[envName] !== recorded
+    ) {
+      issues.push({
+        id: `flag-env-override-${envName.toLowerCase().replaceAll("_", "-")}`,
+        message:
+          `${envName}=${JSON.stringify(env[envName])} overrides the recorded answer ${JSON.stringify(recorded)}`,
+        remediation:
+          `Unset ${envName} to use the recorded project answer, or update the record to match the intended environment override.`,
+      });
+    }
+  }
+  if (record.defaultScope && harness === "claude") {
+    const path = join(projectDir, harnessDir, "settings.json");
+    try {
+      const value = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+      const settingsEnv = isRecord(value.env) ? value.env : {};
+      if (settingsEnv.AWS_AIDLC_DEFAULT_SCOPE !== record.defaultScope) {
+        issues.push({
+          id: "flag-claude-default-scope-drift",
+          message: `${path} does not carry the recorded default scope ${record.defaultScope}`,
+          remediation: "Run aidlc config flags again to reapply the recorded default scope.",
+        });
+      }
+    } catch (error) {
+      issues.push({
+        id: "flag-claude-settings-unreadable",
+        message: error instanceof Error ? error.message : String(error),
+        remediation: "Restore .claude/settings.json, then rerun aidlc config flags.",
+      });
+    }
+  }
+  return issues;
+}
+
+function collectPluginNames(value: unknown, names: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectPluginNames(item, names);
+    return;
+  }
+  if (!isRecord(value)) return;
+  if (typeof value.plugin === "string" && /^[a-z][a-z0-9-]*$/.test(value.plugin)) {
+    names.add(value.plugin);
+  }
+  for (const child of Object.values(value)) collectPluginNames(child, names);
+}
+
+export function discoverInstalledPluginNames(
+  projectDir: string,
+  harnessDir: string,
+): string[] {
+  const names = new Set<string>(["aidlc"]);
+  const dataDir = join(projectDir, harnessDir, "tools", "data");
+  if (existsSync(dataDir)) {
+    for (const file of readdirSync(dataDir).sort()) {
+      const match = /^(?:plugin-contrib|plugin-owned|plugin-compose)-([a-z][a-z0-9-]*)\.json$/
+        .exec(file);
+      if (match) names.add(match[1]);
+    }
+    const graphPath = join(dataDir, "stage-graph.json");
+    if (existsSync(graphPath)) {
+      try {
+        collectPluginNames(JSON.parse(readFileSync(graphPath, "utf-8")), names);
+      } catch {
+        // Sidecars and scope files remain available when the graph is stale.
+      }
+    }
+  }
+  const scopesDir = join(projectDir, harnessDir, "scopes");
+  if (existsSync(scopesDir)) {
+    for (const file of readdirSync(scopesDir).filter((name) => name.endsWith(".md"))) {
+      const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/
+        .exec(readFileSync(join(scopesDir, file), "utf-8"))?.[1] ?? "";
+      const plugin = /^plugin:\s*([a-z][a-z0-9-]*)\s*$/m.exec(frontmatter)?.[1];
+      if (plugin) names.add(plugin);
+    }
+  }
+  return [...names].sort();
+}
+
+export function readPluginSelection(harnessRoot: string): string[] | null {
+  const path = join(harnessRoot, "tools", "data", "harness.json");
+  const value = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  if (!Object.hasOwn(value, "plugins")) return null;
+  if (
+    !Array.isArray(value.plugins) ||
+    value.plugins.some((item) => typeof item !== "string" || item.length === 0)
+  ) {
+    throw new Error(`${path}: plugins must be an array of non-empty strings`);
+  }
+  return [...new Set(value.plugins as string[])].sort();
+}
+
+export function completionInstruction(
+  projectDir: string,
+  harnessDir: string,
+  shell: Exclude<CompletionShell, "none">,
+): string {
+  const usesBun = runtimeCommandFiles(projectDir, harnessDir).some((file) => {
+    if (file.replaceAll("\\", "/").includes("/skills/")) return false;
+    try {
+      return readFileSync(file, "utf-8").includes(`bun ${harnessDir}/tools/aidlc.ts`);
+    } catch {
+      return false;
+    }
+  });
+  const invoke = usesBun ? `bun ${harnessDir}/tools/aidlc.ts` : "aidlc";
+  if (shell === "fish") {
+    return `${invoke} system completions fish | source`;
+  }
+  if (shell === "powershell") {
+    return `${invoke} system completions powershell | Out-String | Invoke-Expression`;
+  }
+  return `eval "$(${invoke} system completions ${shell})"`;
+}
+
+const SHIPPED_MCP_SERVERS = [
+  "aws-iac",
+  "aws-mcp",
+  "aws-pricing",
+  "aws-serverless",
+  "context7",
+] as const;
+
+export function projectChoiceFiles(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+  record: ProjectChoicesRecord | null,
+): DiagnosticFileSetting[] {
+  const files: DiagnosticFileSetting[] = [{
+    setting: "plugin selection, MCP consent, and completion answer",
+    file: join(projectDir, harnessDir, "tools", "data", "harness.json"),
+  }];
+  const surface = projectMcpSurface(projectDir, harnessDir, harness);
+  if (surface.path && existsSync(surface.path)) {
+    files.push({
+      setting: surface.kind === "claude"
+        ? "consent-managed MCP server entries"
+        : "always-shipped MCP server configuration",
+      file: surface.path,
+    });
+  }
+  return files;
+}
+
+type ProjectMcpSurface = {
+  kind: "claude" | "always" | "none";
+  path?: string;
+};
+
+function projectMcpSurface(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+): ProjectMcpSurface {
+  if (harness === "claude") {
+    return { kind: "claude", path: join(projectDir, ".mcp.json") };
+  }
+  if (harness === "kiro") {
+    return {
+      kind: "always",
+      path: join(projectDir, harnessDir, "settings", "mcp.json"),
+    };
+  }
+  if (harness === "cursor") {
+    const path = join(projectDir, harnessDir, "mcp.json");
+    return existsSync(path) ? { kind: "always", path } : { kind: "none" };
+  }
+  return { kind: "none" };
+}
+
+export function projectMcpNote(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+  record: ProjectChoicesRecord | null,
+): string | null {
+  if (!record?.mcp) return null;
+  const surface = projectMcpSurface(projectDir, harnessDir, harness);
+  if (surface.kind === "always" && record.mcp === "none") {
+    return `${harness} ships ${surface.path} as a framework file; MCP none is an instruct-only preference and does not remove that file.`;
+  }
+  if (surface.kind === "none") {
+    return `${harness} has no shipped MCP surface; the recorded ${record.mcp} answer is informational.`;
+  }
+  return null;
+}
+
+export function projectChoiceIssues(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+  record: ProjectChoicesRecord | null,
+  plugins: string[] | null,
+): DiagnosticIssue[] {
+  const issues: DiagnosticIssue[] = [];
+  const known = new Set(discoverInstalledPluginNames(projectDir, harnessDir));
+  for (const plugin of plugins ?? []) {
+    if (!known.has(plugin)) {
+      issues.push({
+        id: "project-plugin-unknown",
+        message: `Recorded plugin ${plugin} is not installed`,
+        remediation: "Install the plugin or rerun aidlc config project with the installed plugin set.",
+      });
+    }
+  }
+  if (!record?.mcp) return issues;
+  const surface = projectMcpSurface(projectDir, harnessDir, harness);
+  if (surface.kind === "none") return issues;
+  if (surface.kind === "always" && record.mcp === "none") return issues;
+  const path = surface.path as string;
+  let servers = new Set<string>();
+  if (existsSync(path)) {
+    try {
+      const value = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+      servers = new Set(
+        isRecord(value.mcpServers) ? Object.keys(value.mcpServers) : [],
+      );
+    } catch {
+      issues.push({
+        id: "project-mcp-unreadable",
+        message: `${path} is malformed`,
+        remediation: "Repair .mcp.json, then rerun aidlc config project.",
+      });
+      return issues;
+    }
+  }
+  if (
+    record.mcp === "defaults" &&
+    SHIPPED_MCP_SERVERS.some((name) => !servers.has(name))
+  ) {
+    issues.push({
+      id: "project-mcp-defaults-drift",
+      message: "Recorded MCP consent is defaults, but one or more shipped MCP entries are absent",
+      remediation: "Run aidlc config project --mcp defaults to reapply consented entries.",
+    });
+  }
+  if (
+    surface.kind === "claude" &&
+    record.mcp === "none" &&
+    SHIPPED_MCP_SERVERS.some((name) => servers.has(name))
+  ) {
+    issues.push({
+      id: "project-mcp-none-drift",
+      message: "Recorded MCP consent is none, but shipped MCP entries remain",
+      remediation: "Run aidlc config project --mcp none to remove framework-owned MCP entries.",
+    });
+  }
+  return issues;
 }
 
 function providerValueIssues(
@@ -1391,6 +1819,45 @@ export function providerDoctorCheck(
       pass: false,
       severity: "warn",
       label: "Providers: could not read recorded answers",
+      fix: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function flagsDoctorCheck(
+  projectDir: string,
+  harnessDirHint?: string,
+): DiagnosticDoctorCheck {
+  const selected = selectedHarness(projectDir, harnessDirHint);
+  if (!selected) {
+    return { pass: true, label: "Flags: no installed project harness" };
+  }
+  try {
+    const record = readConfigDiagnosticRecords(selected.root).flags;
+    const issues = flagIssues(
+      projectDir,
+      selected.harnessDir,
+      selected.harness,
+      record,
+    );
+    return issues.length === 0
+      ? {
+          pass: true,
+          label: record
+            ? "Flags: recorded answers are active without environment drift"
+            : "Flags: no recorded project answers",
+        }
+      : {
+          pass: false,
+          severity: "warn",
+          label: `Flags: ${issues.length} environment or surface override(s)`,
+          fix: issues.map((issue) => issue.message).join("; "),
+        };
+  } catch (error) {
+    return {
+      pass: false,
+      severity: "warn",
+      label: "Flags: could not read recorded answers",
       fix: error instanceof Error ? error.message : String(error),
     };
   }

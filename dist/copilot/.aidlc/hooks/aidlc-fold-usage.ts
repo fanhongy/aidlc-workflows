@@ -55,7 +55,10 @@ async function isLifecycleBoundaryToolCall(
 }
 
 export async function run(input: string): Promise<number> {
-  if (process.env.AIDLC_DISABLE_USAGE_TRACKING === "1") return 0;
+  if (
+    Object.hasOwn(process.env, "AIDLC_DISABLE_USAGE_TRACKING") &&
+    process.env.AIDLC_DISABLE_USAGE_TRACKING === "1"
+  ) return 0;
   let sessionId = "";
   let transcriptPath: string | null = null;
   let hookEvent = "";

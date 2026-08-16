@@ -33,6 +33,7 @@ import {
   modelPolicyDoctorIssues,
 } from "./aidlc-model-policy.ts";
 import {
+  flagsDoctorCheck,
   providerDoctorCheck,
   workspaceSiblingDoctorCheck,
 } from "./aidlc-config-diagnostics.ts";
@@ -271,6 +272,7 @@ export async function main(argv: string[]): Promise<void> {
   checks.push(updateCheck(update));
   checks.push(pluginCheck(projectDir, flags.verbose === "true"));
   checks.push(modelsPolicyCheck(projectDir, flags.verbose === "true"));
+  checks.push(flagsDoctorCheck(projectDir, harnessDir()));
   checks.push(providerDoctorCheck(projectDir, harnessDir()));
   checks.push(workspaceSiblingDoctorCheck(projectDir, harnessDir()));
   const report = await collectDoctorReport(projectDir, checks);

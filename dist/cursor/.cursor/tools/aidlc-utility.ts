@@ -108,6 +108,7 @@ import {
   scopesDir,
   harnessDataPath,
   pluginsEnabled,
+  resolveProjectFlag,
   selectionAwareDefaultScope,
   resolveDefaultScope,
   scalarField,
@@ -1960,7 +1961,7 @@ export async function collectDoctorReport(
   // Only observable inside a Claude Code session (where settings.json env is exposed
   // to Bash invocations). When doctor is invoked directly via bun, the env is unset
   // and we report "unset — no project default" as a pass.
-  const envScope = (process.env.AWS_AIDLC_DEFAULT_SCOPE || "").trim();
+  const envScope = (resolveProjectFlag("AWS_AIDLC_DEFAULT_SCOPE") || "").trim();
   if (envScope === "") {
     results.push({
       pass: true,
@@ -6154,7 +6155,7 @@ function handleDetectScope(
 // ---------------------------------------------------------------------------
 
 function handleResolveEnvScope(): void {
-  const envScope = (process.env.AWS_AIDLC_DEFAULT_SCOPE || "").trim();
+  const envScope = (resolveProjectFlag("AWS_AIDLC_DEFAULT_SCOPE") || "").trim();
   if (envScope === "") {
     return; // unset — no output, exit 0
   }
