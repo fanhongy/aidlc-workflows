@@ -57,7 +57,7 @@ const DRIVE_TIMEOUT_MS = Math.max(60_000, TEST_TIMEOUT_MS - 15_000);
 // aidlc-utility.ts handleDoctor():
 //   - header literal:           "AI-DLC Health Check\n"            (utility.ts:1355)
 //   - separator rule:           "─".repeat(37)                (utility.ts:1356)
-//   - check #1 label:           "Self-contained binary runtime ..." (utility.ts)
+//   - runtime label prefix:     "Runtime hook PATH: bun ->"         (shared diagnostics)
 //   - hook label shape:         "<hook>.ts present"                (utility.ts:356, hooks :343-351)
 //   - settings label:           "settings.json present"           (utility.ts:365)
 //   - aidlc-docs label:         "aidlc-docs/ directory exists"     (utility.ts:396)
@@ -66,7 +66,7 @@ const DRIVE_TIMEOUT_MS = Math.max(60_000, TEST_TIMEOUT_MS - 15_000);
 // ---------------------------------------------------------------------------
 const DOCTOR_HEADER = "AI-DLC Health Check";
 const DOCTOR_RULE = "─".repeat(37); // 37 box-drawing horizontals
-const DOCTOR_RUNTIME_LABEL = "Source execution runtime: bun is available";
+const DOCTOR_RUNTIME_LABEL = "Runtime hook PATH: bun ->";
 const DOCTOR_HOOK_LABEL = "aidlc-write-audit-log.ts present";
 const DOCTOR_SETTINGS_LABEL = "settings.json present";
 const DOCTOR_DOCS_LABEL = "aidlc-docs/ directory exists";

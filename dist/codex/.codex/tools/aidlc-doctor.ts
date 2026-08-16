@@ -1,7 +1,13 @@
 #!/usr/bin/env bun
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { errorMessage, isoTimestamp, parseArgs, resolveProjectDir } from "./aidlc-lib.ts";
+import {
+  errorMessage,
+  harnessDir,
+  isoTimestamp,
+  parseArgs,
+  resolveProjectDir,
+} from "./aidlc-lib.ts";
 import {
   adaptLegacyResult,
   buildBundle,
@@ -26,6 +32,10 @@ import {
   isModelHarness,
   modelPolicyDoctorIssues,
 } from "./aidlc-model-policy.ts";
+import {
+  providerDoctorCheck,
+  workspaceSiblingDoctorCheck,
+} from "./aidlc-config-diagnostics.ts";
 
 function windowsRecoveryCheck(): DoctorCheck | null {
   if (process.platform !== "win32") return null;
@@ -261,6 +271,8 @@ export async function main(argv: string[]): Promise<void> {
   checks.push(updateCheck(update));
   checks.push(pluginCheck(projectDir, flags.verbose === "true"));
   checks.push(modelsPolicyCheck(projectDir, flags.verbose === "true"));
+  checks.push(providerDoctorCheck(projectDir, harnessDir()));
+  checks.push(workspaceSiblingDoctorCheck(projectDir, harnessDir()));
   const report = await collectDoctorReport(projectDir, checks);
   // One fresh analysis, shared by the live report AND the --export writer
   // (issue #575): the structured condition->remedy findings and the

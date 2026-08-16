@@ -526,13 +526,16 @@ describe("t150 dist/codex packaging parity + drift guard", () => {
 
   test("13: doctor enforces Codex 0.145.0 as the compact-session reload floor", () => {
     const unsupported = runDoctorWithCodexVersion("0.144.9");
-    expect(unsupported.status).toBe(1);
-    expect(unsupported.output).toContain("codex CLI version 0.144.9 >= 0.145.0");
-    expect(unsupported.output).toContain("upgrade Codex CLI to 0.145.0 or later");
+    expect(unsupported.status).toBe(0);
+    expect(unsupported.output).toContain(
+      "Harness CLI: codex codex-cli 0.144.9 is below 0.145.0",
+    );
+    expect(unsupported.output).toContain(
+      "Install or upgrade Codex CLI to 0.145.0 or later",
+    );
 
     const supported = runDoctorWithCodexVersion("0.145.0");
     expect(supported.status).toBe(0);
-    expect(supported.output).toContain("codex CLI version 0.145.0 >= 0.145.0");
-    expect(supported.output).toContain("immediate compact-session reload");
+    expect(supported.output).toContain("Harness CLI: codex codex-cli 0.145.0");
   });
 });

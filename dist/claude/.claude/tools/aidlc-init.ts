@@ -85,6 +85,27 @@ import {
   type ModelProfile,
 } from "./aidlc-model-policy.ts";
 import { resolveTierCap } from "./aidlc-tiers.ts";
+import {
+  applyConfigDiagnosticRecords,
+  detectAwsCredentials,
+  normalizeProvidersRecord,
+  normalizeRuntimeRecord,
+  normalizeTrustRecord,
+  pendingProviderIssues,
+  probeRuntime,
+  providerFiles,
+  providerIssues,
+  readConfigDiagnosticRecords,
+  reconcileProviderActions,
+  runtimeCommandFiles,
+  runtimeIssues,
+  trustStatus,
+  type ConfigDiagnosticOverrides,
+  type ConfigDiagnosticRecords,
+  type ProvidersRecord,
+  type RuntimeRecord,
+  type TrustRecord,
+} from "./aidlc-config-diagnostics.ts";
 
 type RootContribution =
   | { policy: "managed-block"; hash: string; marker?: string }
@@ -118,6 +139,19 @@ type ModelsMutationContext = {
   notes: string[];
 };
 
+type DiagnosticSection = "runtime" | "providers" | "trust";
+
+type DiagnosticsMutationContext = {
+  section: DiagnosticSection;
+  harness: ModelHarness;
+  harnessDir: string;
+  previous: RuntimeRecord | ProvidersRecord | TrustRecord | null;
+  next: RuntimeRecord | ProvidersRecord | TrustRecord | null;
+  overrides: ConfigDiagnosticOverrides;
+  summaryLines: string[];
+  notes: string[];
+};
+
 const CONFIG_VALUE_FLAGS = new Set([
   "--agent",
   "--ca-bundle",
@@ -128,14 +162,43 @@ const CONFIG_VALUE_FLAGS = new Set([
   "--mcp",
   "--model",
   "--output",
+  "--opencode-default",
   "--pin",
   "--plan-token",
+  "--profile",
+  "--provider",
   "--preset",
   "--project-dir",
+  "--region",
   "--release-base-url",
+  "--mark-done",
   "--reviewing-effort",
   "--save-as",
   "--writing-up-effort",
+]);
+
+const DIAGNOSTIC_VALUE_FLAGS = new Set([
+  "--harness",
+  "--mark-done",
+  "--opencode-default",
+  "--plan-token",
+  "--profile",
+  "--project-dir",
+  "--provider",
+  "--region",
+]);
+
+const DIAGNOSTIC_BARE_FLAGS = new Set([
+  "--check",
+  "--dry-run",
+  "--help",
+  "--json",
+  "--no-color",
+  "--quiet",
+  "--reset",
+  "--show",
+  "--verbose",
+  "--yes",
 ]);
 
 const MODELS_VALUE_FLAGS = new Set([
@@ -550,6 +613,662 @@ function modelsWizard(
   throw new Error("models selection cancelled");
 }
 
+function validateDiagnosticArgs(
+  section: DiagnosticSection,
+  argv: readonly string[],
+): string | null {
+  const sectionValues = section === "providers"
+    ? new Set([
+        "--harness",
+        "--mark-done",
+        "--opencode-default",
+        "--plan-token",
+        "--profile",
+        "--project-dir",
+        "--provider",
+        "--region",
+      ])
+    : new Set(["--harness", "--plan-token", "--project-dir"]);
+  const sectionBare = section === "runtime"
+    ? new Set([...DIAGNOSTIC_BARE_FLAGS, "--record-paths"])
+    : section === "providers"
+    ? new Set([...DIAGNOSTIC_BARE_FLAGS, "--acknowledge"])
+    : new Set([...DIAGNOSTIC_BARE_FLAGS, "--acknowledge"]);
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (!token.startsWith("--")) {
+      return `unexpected ${section} positional ${JSON.stringify(token)}`;
+    }
+    if (DIAGNOSTIC_VALUE_FLAGS.has(token)) {
+      if (!sectionValues.has(token)) return `${token} is not valid for config ${section}`;
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) return `${token} requires a value`;
+      index++;
+      continue;
+    }
+    if (!sectionBare.has(token)) return `unknown ${section} option ${token}`;
+  }
+  if (valuesAfter(argv, "--harness").length > 1) {
+    return "multi-harness config is not supported yet; pass one --harness <name>";
+  }
+  return null;
+}
+
+function diagnosticHelp(section: DiagnosticSection): string {
+  const common = [
+    "Inspection:",
+    "  --show [--json]",
+    "  --check",
+    "",
+    "Mutation control:",
+    "  --reset",
+    "  --dry-run",
+    "  --yes",
+  ];
+  const specific = section === "runtime"
+    ? [
+        "Runtime answers:",
+        "  --record-paths",
+        "",
+        "The probe uses the non-interactive hook PATH, not interactive shell rc files.",
+        "Recorded paths are diagnostic answers only. Hook commands are not rewritten because host trust rules bind the bare command prefix.",
+      ]
+    : section === "providers"
+    ? [
+        "Provider answers:",
+        "  --provider <amazon-bedrock|other>",
+        "  --region <aws-region>",
+        "  --profile <aws-profile>",
+        "  --opencode-default <yes|no>",
+        "  --acknowledge",
+        "  --mark-done <pending-action-id>",
+        "",
+        "Credential detection is offline only. No provider or model endpoint is contacted.",
+      ]
+    : [
+        "Trust answers:",
+        "  --acknowledge",
+        "",
+        "Trust is read, verified, and instructed. This section never regenerates trust seeds or permission rules.",
+      ];
+  return [
+    `Usage: aidlc config ${section} [options]`,
+    "",
+    ...specific,
+    "",
+    ...common,
+  ].join("\n");
+}
+
+function selectedDiagnosticHarness(
+  projectDir: string,
+  requested: string | undefined,
+  section: DiagnosticSection,
+): {
+  distribution: string;
+  harnessDir: string;
+  root: string;
+  harness: ModelHarness;
+} {
+  const harnesses = discoverProjectHarnesses(projectDir);
+  const selected = requested
+    ? harnesses.find((candidate) => candidate.distribution === requested)
+    : harnesses[0];
+  if (!selected) {
+    throw new Error(
+      requested && harnesses.length > 0
+        ? `project uses ${harnesses.map((item) => item.distribution).join(", ")}; refusing ${requested}`
+        : `aidlc config ${section} requires an installed project harness; run aidlc config first`,
+    );
+  }
+  if (!requested && harnesses.length > 1) {
+    throw new Error("multiple project harnesses are present; pass one --harness <name>");
+  }
+  return {
+    ...selected,
+    harness: modelHarness(selected.distribution),
+  };
+}
+
+function diagnosticPipelineArgv(argv: readonly string[]): string[] {
+  const out: string[] = [];
+  const keptValues = new Set(["--harness", "--plan-token", "--project-dir"]);
+  const keptBare = new Set([
+    "--dry-run",
+    "--json",
+    "--no-color",
+    "--quiet",
+    "--verbose",
+    "--yes",
+  ]);
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (keptValues.has(token)) {
+      out.push(token, argv[++index]);
+    } else if (keptBare.has(token)) {
+      out.push(token);
+    } else if (DIAGNOSTIC_VALUE_FLAGS.has(token)) {
+      index++;
+    }
+  }
+  return out;
+}
+
+function currentDiagnosticRecord(
+  records: ConfigDiagnosticRecords,
+  section: DiagnosticSection,
+): RuntimeRecord | ProvidersRecord | TrustRecord | null {
+  return records[section];
+}
+
+function diagnosticOverrides(
+  section: DiagnosticSection,
+  next: RuntimeRecord | ProvidersRecord | TrustRecord | null,
+): ConfigDiagnosticOverrides {
+  return { [section]: next };
+}
+
+function showDiagnosticSection(
+  section: DiagnosticSection,
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  records: ConfigDiagnosticRecords,
+  options: ReturnType<typeof globalOptions>,
+): void {
+  const current = currentDiagnosticRecord(records, section);
+  let data: Record<string, unknown>;
+  if (section === "runtime") {
+    const diagnostics = probeRuntime(
+      projectDir,
+      selected.harnessDir,
+      selected.harness,
+    );
+    data = {
+      section,
+      harness: selected.harness,
+      record: current,
+      diagnostics,
+      issues: runtimeIssues(diagnostics),
+      files: [
+        join(selected.root, "tools", "data", "harness.json"),
+        ...diagnostics.commandFiles,
+      ],
+    };
+  } else if (section === "providers") {
+    const record = current as ProvidersRecord | null;
+    const credentials = detectAwsCredentials();
+    data = {
+      section,
+      harness: selected.harness,
+      record,
+      credentials,
+      pendingActions: record ? pendingProviderIssues(record) : [],
+      issues: providerIssues(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        record,
+        credentials,
+      ),
+      files: providerFiles(
+        projectDir,
+        selected.harnessDir,
+        selected.harness,
+        record,
+      ),
+    };
+  } else {
+    const status = trustStatus(
+      projectDir,
+      selected.harnessDir,
+      selected.harness,
+    );
+    data = {
+      section,
+      harness: selected.harness,
+      record: current,
+      ...status,
+    };
+  }
+  if (options.mode === "json") {
+    emitResult(success(`${section} configuration for ${selected.harness}`, data), options);
+    return;
+  }
+  let output = `${section[0].toUpperCase()}${section.slice(1)} configuration for ${selected.harness}\n`;
+  if (section === "runtime") {
+    const diagnostics = data.diagnostics as ReturnType<typeof probeRuntime>;
+    output += `  Hook baseline PATH: ${diagnostics.baselinePath}\n`;
+    for (const binary of diagnostics.binaries) {
+      output += `  ${binary.name}: ${binary.status}`;
+      if (binary.baselinePath) output += ` -> ${binary.baselinePath}`;
+      if (binary.interactivePath && !binary.baselinePath) {
+        output += ` -> interactive only at ${binary.interactivePath}`;
+      }
+      output += "\n";
+    }
+    output += `  Harness CLI: ${diagnostics.cli.status}`;
+    if (diagnostics.cli.path) output += ` -> ${diagnostics.cli.path}`;
+    output += "\n";
+    output += "  Files carrying hook commands:\n";
+    for (const file of diagnostics.commandFiles) output += `    ${file}\n`;
+  } else if (section === "providers") {
+    const record = data.record as ProvidersRecord | null;
+    const credentials = data.credentials as ReturnType<typeof detectAwsCredentials>;
+    output += `  Provider: ${record?.provider ?? "shipped fallback"}\n`;
+    output += `  Region: ${record?.region ?? "shipped fallback"}\n`;
+    output += `  Profile: ${record?.profile ?? "default credential chain"}\n`;
+    output += `  Offline credentials: ${credentials.hasCredentials ? "found" : "not found"}\n`;
+    for (const source of credentials.sources) output += `    source: ${source}\n`;
+    const pending = data.pendingActions as ReturnType<typeof pendingProviderIssues>;
+    for (const issue of pending) output += `  Pending: ${issue.id} - ${issue.message}\n`;
+    output += "  Files carrying provider settings:\n";
+    for (const entry of data.files as ReturnType<typeof providerFiles>) {
+      output += `    ${entry.setting}: ${entry.file}\n`;
+    }
+  } else {
+    const status = data as unknown as ReturnType<typeof trustStatus> & {
+      record: TrustRecord | null;
+    };
+    output += `  Allowlist reviewed: ${status.record?.reviewed === true ? "yes" : "not recorded"}\n`;
+    output += "  Trust and allowlist files:\n";
+    for (const file of status.files) output += `    ${file}\n`;
+    for (const issue of status.issues) output += `  Unmet: ${issue.id} - ${issue.message}\n`;
+  }
+  process.stdout.write(output);
+  process.exitCode = EXIT.ok;
+}
+
+function checkDiagnosticSection(
+  section: DiagnosticSection,
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  records: ConfigDiagnosticRecords,
+  options: ReturnType<typeof globalOptions>,
+): void {
+  let issues: Array<{ id: string; message: string }>;
+  if (section === "runtime") {
+    issues = runtimeIssues(
+      probeRuntime(projectDir, selected.harnessDir, selected.harness),
+    );
+  } else if (section === "providers") {
+    issues = providerIssues(
+      projectDir,
+      selected.harnessDir,
+      selected.harness,
+      records.providers,
+    );
+  } else {
+    issues = trustStatus(
+      projectDir,
+      selected.harnessDir,
+      selected.harness,
+    ).issues;
+  }
+  emitResult(
+    issues.length === 0
+      ? success(`${section} configuration is clean for ${selected.harness}`, {
+          section,
+          harness: selected.harness,
+          issues: [],
+        })
+      : failure(
+          `${section} configuration has ${issues.length} unmet item(s): ${
+            issues.map((issue) => `${issue.id} (${issue.message})`).join("; ")
+          }`,
+          EXIT.failure,
+          `aidlc config ${section} --show`,
+        ),
+    options,
+  );
+}
+
+function cloneDiagnosticRecord<T>(value: T | null): T | null {
+  return value === null ? null : JSON.parse(JSON.stringify(value)) as T;
+}
+
+function runtimeRecordFromProbe(
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+): RuntimeRecord {
+  const diagnostics = probeRuntime(
+    projectDir,
+    selected.harnessDir,
+    selected.harness,
+  );
+  const issues = runtimeIssues(diagnostics);
+  if (issues.length > 0) {
+    throw new Error(
+      `runtime paths cannot be recorded until the non-interactive probe is clean: ${
+        issues.map((issue) => issue.message).join("; ")
+      }`,
+    );
+  }
+  const bun = diagnostics.binaries.find((binary) => binary.name === "bun");
+  const aidlc = diagnostics.binaries.find((binary) => binary.name === "aidlc");
+  return {
+    schemaVersion: 1,
+    baselinePath: diagnostics.baselinePath,
+    ...(bun?.baselinePath ? { bunPath: bun.baselinePath } : {}),
+    ...(aidlc?.baselinePath ? { aidlcPath: aidlc.baselinePath } : {}),
+    ...(diagnostics.cli.path ? { cliPath: diagnostics.cli.path } : {}),
+  };
+}
+
+function providerRecordFromArgs(
+  current: ProvidersRecord | null,
+  argv: readonly string[],
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+): ProvidersRecord {
+  const next = cloneDiagnosticRecord(current) ?? { schemaVersion: 1 };
+  const provider = valueAfter(argv, "--provider");
+  if (provider !== undefined && provider !== "amazon-bedrock" && provider !== "other") {
+    throw new Error("--provider must be amazon-bedrock or other");
+  }
+  if (provider) next.provider = provider;
+  const region = valueAfter(argv, "--region");
+  const profile = valueAfter(argv, "--profile");
+  if (region) next.region = region;
+  if (profile) next.profile = profile;
+  const opencodeDefault = valueAfter(argv, "--opencode-default");
+  if (opencodeDefault !== undefined) {
+    if (opencodeDefault !== "yes" && opencodeDefault !== "no") {
+      throw new Error("--opencode-default must be yes or no");
+    }
+    next.opencodeDefault = opencodeDefault === "yes";
+  }
+  if (argv.includes("--acknowledge")) next.acknowledged = true;
+  if (!next.provider) throw new Error("provider configuration requires --provider <amazon-bedrock|other>");
+  if (next.provider === "amazon-bedrock" && !next.region) {
+    throw new Error("Amazon Bedrock configuration requires --region <aws-region>");
+  }
+  if (
+    next.provider === "amazon-bedrock" &&
+    selected.harness === "opencode" &&
+    next.opencodeDefault === undefined
+  ) {
+    throw new Error("OpenCode Bedrock configuration requires --opencode-default <yes|no>");
+  }
+  if (
+    next.provider === "other" &&
+    next.acknowledged !== true
+  ) {
+    throw new Error(
+      `${selected.harness} provider setup is instruct-only; pass --acknowledge after completing the manual provider step`,
+    );
+  }
+  let reconciled = reconcileProviderActions(
+    normalizeProvidersRecord(next) as ProvidersRecord,
+    selected.harness,
+  );
+  const done = new Set(valuesAfter(argv, "--mark-done"));
+  if (done.size > 0) {
+    const known = new Set((reconciled.pendingActions ?? []).map((action) => action.id));
+    const unknown = [...done].filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new Error(`unknown pending action(s): ${unknown.join(", ")}`);
+    }
+    reconciled = normalizeProvidersRecord({
+      ...reconciled,
+      pendingActions: (reconciled.pendingActions ?? []).map((action) =>
+        done.has(action.id) ? { ...action, status: "done" } : action
+      ),
+    }) as ProvidersRecord;
+  }
+  return reconciled;
+}
+
+function diagnosticWizard(
+  section: DiagnosticSection,
+  projectDir: string,
+  selected: ReturnType<typeof selectedDiagnosticHarness>,
+  records: ConfigDiagnosticRecords,
+  options: ReturnType<typeof globalOptions>,
+): RuntimeRecord | ProvidersRecord | TrustRecord | null {
+  showDiagnosticSection(section, projectDir, selected, records, {
+    ...options,
+    mode: "human",
+  });
+  if (section === "runtime") {
+    const diagnostics = probeRuntime(projectDir, selected.harnessDir, selected.harness);
+    const issues = runtimeIssues(diagnostics);
+    if (issues.length > 0) {
+      process.stdout.write("Runtime fixes are instruct-only because changing hook command prefixes would invalidate host trust entries.\n");
+      for (const issue of issues) process.stdout.write(`  ${issue.remediation}\n`);
+      return records.runtime;
+    }
+    const answer = prompt("Record the detected non-interactive runtime paths? [y/N]:");
+    return answer && /^y(?:es)?$/i.test(answer.trim())
+      ? runtimeRecordFromProbe(projectDir, selected)
+      : records.runtime;
+  }
+  if (section === "providers") {
+    const providerAnswer = prompt("Provider [Enter amazon-bedrock, other]:")?.trim() || "amazon-bedrock";
+    if (providerAnswer !== "amazon-bedrock" && providerAnswer !== "other") {
+      throw new Error("provider selection cancelled");
+    }
+    const args = ["--provider", providerAnswer];
+    const skipMarkDone = new Set<string>();
+    if (providerAnswer === "amazon-bedrock") {
+      const region = prompt("AWS region [Enter us-east-1]:")?.trim() || "us-east-1";
+      const profile = prompt("AWS profile [Enter default credential chain]:")?.trim();
+      args.push("--region", region);
+      if (profile) args.push("--profile", profile);
+      if (selected.harness === "opencode") {
+        const offer = prompt("Write amazon-bedrock provider options to opencode.json? [y/N]:");
+        args.push("--opencode-default", offer && /^y(?:es)?$/i.test(offer.trim()) ? "yes" : "no");
+      }
+      if (selected.harness === "copilot" || selected.harness === "cursor") {
+        process.stdout.write(
+          selected.harness === "copilot"
+            ? "Configure Copilot BYOK provider variables before acknowledging this step.\n"
+            : "Configure the provider and select the model in Cursor before acknowledging this step.\n",
+        );
+        const acknowledged = prompt("Manual provider setup complete? [y/N]:");
+        if (acknowledged && /^y(?:es)?$/i.test(acknowledged.trim())) {
+          args.push("--acknowledge");
+        } else {
+          const action = selected.harness === "copilot"
+            ? "copilot-byok-configuration"
+            : "cursor-provider-configuration";
+          skipMarkDone.add(action);
+          process.stdout.write(
+            `  ${action} remains pending. Complete it with --acknowledge or --mark-done ${action}.\n`,
+          );
+        }
+      }
+    } else {
+      process.stdout.write("Non-Bedrock provider setup is manual for the selected harness.\n");
+      const acknowledged = prompt("Manual provider setup complete? [y/N]:");
+      if (acknowledged && /^y(?:es)?$/i.test(acknowledged.trim())) args.push("--acknowledge");
+    }
+    let next = providerRecordFromArgs(records.providers, args, selected);
+    for (const action of next.pendingActions ?? []) {
+      if (action.status === "done") continue;
+      if (skipMarkDone.has(action.id)) continue;
+      const answer = prompt(`Mark ${action.id} done now? [y/N]:`);
+      if (answer && /^y(?:es)?$/i.test(answer.trim())) {
+        next = providerRecordFromArgs(
+          next,
+          ["--mark-done", action.id],
+          selected,
+        );
+      }
+    }
+    return next;
+  }
+  const answer = prompt("Record that you reviewed the trust and allowlist files? [y/N]:");
+  return answer && /^y(?:es)?$/i.test(answer.trim())
+    ? { schemaVersion: 1, reviewed: true }
+    : records.trust;
+}
+
+function diagnosticSummary(
+  section: DiagnosticSection,
+  next: RuntimeRecord | ProvidersRecord | TrustRecord | null,
+): { lines: string[]; notes: string[] } {
+  if (section === "runtime") {
+    return {
+      lines: [
+        next
+          ? "  Runtime      recorded non-interactive executable paths in harness.json"
+          : "  Runtime      reset to live detection",
+      ],
+      notes: [
+        "Hook command strings were not rewritten because host allowlists and Codex trust hashes bind the bare command prefix.",
+      ],
+    };
+  }
+  if (section === "providers") {
+    const record = next as ProvidersRecord | null;
+    return {
+      lines: [
+        record
+          ? `  Providers    ${record.provider} region=${record.region ?? "manual"} profile=${
+              record.profile ?? "default-chain"
+            }`
+          : "  Providers    reset to shipped fallback bytes",
+      ],
+      notes: record
+        ? pendingProviderIssues(record).map((issue) => `${issue.id}: ${issue.message}`)
+        : [],
+    };
+  }
+  return {
+    lines: [
+      next
+        ? "  Trust        recorded allowlist review acknowledgement"
+        : "  Trust        reset recorded acknowledgement",
+    ],
+    notes: ["Trust seeds and permission rules were not regenerated or modified."],
+  };
+}
+
+function prepareDiagnosticSection(
+  section: DiagnosticSection,
+  argv: string[],
+  options: ReturnType<typeof globalOptions>,
+): { argv: string[]; context: DiagnosticsMutationContext } | null {
+  const validation = validateDiagnosticArgs(section, argv);
+  if (validation) {
+    emitResult(usage(validation, `aidlc config ${section} --help`), options);
+    return null;
+  }
+  if (argv.includes("--help")) {
+    process.stdout.write(`${diagnosticHelp(section)}\n`);
+    process.exitCode = EXIT.ok;
+    return null;
+  }
+  const mutationFlags = section === "runtime"
+    ? ["--record-paths", "--reset"]
+    : section === "providers"
+    ? [
+        "--acknowledge",
+        "--mark-done",
+        "--opencode-default",
+        "--profile",
+        "--provider",
+        "--region",
+        "--reset",
+      ]
+    : ["--acknowledge", "--reset"];
+  const hasMutationFlags = mutationFlags.some((flag) => argv.includes(flag));
+  if (
+    (argv.includes("--show") || argv.includes("--check")) &&
+    (hasMutationFlags || argv.includes("--dry-run") || argv.includes("--yes"))
+  ) {
+    emitResult(
+      usage(`--show and --check cannot be combined with ${section} mutations`),
+      options,
+    );
+    return null;
+  }
+  if (argv.includes("--show") && argv.includes("--check")) {
+    emitResult(usage("--show and --check are mutually exclusive"), options);
+    return null;
+  }
+  const projectDir = projectDirFrom(argv);
+  const selected = selectedDiagnosticHarness(
+    projectDir,
+    valueAfter(argv, "--harness"),
+    section,
+  );
+  const records = readConfigDiagnosticRecords(selected.root);
+  if (argv.includes("--show")) {
+    showDiagnosticSection(section, projectDir, selected, records, options);
+    return null;
+  }
+  if (argv.includes("--check")) {
+    checkDiagnosticSection(section, projectDir, selected, records, options);
+    return null;
+  }
+  let next: RuntimeRecord | ProvidersRecord | TrustRecord | null;
+  if (argv.includes("--reset")) {
+    const conflicting = mutationFlags.find((flag) => flag !== "--reset" && argv.includes(flag));
+    if (conflicting) throw new Error(`--reset cannot be combined with ${conflicting}`);
+    next = null;
+  } else if (hasMutationFlags) {
+    if (section === "runtime") {
+      next = runtimeRecordFromProbe(projectDir, selected);
+    } else if (section === "providers") {
+      next = providerRecordFromArgs(records.providers, argv, selected);
+    } else {
+      next = { schemaVersion: 1, reviewed: true };
+    }
+  } else {
+    if (!process.stdin.isTTY) {
+      const flags = section === "runtime"
+        ? "--show, --check, --record-paths, or --reset"
+        : section === "providers"
+        ? "--show, --check, --provider with its required answers, --mark-done, or --reset"
+        : "--show, --check, --acknowledge, or --reset";
+      emitResult(
+        usage(
+          `non-interactive ${section} configuration requires ${flags}; --yes confirms but never chooses`,
+          `aidlc config ${section} --help`,
+        ),
+        options,
+      );
+      return null;
+    }
+    next = diagnosticWizard(section, projectDir, selected, records, options);
+  }
+  const previous = currentDiagnosticRecord(records, section);
+  if (canonical(previous) === canonical(next)) {
+    emitResult(success(`${section} configuration unchanged`), options);
+    return null;
+  }
+  if (!argv.includes("--dry-run") && !options.yes) {
+    if (!process.stdin.isTTY) {
+      emitResult(
+        usage(
+          `non-interactive ${section} mutation requires --yes; --yes confirms but never chooses`,
+        ),
+        options,
+      );
+      return null;
+    }
+    const answer = prompt(`Apply ${section} configuration changes? [y/N]:`);
+    if (!answer || !/^y(?:es)?$/i.test(answer.trim())) {
+      emitResult(usage(`${section} configuration change cancelled`), options);
+      return null;
+    }
+  }
+  const summary = diagnosticSummary(section, next);
+  return {
+    argv: diagnosticPipelineArgv(argv),
+    context: {
+      section,
+      harness: selected.harness,
+      harnessDir: selected.harnessDir,
+      previous,
+      next,
+      overrides: diagnosticOverrides(section, next),
+      summaryLines: summary.lines,
+      notes: summary.notes,
+    },
+  };
+}
+
 function stripVerb(argv: string[]): string[] {
   return argv[0] === "config" || argv[0] === "init" ? argv.slice(1) : argv;
 }
@@ -870,10 +1589,16 @@ function prepareRefreshSource(
   descriptor: ProjectionDescriptor,
   prior: Baseline | null,
   modelsOverride?: ModelPolicyRecord | null,
+  diagnosticsOverride?: ConfigDiagnosticOverrides,
 ): { root: string; cleanup?: string; regenerated: Set<string> } {
   const currentHarness = join(projectDir, descriptor.harnessDir);
   const currentHarnessData = join(currentHarness, "tools", "data", "harness.json");
-  if (!prior && !regularFile(currentHarnessData) && modelsOverride === undefined) {
+  if (
+    !prior &&
+    !regularFile(currentHarnessData) &&
+    modelsOverride === undefined &&
+    diagnosticsOverride === undefined
+  ) {
     return { root: sourceRoot, regenerated: new Set() };
   }
   const cleanup = mkdtempSync(join(tmpdir(), "aidlc-init-refresh-"));
@@ -893,7 +1618,17 @@ function prepareRefreshSource(
   }
   if (modelsOverride === null) delete staged.models;
   else if (modelsOverride !== undefined) staged.models = modelsOverride;
-  if (regularFile(currentHarnessData) || modelsOverride !== undefined) {
+  for (const key of ["runtime", "providers", "trust"] as const) {
+    if (!diagnosticsOverride || !Object.hasOwn(diagnosticsOverride, key)) continue;
+    const value = diagnosticsOverride[key];
+    if (value === null) delete staged[key];
+    else staged[key] = value;
+  }
+  if (
+    regularFile(currentHarnessData) ||
+    modelsOverride !== undefined ||
+    diagnosticsOverride !== undefined
+  ) {
     writeFileSync(stagedHarnessData, `${JSON.stringify(staged, null, 2)}\n`);
     regenerated.add(`${descriptor.harnessDir}/tools/data/harness.json`);
   }
@@ -906,6 +1641,16 @@ function prepareRefreshSource(
     descriptor.harnessDir,
     modelHarness(distribution),
     normalizeModelPolicy(staged.models),
+  );
+  applyConfigDiagnosticRecords(
+    root,
+    descriptor.harnessDir,
+    modelHarness(distribution),
+    {
+      runtime: normalizeRuntimeRecord(staged.runtime),
+      providers: normalizeProvidersRecord(staged.providers),
+      trust: normalizeTrustRecord(staged.trust),
+    },
   );
 
   const currentGrid = join(currentHarness, "tools", "data", "scope-grid.json");
@@ -1984,17 +2729,19 @@ export async function main(input: string[]): Promise<void> {
   const options = globalOptions(argv);
   const positionals = configPositionals(argv);
   const section = positionals[0];
-  if (section && section.value !== "models") {
+  const validSections = new Set(["models", "runtime", "providers", "trust"]);
+  if (section && !validSections.has(section.value)) {
     emitResult(
       usage(
-        `unknown config section ${JSON.stringify(section.value)}; valid sections: models`,
-        "aidlc config models --help",
+        `unknown config section ${JSON.stringify(section.value)}; valid sections: models, runtime, providers, trust`,
+        "aidlc config <models|runtime|providers|trust> --help",
       ),
       options,
     );
     return;
   }
   let modelsContext: ModelsMutationContext | null = null;
+  let diagnosticsContext: DiagnosticsMutationContext | null = null;
   if (section?.value === "models") {
     argv = [...argv.slice(0, section.index), ...argv.slice(section.index + 1)];
     try {
@@ -2007,6 +2754,32 @@ export async function main(input: string[]): Promise<void> {
         usage(
           error instanceof Error ? error.message : String(error),
           "aidlc config models --help",
+        ),
+        options,
+      );
+      return;
+    }
+  } else if (
+    section?.value === "runtime" ||
+    section?.value === "providers" ||
+    section?.value === "trust"
+  ) {
+    const diagnosticSection = section.value;
+    argv = [...argv.slice(0, section.index), ...argv.slice(section.index + 1)];
+    try {
+      const preparedDiagnostics = prepareDiagnosticSection(
+        diagnosticSection,
+        argv,
+        options,
+      );
+      if (!preparedDiagnostics) return;
+      argv = preparedDiagnostics.argv;
+      diagnosticsContext = preparedDiagnostics.context;
+    } catch (error) {
+      emitResult(
+        usage(
+          error instanceof Error ? error.message : String(error),
+          `aidlc config ${diagnosticSection} --help`,
         ),
         options,
       );
@@ -2082,6 +2855,7 @@ export async function main(input: string[]): Promise<void> {
       descriptor,
       prior,
       modelsContext?.next,
+      diagnosticsContext?.overrides,
     );
     let mcpMode = (mcpValue ?? prior?.mcpMode) as "defaults" | "none" | undefined;
     if (
@@ -2196,8 +2970,14 @@ export async function main(input: string[]): Promise<void> {
         for (const line of modelsContext.summaryLines) process.stdout.write(`${line}\n`);
         for (const note of modelsContext.notes) process.stdout.write(`  Note: ${note}\n`);
       }
+      if (diagnosticsContext && options.mode === "human") {
+        for (const line of diagnosticsContext.summaryLines) process.stdout.write(`${line}\n`);
+        for (const note of diagnosticsContext.notes) process.stdout.write(`  Note: ${note}\n`);
+      }
+      const configuredSection = diagnosticsContext?.section ??
+        (modelsContext ? "models" : null);
       emitResult(success(
-        `${modelsContext ? "model policy" : "config"} plan for ${projectDir}: ${
+        `${configuredSection ? `${configuredSection} configuration` : "config"} plan for ${projectDir}: ${
           Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(" ")
         }`,
         {
@@ -2213,6 +2993,17 @@ export async function main(input: string[]): Promise<void> {
                   next: modelsContext.next,
                   summaries: modelsContext.summaryLines,
                   notes: modelsContext.notes,
+                },
+              }
+            : {}),
+          ...(diagnosticsContext
+            ? {
+                diagnostics: {
+                  section: diagnosticsContext.section,
+                  previous: diagnosticsContext.previous,
+                  next: diagnosticsContext.next,
+                  summaries: diagnosticsContext.summaryLines,
+                  notes: diagnosticsContext.notes,
                 },
               }
             : {}),
@@ -2251,8 +3042,14 @@ export async function main(input: string[]): Promise<void> {
       for (const line of modelsContext.summaryLines) process.stdout.write(`${line}\n`);
       for (const note of modelsContext.notes) process.stdout.write(`  Note: ${note}\n`);
     }
+    if (diagnosticsContext && options.mode === "human") {
+      for (const line of diagnosticsContext.summaryLines) process.stdout.write(`${line}\n`);
+      for (const note of diagnosticsContext.notes) process.stdout.write(`  Note: ${note}\n`);
+    }
     emitResult(success(
-      modelsContext
+      diagnosticsContext
+        ? `configured ${diagnosticsContext.section} settings for ${projectDir}`
+        : modelsContext
         ? `configured model policy for ${projectDir}`
         : `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`,
       {
@@ -2269,6 +3066,17 @@ export async function main(input: string[]): Promise<void> {
                 next: modelsContext.next,
                 summaries: modelsContext.summaryLines,
                 notes: modelsContext.notes,
+              },
+            }
+          : {}),
+        ...(diagnosticsContext
+          ? {
+              diagnostics: {
+                section: diagnosticsContext.section,
+                previous: diagnosticsContext.previous,
+                next: diagnosticsContext.next,
+                summaries: diagnosticsContext.summaryLines,
+                notes: diagnosticsContext.notes,
               },
             }
           : {}),

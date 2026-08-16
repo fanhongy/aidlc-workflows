@@ -301,7 +301,8 @@ under `tools/data/`:
 
 - `harness.json` is runtime configuration: distribution identity, product
   name, next-step text, harness/rules directories, and mutable project choices
-  such as plugin selection and the optional `models` policy record.
+  such as plugin selection and the optional `models`, `runtime`, `providers`,
+  and `trust` records.
 - `agent-tiers.json` is the shipped agent-name to tier map generated from
   `core/agents/*.md` frontmatter. Runtime model policy reads this file instead
   of hardcoding agent rosters.
@@ -363,6 +364,41 @@ Unsupported policy is explicit. The resolver reports harness honesty and
 clamps only downward to the nearest vocabulary value. It never writes a key the
 selected harness ignores, never validates against a live provider, and never
 routes model policy through stage files.
+
+### Runtime, provider, and trust diagnostics
+
+`core/tools/aidlc-config-diagnostics.ts` is the shared implementation for
+`aidlc config runtime`, `aidlc config providers`, `aidlc config trust`, and the
+matching doctor rows. Each section stores a schema-versioned answer record in
+`harness.json`; the runtime loader ignores these optional sibling keys.
+
+The runtime probe derives a login-independent hook PATH, resolves only the
+commands required by the installed hook bytes, and probes the selected harness
+CLI. The recorded absolute paths are diagnostic evidence, not rewritten hook
+commands: host allowlists and Codex trust hashes bind the bare command prefix.
+
+Provider detection reads local AWS environment, profile, credential, role, and
+SSO-cache evidence only. Bedrock region and profile answers are applied to the
+staged projection before managed-file hashing. Claude also rewrites the staged
+AWS MCP endpoint and metadata to the same region. Codex model and effort keys
+remain untouched. OpenCode provider options are written only after the user
+accepts the offer. Instruct-only harnesses record acknowledgement rather than
+inert provider keys.
+
+Provider actions that cannot be checked offline live in the provider record as
+a small pending-action list. Config and doctor derive the human text from the
+action ID; the record stores only the ID and pending or done status.
+
+Trust diagnostics read the existing host surfaces. Codex checks the complete
+project-specific seed set in the user config, Kiro IDE checks the installed
+trusted command entry, and every harness checks required sibling directories.
+No trust seed or permission-rule generator is called by config trust.
+
+During refresh, the three records are merged into the pristine staged
+`harness.json`. The provider writer then updates staged host files before
+`planManagedFiles` hashes them. A plain later `aidlc config` therefore reapplies
+recorded provider answers, while reset returns to the unchanged shipped
+fallback bytes.
 
 ### Dispatcher route policy
 

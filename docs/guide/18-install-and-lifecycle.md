@@ -141,7 +141,7 @@ an ownership baseline. It does not create a workflow intent.
 | `--dry-run` | Calculate the complete plan without creating the target directory or changing bytes |
 | `--plan-token <token>` | Apply only the exact plan approved from a JSON dry run |
 | `--force` | Replace locally modified framework-owned files and managed blocks where that policy permits |
-| `--yes` | Confirm an otherwise unrecognized target directory; it does not imply MCP consent or choose a harness |
+| `--yes` | Confirm an otherwise unrecognized target directory or a section mutation; it does not imply MCP consent or choose a section answer |
 | `--json` | Emit one result object with counts, actions, and `data.planToken` |
 | `--quiet` | Emit one summary or remediation line |
 | `--no-color` | Disable color output |
@@ -210,6 +210,100 @@ and reports the unsupported fields instead of writing inert keys.
 
 Model policy is agent-scoped. Stage files never carry model or effort keys;
 scopes continue to own stage criticality.
+
+### Runtime Diagnostics
+
+`aidlc config runtime` checks the environment that project hooks actually use.
+On macOS and Linux it derives a non-interactive baseline from `getconf PATH`
+and the macOS system path files. On Windows it reads the User and Machine PATH
+without loading a shell profile. It then resolves the command required by the
+installed hook bytes (`bun` for copy projections or `aidlc` for native
+projections) and checks the selected harness CLI.
+
+```bash
+aidlc config runtime --show
+aidlc config runtime --check
+aidlc config runtime --record-paths --yes
+aidlc config runtime --reset --yes
+```
+
+`--record-paths` records the resolved answers in `harness.json`. It does not
+rewrite hook commands. Host permission rules and Codex hook trust bind the bare
+`bun` or `aidlc` command prefix, so replacing it with an absolute path would
+invalidate the existing trust contract. When a command is interactive-only or
+absent, the section gives a platform-specific PATH instruction instead.
+
+The harness CLI check requires `claude`, `kiro-cli`, `codex >= 0.145.0`, or
+`opencode` for their matching harnesses. Copilot CLI and the Cursor `agent` CLI
+are advisory because those installs may be driven only by VS Code or the IDE.
+Kiro IDE has no required separate CLI.
+
+### Provider Diagnostics
+
+`aidlc config providers` records provider answers for this project install.
+Amazon Bedrock is the default answer, but the shipped fallback bytes remain
+valid when this section has never run.
+
+```bash
+aidlc config providers --provider amazon-bedrock \
+  --region us-east-1 --profile default --yes
+aidlc config providers --show --json
+aidlc config providers --check
+aidlc config providers --mark-done bedrock-model-access --yes
+aidlc config providers --reset --yes
+```
+
+Credential detection is offline only. It inspects AWS environment variables,
+`~/.aws/config`, `~/.aws/credentials`, role and container credential variables,
+and the AWS SSO cache. It never calls STS, Bedrock, a model endpoint, or any
+other network service.
+
+Recorded Bedrock answers apply through the normal staged config transaction:
+
+| Harness | Recorded answer application |
+|---------|-----------------------------|
+| Claude Code | Writes `AWS_REGION` and optional `AWS_PROFILE` in `.claude/settings.json`; also keeps the AWS MCP URL and `AWS_REGION` metadata in `.mcp.json` on the same region |
+| Codex CLI | Writes profile and region in `[model_providers.amazon-bedrock.aws]` without changing model or effort keys |
+| Kiro CLI | Writes the AWS MCP URL and metadata in `.kiro/settings/mcp.json` |
+| Kiro IDE | Records and instructs only; the chat model must be selected manually in the IDE |
+| opencode | Offers to write `provider.amazon-bedrock.options.region/profile` to `opencode.json`; `--opencode-default yes|no` records the answer |
+| GitHub Copilot | Records acknowledgement of the manual BYOK environment setup |
+| Cursor | Records acknowledgement of the manual provider and model-picker setup |
+
+Bedrock model access and IAM permission verification cannot be automated
+offline. The record therefore carries named pending actions. `--show` lists
+them, `--check` stays non-zero while they are pending, and
+`--mark-done <id>` records completion. Kiro IDE also carries the
+`kiro-ide-chat-model` action. A non-Bedrock opt-out is supported with
+`--provider other --acknowledge`; it records the choice without silently
+editing provider bytes.
+
+### Trust Diagnostics
+
+`aidlc config trust` reads and verifies host-native trust. It never regenerates
+trust seeds, permission rules, or IDE settings.
+
+```bash
+aidlc config trust --show
+aidlc config trust --check
+aidlc config trust --acknowledge --yes
+aidlc config trust --reset --yes
+```
+
+For Codex, the check requires the complete project-specific trust seed entry
+set in `$CODEX_HOME/config.toml`. The two supported remedies are one TUI
+`Trust all and continue` pass or replacing `<PROJECT_DIR>` and merging the
+complete seed. Until then zero Codex hooks fire.
+`--dangerously-bypass-hook-trust` does not fire untrusted hooks, and appending
+a second seed set produces invalid TOML.
+
+For Kiro IDE, the check verifies that `.vscode/settings.json` includes
+`aidlc engine *` in `kiroAgent.trustedCommands`; it does not create a new trust
+surface. `--show` lists the selected harness's trust and allowlist files.
+
+The trust check also verifies the project siblings that copy installs often
+miss: `aidlc/` for every harness, `.agents/` for Codex, and the `.aidlc/`
+engine for opencode and Copilot.
 
 An existing project stamp fixes the harness for a refresh. A fresh interactive
 project prompts for a harness; a non-interactive run requires `--harness`.

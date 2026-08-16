@@ -154,6 +154,19 @@ allowed only for per-agent exceptions. Pins bind in both directions, shipped
 tiers only step down from the session, and unsupported harness settings are
 reported instead of written as inert keys.
 
+The remaining install diagnostics are also config sections:
+
+```bash
+aidlc config runtime --check
+aidlc config providers --show
+aidlc config trust --check
+```
+
+Runtime checks the non-interactive hook PATH, providers records offline
+credential and region answers plus named manual actions, and trust verifies
+host allowlists and required sibling directories. All three are local-only,
+re-runnable, and available as `--show`, `--check`, and `--reset` surfaces.
+
 Refresh projects between workflows after an update:
 
 ```bash

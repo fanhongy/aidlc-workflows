@@ -37,6 +37,7 @@ import {
   trustedCommand,
 } from "./aidlc-command.ts";
 import { workspaceManifestChecks } from "./aidlc-workspace-doctor.ts";
+import { runtimeDoctorChecks } from "./aidlc-config-diagnostics.ts";
 import {
   activeIntent,
   activeSpace,
@@ -1327,21 +1328,8 @@ export async function collectDoctorReport(
   extraChecks: readonly DoctorCheck[] = [],
 ): Promise<DoctorReport> {
   const results: DoctorCheck[] = [];
-  const isWindows = process.platform === "win32";
-
-  // Compiled installs carry their runtime; direct source execution requires Bun.
-  const bunHome = process.env.HOME ? join(process.env.HOME, ".bun", "bin", "bun") : "";
-  const bunFound = Bun.which("bun") !== null || (bunHome !== "" && existsSync(bunHome));
+  results.push(...runtimeDoctorChecks(projectDir, harnessDir()));
   const compiled = isCompiledExecutable();
-  results.push({
-    pass: compiled || bunFound,
-    label: compiled
-      ? "Self-contained binary runtime (bun is not required)"
-      : "Source execution runtime: bun is available",
-    fix: isWindows
-      ? "install via `npm install -g bun` or `powershell -c \"irm bun.sh/install.ps1 | iex\"`"
-      : "install via `curl -fsSL https://bun.sh/install | bash`",
-  });
 
   const installedVersion = activeVersion();
   if (compiled || installedVersion) {
@@ -1829,34 +1817,6 @@ export async function collectDoctorReport(
         fix: `copy from \`${from}\``,
       });
     }
-    // Minimum Codex version pin (G10): 0.139.0 introduced real role names in
-    // SubagentStart/Stop and hyphenated agent-TOML resolution; 0.145.0 also
-    // drains compact-source SessionStart hooks immediately after a mid-turn
-    // compaction. Older versions either break agent attribution/transposition
-    // or let the first post-compaction continuation run without the restored
-    // workflow mission.
-    const MIN_CODEX = [0, 145, 0] as const;
-    const codexVer = Bun.spawnSync(["codex", "--version"], { stdout: "pipe", stderr: "ignore" });
-    const verText = (codexVer.stdout?.toString() ?? "").trim();
-    const verMatch = verText.match(/(\d+)\.(\d+)\.(\d+)/);
-    if (!verMatch) {
-      results.push({
-        pass: false,
-        label: "codex CLI on PATH",
-        fix: "install Codex CLI >= 0.145.0 (https://developers.openai.com/codex)",
-      });
-    } else {
-      const v = [Number(verMatch[1]), Number(verMatch[2]), Number(verMatch[3])];
-      const ok =
-        v[0] > MIN_CODEX[0] ||
-        (v[0] === MIN_CODEX[0] &&
-          (v[1] > MIN_CODEX[1] || (v[1] === MIN_CODEX[1] && v[2] >= MIN_CODEX[2])));
-      results.push({
-        pass: ok,
-        label: `codex CLI version ${verMatch[0]} >= 0.145.0 (immediate compact-session reload + subagent attribution + agent TOML resolution)`,
-        fix: "upgrade Codex CLI to 0.145.0 or later",
-      });
-    }
     // Hook trust reminder: untrusted project hooks never fire.
     results.push({
       pass: true,
@@ -1877,39 +1837,6 @@ export async function collectDoctorReport(
         pass: existsSync(join(projectDir, file)),
         label: `${file} present (${what})`,
         fix: `copy from \`${from}\``,
-      });
-    }
-    // Copilot CLI version floor: 1.0.74 is the line this port was verified
-    // against (PascalCase hook registration delivering snake_case payloads,
-    // hookSpecificOutput deny honored, SubagentStart/Stop events, and
-    // --output-format json). The CLI is optional when only VS Code
-    // drives the install, so a missing binary is advisory, not a failure.
-    const MIN_COPILOT = [1, 0, 74] as const;
-    // Bun.spawnSync THROWS (ENOENT) on a missing executable rather than
-    // returning - probe with Bun.which first so a VS Code-only install (no
-    // CLI) gets the advisory branch instead of aborting the whole doctor.
-    const copilotBin = Bun.which("copilot");
-    const copilotVer = copilotBin
-      ? Bun.spawnSync([copilotBin, "--version"], { stdout: "pipe", stderr: "ignore" })
-      : null;
-    const verText = (copilotVer?.stdout?.toString() ?? "").trim();
-    const verMatch = verText.match(/(\d+)\.(\d+)\.(\d+)/);
-    if (!verMatch) {
-      results.push({
-        pass: true,
-        label:
-          "copilot CLI not on PATH — fine when VS Code agent mode drives this install; for CLI use install @github/copilot >= 1.0.74",
-      });
-    } else {
-      const v = [Number(verMatch[1]), Number(verMatch[2]), Number(verMatch[3])];
-      const ok =
-        v[0] > MIN_COPILOT[0] ||
-        (v[0] === MIN_COPILOT[0] &&
-          (v[1] > MIN_COPILOT[1] || (v[1] === MIN_COPILOT[1] && v[2] >= MIN_COPILOT[2])));
-      results.push({
-        pass: ok,
-        label: `copilot CLI version ${verMatch[0]} >= 1.0.74 (PascalCase hook registration + deny/block channels verified on this line)`,
-        fix: "run `copilot update` or `npm i -g @github/copilot`",
       });
     }
     // Folder trust: untrusted project hooks silently never fire (no warning
