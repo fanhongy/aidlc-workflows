@@ -41,7 +41,7 @@
       "sha256:4a0f3c905e74a2b0bafd1cd325404642de90ce3972124a5d7aad4cb01d518221"
     ],
     ".aidlc/agents/aidlc-pipeline-deploy-agent.md": [
-      "sha256:202b43620ea2e5a955bde402df6c6d9c2799496455ad7fa2c7080146c4d72190"
+      "sha256:c04d2b39e4e8139aae3c75bb1ebd6716ca4a2326a3456808eb4f9f3f2e222110"
     ],
     ".aidlc/aidlc-common/conductor.md": [
       "sha256:d81c80499d71ec7e380dead6bf8035db9154d2beb4289f76ded2b21b83f9b392"
@@ -311,7 +311,7 @@
       "sha256:ee194ec8cab72448416e6c1283d36a58cead13da221256660bdfb6dc2ba03308"
     ],
     ".opencode/agents/aidlc-pipeline-deploy-agent.md": [
-      "sha256:bd290677e05166ca9c69f37bd905b58bf5180c461a6e4ec07ebd2056dd8129e7"
+      "sha256:e4bff8390a4f553eadb74d5c1b278f5b93deac6e41fe4bb0faad0c2c4983ba83"
     ],
     ".opencode/command/aidlc.md": [
       "sha256:cf18036fcc59dfea71428d87a02e8c92f9713c57fb2916cd65f566d3b743f98e"

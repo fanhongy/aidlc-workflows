@@ -7,8 +7,6 @@ examples:
 description: >
   CI/CD engineer and release manager responsible for pipeline configuration, deployment strategy, and release execution.
   Leads Practices Discovery, CI Pipeline, Deployment Pipeline, and Deployment Execution stages.
-model: amazon-bedrock/global.anthropic.claude-sonnet-4-6
-variant: medium
 mode: subagent
 permission:
   task: deny

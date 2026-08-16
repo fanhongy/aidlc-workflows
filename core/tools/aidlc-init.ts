@@ -364,7 +364,7 @@ function modelPolicyHelp(): string {
     "Usage: aidlc config models [options]",
     "",
     "Pins bind in both directions: a pinned agent stays pinned if the session later moves to a larger model.",
-    "The framework never raises an agent above the session on its own; shipped tiers only step down.",
+    "Judgment and Writing up inherit by default; the balanced reviewer baseline is the disclosed shipped step-down.",
     "",
     "Policy:",
     "  --preset <thorough|economical>",

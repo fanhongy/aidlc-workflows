@@ -37,7 +37,9 @@
           "sha256:f1deb7dc72a78fe7d39c71ad2fe6c0f41248c03cde7fb36b7a478f5b9233881c",
           "sha256:f7c55e9917d3801f676fba066fdd78d8df2c36311e8d6e78068965fc7b4371fa",
           "sha256:457ff3626bf6ff4a0f6f1f7a44a1d2cbcd91490600e2332742dcf655da25b7f3",
-          "sha256:9be9c5cc4a25e5b4c71b3ae35188e1a543504f19cbd5d0a20892777b0904800e"
+          "sha256:9be9c5cc4a25e5b4c71b3ae35188e1a543504f19cbd5d0a20892777b0904800e",
+          "sha256:bc41aca84970977673af3c0b8212a1f7a4d995a4b47fc7894b1c5b342e4a3601",
+          "sha256:0e1bd12644ca4058130633c7e48ff942a68201f96b26c3cba4d52cabf8434efc"
         ]
       }
     }
@@ -170,10 +172,10 @@
       "sha256:792b554ac16041e185d45b5925c9bb20bea1d8b286e87a2891e2613c082a0896"
     ],
     ".codex/agents/aidlc-pipeline-deploy-agent.md": [
-      "sha256:89657300a8d0ed8fd9fafee56ed01e13adae0ae87624654dc0de0f46377ddcd7"
+      "sha256:1d27ec68451886a4f65b5f482aa582fb212543da923189efcb6c1a414f030313"
     ],
     ".codex/agents/aidlc-pipeline-deploy-agent.toml": [
-      "sha256:bf39dc56d560a933b284e62383563a16cb4054486bf5e18036541164e7bb2481"
+      "sha256:b9a93b6b3564c436cbc4da319630454c417443070672378f340d2df3315c9917"
     ],
     ".codex/aidlc-common/conductor.md": [
       "sha256:5c0fbdb9cb3c5579e6171573cc200ac782e69ab1339291dae6a20bc3605a15b6"
@@ -326,7 +328,7 @@
       "sha256:85feeb246f5c68a7148dce3d6f2034bf2a0f440f59469bd296f3d9105ac518d8"
     ],
     ".codex/tools/data/aidlc-projection.json": [
-      "sha256:ce8b3915f3e763715f1a4f2686ce5fa64222c03767489d34abd5c4514c0afc37"
+      "sha256:ef133b71539941064358621b7b2f2d181a9eee2f74835c01187dbd10290881b6"
     ],
     ".codex/trust-seed.toml": [
       "sha256:afe5b9b1575ac941286d2bcf4b8b11bc8608981067cd9915fe5481ea6aa0c565"

@@ -151,8 +151,8 @@ aidlc config models --check
 
 The policy uses Deciding, Reviewing, and Writing up groups, with raw model IDs
 allowed only for per-agent exceptions. Pins bind in both directions, shipped
-tiers only step down from the session, and unsupported harness settings are
-reported instead of written as inert keys.
+defaults inherit except for the disclosed balanced reviewer baseline, and
+unsupported harness settings are reported instead of written as inert keys.
 
 The remaining install diagnostics are also config sections:
 

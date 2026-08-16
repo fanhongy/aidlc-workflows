@@ -170,7 +170,9 @@ Policy resolves per agent in this order:
 
 Pins bind in both directions. A pinned agent stays pinned if the session later
 moves to a larger model. The framework never raises an agent above the session
-on its own; shipped tiers only step down.
+on its own. Judgment and Writing up inherit by default; only the measured
+balanced reviewer baseline ships a step-down. Use `aidlc config models` to
+record a per-install Writing up downgrade.
 
 ```bash
 aidlc config models --show

@@ -122,10 +122,10 @@ The authored dial on every agent is `tier:`; the packager projects it into the `
 | Tier | Agents | Claude Code projection | Rationale |
 |------|--------|------------------------|-----------|
 | `judgment` | architect, product, design, developer, quality, devsecops, compliance, aws-platform, composer (9) | `model: inherit`, no `effort:` line - the session's model and effort win | Multi-constraint reasoning whose decisions cascade downstream - architectural boundaries, intent interpretation, UX trade-offs, code synthesis, threat prioritisation, regulatory edge-cases, cloud architecture |
-| `balanced` | architecture-reviewer, product-lead (2) | `model: sonnet`, no `effort:` line | Review against an explicit checklist; the criteria encode the method, so a mid-size model at session effort suffices |
-| `templated` | delivery, pipeline-deploy, operations (3) | `model: sonnet`, `effort: medium` | Output is dominantly templated planning tables, CI/CD YAML, or observability/runbook scaffolding; methodology is encoded in the agent's knowledge files |
+| `balanced` | architecture-reviewer, product-lead (2) | `model: sonnet`, `effort: medium` | Review against an explicit checklist; the measured reviewer baseline is the one disclosed shipped step-down |
+| `templated` | delivery, pipeline-deploy, operations (3) | `model: inherit`, no `effort:` line | Output is dominantly templated planning tables, CI/CD YAML, or observability/runbook scaffolding; the tier remains a Writing up dial group, while the shipped baseline inherits |
 
-An omitted `effort:` key inherits the session effort, and a pinned one overrides the session in both directions (a pin is a cap, not a floor) - absence is deliberate for the first two tiers. The full per-harness projection table (on Kiro, all tiers inherit the session model and effort) and the `tier_cap` override live in [Agent System](05-agent-system.md).
+An omitted `effort:` key inherits the session effort, and a pinned one overrides the session in both directions (a pin is a cap, not a floor). Judgment and templated inherit by default; balanced pins the measured reviewer baseline. Use `aidlc config models` to record a per-install Writing up downgrade. The full per-harness projection table and the `tier_cap` override live in [Agent System](05-agent-system.md).
 
 ---
 

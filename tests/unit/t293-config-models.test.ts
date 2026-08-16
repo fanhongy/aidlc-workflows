@@ -102,6 +102,20 @@ describe("t293 model policy resolution", () => {
     expect(session.model).toBeUndefined();
     expect(session.effort).toBeUndefined();
 
+    const writingUp = resolveModelPolicy(null, "delivery", "templated", "claude");
+    expect(writingUp).toEqual(expect.objectContaining({
+      layer: "shipped-tier-default",
+      model: "inherit",
+    }));
+    expect(writingUp.effort).toBeUndefined();
+
+    const writingUpCodex = resolveModelPolicy(null, "delivery", "templated", "codex");
+    expect(writingUpCodex).toEqual(expect.objectContaining({
+      layer: "session-inherit",
+    }));
+    expect(writingUpCodex.model).toBeUndefined();
+    expect(writingUpCodex.effort).toBeUndefined();
+
     const shipped = resolveModelPolicy(null, "product-lead", "balanced", "claude");
     expect(shipped).toEqual(expect.objectContaining({
       layer: "shipped-tier-default",

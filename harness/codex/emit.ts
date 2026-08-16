@@ -90,7 +90,7 @@ function emitConfigToml(): string {
 #
 # Model: these session defaults are what judgment-tier agent roles inherit
 # (their TOMLs omit model/model_reasoning_effort by design - see the tier
-# projection); balanced/templated roles pin gpt-5.6-terra per the tier table.
+# projection); balanced roles pin gpt-5.6-terra/medium, while templated roles inherit.
 # D-9: Amazon Bedrock is the shipped default provider (web_search is
 # unavailable there; the market-research stage degrades gracefully). For
 # OpenAI-auth setups, comment out model_provider and the [model_providers]
@@ -283,9 +283,8 @@ export function emitTrustSeed(
 // {model, effort} via projectTier. A null projected value means the TOML key
 // is OMITTED: the spawned role then falls back to the shipped config.toml
 // session defaults (live-verified on codex-cli 0.139.0 and 0.142.5: a role
-// TOML without `model` spawns on the config.toml model + effort). judgment
-// omits both keys;
-// balanced pins a model but inherits effort; templated pins both.
+// TOML without `model` spawns on the config.toml model + effort). Judgment
+// and templated omit both keys; balanced pins both.
 
 function parseAgentMd(raw: string): { fm: Record<string, string>; body: string } {
   // BOM tolerance, matching the packager's agent reader and the rule parser.

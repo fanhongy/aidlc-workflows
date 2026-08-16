@@ -6,22 +6,21 @@
 // whose output cascades downstream (architect, developer, product, ...): it
 // inherits the session's own model and effort so the user's ceiling is never
 // silently capped. `balanced` marks reviewer-shaped work (novel input judged
-// against explicit criteria): a mid-size model, session effort. `templated`
-// marks dominantly pattern-following output whose methodology already lives in
-// knowledge (delivery plans, CI/CD config, runbooks): a mid-size model at a
-// deliberately reduced effort - the one place the framework steps DOWN on its
-// own. Tiers only ever step down, never up, and only for templated work; the
-// names describe the WORK, not the dial, so a reader can classify a new agent
-// without knowing today's model lineup.
+// against explicit criteria): the measured reviewer baseline pins a mid-size
+// model at medium effort. `templated` marks dominantly pattern-following output
+// whose methodology already lives in knowledge (delivery plans, CI/CD config,
+// runbooks). It remains a distinct models-dial group, but its shipped baseline
+// now inherits the session model and effort. The names describe the WORK, not
+// the dial, so a reader can classify a new agent without knowing today's model
+// lineup.
 //
 // Projection targets (see TIER_PROJECTIONS):
 //   - Claude Code   agent .md frontmatter: `model:` and optional `effort:`.
 //                   An OMITTED key inherits the session value, and a pinned
 //                   `effort:` overrides the session in both directions - a pin
-//                   is a cap, not a floor. So `judgment` writes `model:
-//                   inherit` and NO effort line; `balanced` writes `model:
-//                   sonnet` and NO effort line; only `templated` pins
-//                   `effort: medium`.
+//                   is a cap, not a floor. `judgment` and `templated` write
+//                   `model: inherit` and NO effort line; `balanced` writes
+//                   `model: sonnet` with `effort: medium`.
 //   - Codex CLI     agent role .toml: `model` and `model_reasoning_effort`.
 //                   Omitted keys fall back to the shipped .codex/config.toml
 //                   session defaults (live-verified on codex-cli 0.139.0 and
@@ -50,13 +49,14 @@
 // Kiro model, so kiroModelDefaults() contributes no entries and only the
 // authored cli.json entries ship.
 //
-// Cost-cap override, resolved at PACK time (runtime composition is out of
+// Tier-ceiling override, resolved at PACK time (runtime composition is out of
 // scope): the space-memory `tier_cap:` frontmatter key on the layered method
 // files (org.md -> team.md -> project.md, last writer wins) is the persistent
 // project knob, and the AIDLC_TIER_CAP env var is the per-invocation override
-// that beats it. Setting the cap to `balanced` collapses `judgment` to
-// `balanced` in every projection; `templated` collapses both higher tiers.
-// See resolveTierCap().
+// that beats it. Setting the cap to `balanced` selects the measured reviewer
+// baseline for judgment work; `templated` selects the inheriting Writing up
+// projection for both higher tiers. Use `aidlc config models` for an explicit
+// per-install cost policy. See resolveTierCap().
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -140,12 +140,13 @@ export const TIER_PROJECTIONS: Record<Tier, TierProjection> = {
     copilot: { model: null },
   },
   templated: {
-    // The one deliberate downgrade: a smaller model at reduced effort for
-    // pattern-following output.
-    claude: { model: "sonnet", effort: "medium" },
-    codex: { model: "openai.gpt-5.6-terra", effort: "medium" },
+    // The tier remains a models-dial group for pattern-following work, but the
+    // shipped baseline inherits. Users who want a lower writing-up baseline
+    // record that per install through `aidlc config models`.
+    claude: { model: "inherit", effort: null },
+    codex: { model: null, effort: null },
     kiro: { model: null },
-    opencode: { model: "amazon-bedrock/global.anthropic.claude-sonnet-4-6", variant: "medium" },
+    opencode: { model: null, variant: null },
     copilot: { model: null },
     cursor: { model: null },
   },

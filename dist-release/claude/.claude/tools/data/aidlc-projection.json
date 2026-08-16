@@ -56,7 +56,7 @@
       "sha256:1c88c17a91e8ca19fd8dd49948c124b95e40a879c31777702564c5e9d9682b8f"
     ],
     ".claude/agents/aidlc-pipeline-deploy-agent.md": [
-      "sha256:66cf7e0beda25fabb7c9c423a2589f8e10c71c3bd614a5f821549837861d1157"
+      "sha256:28ea77d8846aad7c962e0f0f7bcdbd14378eed431ff15ba25f002360ea194d23"
     ],
     ".claude/aidlc-common/conductor.md": [
       "sha256:85ae9b4c3e8f20cf0aba3a4555e9cc1045bdc244586244fdef579d91fbd37007"
@@ -194,7 +194,7 @@
       "sha256:45ae78045276acebf8eba0bcede1b18ae87138efd022395396737d1da626bbae"
     ],
     ".claude/settings.json": [
-      "sha256:7da3341d7bd6bda34fd2f0ac571254463e42e3838cde8d1321070a5d92f5afb9"
+      "sha256:3761af075a523dfcdbcbe66d4bee4d57746f42e96f3b730d0ecc8393460059ee"
     ],
     ".claude/skills/aidlc/SKILL.md": [
       "sha256:1fea9155e46410d0d6aa7878c185c73ab400668e9b62e0ef687d57727c963e3f"
