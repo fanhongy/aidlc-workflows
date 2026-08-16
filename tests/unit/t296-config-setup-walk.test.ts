@@ -138,7 +138,13 @@ describe("t296 first-run config setup walk", () => {
       .toContain("[NEEDS]");
     expect(result.stdout.match(/Walk through the 2 sections that need you now\?/g))
       .toHaveLength(1);
-    expect(result.stdout).not.toContain("Config complete.");
+    expect(result.stdout).not.toContain("Outstanding actions:");
+    expect(result.stdout).toContain("Config complete. 1 action still needs you");
+    expect(result.stdout).toContain("runtime/runtime-aidlc-missing");
+    expect(result.stdout.match(/aidlc is absent from the non-interactive hook PATH/g))
+      .toHaveLength(1);
+    expect(result.stdout.match(/no recorded answers; provider access unverified/g))
+      .toHaveLength(1);
     const records = readConfigDiagnosticRecords(join(path, ".claude"));
     expect(records.runtime).toBeNull();
     expect(records.providers).toBeNull();
@@ -167,6 +173,7 @@ describe("t296 first-run config setup walk", () => {
     expect(result.stdout).not.toContain("Apply providers configuration changes?");
     expect(result.stdout).not.toContain("Runtime configuration for");
     expect(result.stdout).not.toContain("Trust configuration for");
+    expect(result.stdout).not.toContain("Outstanding actions:");
     expect(result.stdout).toContain("Config complete. 0 actions still need you");
 
     const records = readConfigDiagnosticRecords(join(path, ".claude"));
@@ -214,6 +221,8 @@ describe("t296 first-run config setup walk", () => {
     );
     expect(runtimeWalk.status, runtimeWalk.stdout + runtimeWalk.stderr).toBe(0);
     expect(runtimeWalk.stdout).toContain("Project setup: 1 of 7 sections need you");
+    expect(runtimeWalk.stdout).not.toContain("Outstanding actions:");
+    expect(runtimeWalk.stdout).toContain("Config complete. 1 action still needs you");
     expect(runtimeWalk.stdout).toMatch(
       /\.\.\. and \d+ more \(aidlc config runtime --show --json lists all\)/,
     );

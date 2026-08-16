@@ -1306,11 +1306,15 @@ function setupMapRows(
   const projectDetail =
     `plugins: ${pluginDetail}, MCP: ${records.project?.mcp ?? "none"}, ` +
     `completions: ${records.project?.completions ?? "none"}`;
-  const trustDetail = trust[0]?.message ??
+  const trustDetail = trust.length > 0
+    ? `${trust.length} host trust issue${trust.length === 1 ? "" : "s"}`
+    :
     (records.trust?.reviewed ? "review acknowledged" : "no unmet host trust");
   const providerDetail = records.providers === null
     ? "no recorded answers; provider access unverified"
-    : providers[0]?.message ??
+    : providers.length > 0
+    ? `${providers.length} pending provider action${providers.length === 1 ? "" : "s"}`
+    :
       `${records.providers.provider ?? "shipped fallback"}; no pending actions`;
   return [
     {
@@ -1341,7 +1345,9 @@ function setupMapRows(
     },
     {
       label: "Runtime",
-      detail: runtime[0]?.message ?? "hook PATH ready",
+      detail: runtime.length > 0
+        ? `${runtime.length} hook PATH issue${runtime.length === 1 ? "" : "s"}`
+        : "hook PATH ready",
       section: "runtime",
       needs: runtime.length > 0,
     },
@@ -1374,6 +1380,21 @@ function renderSetupMap(rows: readonly SetupMapRow[]): SetupWalkSection[] {
   return order.filter((section) => flagged.has(section));
 }
 
+function renderSetupLedger(
+  actions: readonly ConfigOutstandingAction[],
+): void {
+  process.stdout.write(
+    `Config complete. ${actions.length} action${
+      actions.length === 1 ? "" : "s"
+    } still need${actions.length === 1 ? "s" : ""} you\n`,
+  );
+  for (const action of actions) {
+    process.stdout.write(
+      `  ${action.section}/${action.id}: ${action.message} - run \`${action.command}\`\n`,
+    );
+  }
+}
+
 async function runSetupWalk(
   projectDir: string,
   harnessDir: string,
@@ -1389,11 +1410,19 @@ async function runSetupWalk(
       initialOutstanding,
     ),
   );
-  if (flagged.length === 0) return;
+  if (flagged.length === 0) {
+    if (initialOutstanding.length > 0) {
+      renderSetupLedger(initialOutstanding);
+    }
+    return;
+  }
   const answer = prompt(
     `Walk through the ${flagged.length} sections that need you now? [Y/n]:`,
   );
-  if (answer && !/^y(?:es)?$/i.test(answer)) return;
+  if (answer && !/^y(?:es)?$/i.test(answer)) {
+    renderSetupLedger(initialOutstanding);
+    return;
+  }
   for (const section of flagged) {
     await main(
       [
@@ -1417,16 +1446,7 @@ async function runSetupWalk(
     harnessDir,
     modelHarness(distribution),
   );
-  process.stdout.write(
-    `Config complete. ${remaining.length} action${
-      remaining.length === 1 ? "" : "s"
-    } still need you\n`,
-  );
-  for (const action of remaining) {
-    process.stdout.write(
-      `  ${action.section}/${action.id}: ${action.message} - run \`${action.command}\`\n`,
-    );
-  }
+  renderSetupLedger(remaining);
 }
 
 function prepareDiagnosticSection(
@@ -4050,8 +4070,17 @@ export async function main(
       : modelsContext
       ? `configured model policy for ${projectDir}`
       : `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`;
+    const setupMapWillRender =
+      !internal.setupWalkChild &&
+      !section &&
+      options.mode === "human" &&
+      configInputIsTty();
     emitResult(success(
-      configCompletionMessage(baseMessage, outstandingActions, options.mode),
+      configCompletionMessage(
+        baseMessage,
+        setupMapWillRender ? [] : outstandingActions,
+        options.mode,
+      ),
       {
         projectDir,
         distribution: stamp.distribution,
@@ -4097,10 +4126,7 @@ export async function main(
       },
     ), options);
     if (
-      !internal.setupWalkChild &&
-      !section &&
-      options.mode === "human" &&
-      configInputIsTty()
+      setupMapWillRender
     ) {
       await runSetupWalk(
         projectDir,

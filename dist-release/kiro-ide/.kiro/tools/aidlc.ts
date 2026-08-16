@@ -158,6 +158,17 @@ const HUMAN_HELP: readonly HelpLine[] = [
   { command: "uninstall [--purge]", summary: "remove the machine installation" },
 ];
 
+export const PUBLIC_COMMANDS = [
+  "config",
+  "doctor",
+  "version",
+  "update",
+  "use",
+  "uninstall",
+] as const;
+
+type PublicCommand = (typeof PUBLIC_COMMANDS)[number];
+
 const HUMAN_TOP_ROUTE_IDS = new Set([
   "top-doctor",
   "top-version",
@@ -259,7 +270,7 @@ export const ROUTES: readonly Route[] = [
       { command: "doctor [--check-updates]", summary: "run environment diagnostics" },
     ],
     all: [
-      "doctor [--verbose] [--json] [--quiet] [--check-updates] [--release-base-url <url>] [--ca-bundle <path>]",
+      "doctor [--verbose] [--json] [--quiet] [--check-updates] [--release-base-url <url>] [--ca-bundle <path>] [--offline] [--export] [--output <dir>]",
     ],
   },
   {
@@ -276,8 +287,8 @@ export const ROUTES: readonly Route[] = [
     networkPolicy: "forbidden",
     mutationScope: "none",
     outputModes: ["human", "json"],
-    human: [{ command: "version [args]", summary: "print the installed AIDLC version" }],
-    all: ["version [args]"],
+    human: [{ command: "version [--json]", summary: "print the installed AIDLC version" }],
+    all: ["version [--json]"],
   },
   {
     id: "top-help",
@@ -310,7 +321,7 @@ export const ROUTES: readonly Route[] = [
     outputModes: ["human", "quiet", "json"],
     human: [{ command: "config [args]", summary: "configure, pin, or refresh this project" }],
     all: [
-      "config [--harness <name>] [--from <path>] [--dry-run] [--force]",
+      "config [--harness <name>] [--from <path>] [--mcp <defaults|none>] [--pin <version>|--unpin] [--dry-run] [--yes] [--json] [--quiet] [--force] [--plan-token <token>] [--project-dir <path>]",
       "config models [--show [--json]|--check|--reset|--preset <name>|--from <preset|profile> --save-as <name>]",
       "config models [--deciding-effort <e>] [--reviewing-effort <e>] [--writing-up-effort <e>] [--agent <name> --effort <e> [--model <raw-id>]] [--dry-run] [--yes]",
       "config runtime [--show [--json]|--check|--record-paths|--reset] [--dry-run] [--yes]",
@@ -340,7 +351,7 @@ export const ROUTES: readonly Route[] = [
       { command: "update [args]", summary: "install and activate a framework release" },
     ],
     all: [
-      "update [--version <version>] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--check|--dry-run]",
+      "update [--version <version>] [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline] [--check|--dry-run] [--json|--quiet]",
     ],
   },
   {
@@ -375,7 +386,7 @@ export const ROUTES: readonly Route[] = [
     outputModes: ["human", "quiet", "json"],
     human: [{ command: "use <version>", summary: "select an exact machine release" }],
     all: [
-      "use <version> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline]",
+      "use <version> [--from <dir>] [--release-base-url <url>] [--ca-bundle <path>] [--offline] [--json|--quiet]",
     ],
   },
   {
@@ -393,7 +404,7 @@ export const ROUTES: readonly Route[] = [
     mutationScope: "machine",
     outputModes: ["human", "quiet", "json"],
     human: [{ command: "uninstall [--purge]", summary: "remove the machine installation" }],
-    all: ["uninstall [--purge] [--yes]"],
+    all: ["uninstall [--purge] [--yes] [--json|--quiet]"],
   },
   {
     id: "top-completions",
@@ -1008,6 +1019,88 @@ export function renderHumanHelp(): string {
     lines.push(`  ${line.command.padEnd(width)}  ${line.summary}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+const COMMAND_HELP_USAGE: Record<PublicCommand, string> = {
+  config: "aidlc config [options]",
+  doctor: "aidlc doctor [options]",
+  version: "aidlc version [--json]",
+  update: "aidlc update [options]",
+  use: "aidlc use <version> [options]",
+  uninstall: "aidlc uninstall [options]",
+};
+
+const COMMAND_HELP_NOTES: Record<PublicCommand, readonly string[]> = {
+  config: [
+    "Sections: models, runtime, providers, trust, flags, project.",
+    "Run `aidlc config <section> --help` for section-specific choices.",
+    "A bare human TTY run shows the first-run setup map after a successful apply.",
+  ],
+  doctor: [
+    "Project diagnostics are read-only.",
+    "Non-TTY, JSON, and quiet runs are cache-only unless --check-updates is explicit.",
+    "Interactive human runs may refresh stale update metadata within 750 ms.",
+  ],
+  version: [
+    "Prints the binary version and the selected runtime version.",
+    "Requires no project or machine installation state.",
+  ],
+  update: [
+    "Installs and activates a release; --dry-run plans without activation.",
+    "`aidlc update --check` uses a 15-second metadata budget.",
+    "Ambient update notices elsewhere are cache-only.",
+  ],
+  use: [
+    "Selects an exact retained release, acquiring it first when needed.",
+    "Project files are not refreshed; run `aidlc config` between workflows.",
+  ],
+  uninstall: [
+    "Removes the per-user installation and never changes project trees.",
+    "--purge also removes machine configuration and cache; --yes confirms.",
+  ],
+};
+
+export function renderCommandHelp(command: PublicCommand): string {
+  const route = ROUTES.find((candidate) =>
+    candidate.namespace === "public" &&
+    candidate.group === "top" &&
+    candidate.verbs.includes(command)
+  );
+  if (!route) throw new Error(`dispatcher route registry is missing public command ${command}`);
+  const summary = route.human?.[0]?.summary ?? "";
+  const lines = [
+    `Usage: ${COMMAND_HELP_USAGE[command]}`,
+    "",
+    summary,
+    "",
+    "Forms:",
+    ...routeForms(route).map((form) => `  aidlc ${form}`),
+    "",
+    "Notes:",
+    ...COMMAND_HELP_NOTES[command].map((note) => `  ${note}`),
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function commandHelpRequest(argv: readonly string[]): PublicCommand | null {
+  const clean = withoutProjectDirFlag(argv);
+  const command = clean[0] as PublicCommand | undefined;
+  if (
+    !command ||
+    !(PUBLIC_COMMANDS as readonly string[]).includes(command) ||
+    !clean.slice(1).some((token) => token === "--help" || token === "-h")
+  ) {
+    return null;
+  }
+  if (
+    command === "config" &&
+    ["models", "runtime", "providers", "trust", "flags", "project"]
+      .includes(clean[1] ?? "")
+  ) {
+    return null;
+  }
+  return command;
 }
 
 function stripHelpGroupPrefix(group: string, form: string): string {
@@ -2050,6 +2143,11 @@ export async function main(argv: string[]): Promise<void> {
   if (argv.length === 1 && argv[0] === "--internal-metrics-send") {
     const metrics = await import("./aidlc-metrics.ts");
     await metrics.sendMetricFromStdin();
+    return;
+  }
+  const commandHelp = commandHelpRequest(argv);
+  if (commandHelp) {
+    text(1, renderCommandHelp(commandHelp));
     return;
   }
   if (import.meta.url.includes("/$bunfs/") && !process.env.AIDLC_HARNESS_DIR) {

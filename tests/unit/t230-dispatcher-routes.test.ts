@@ -1,4 +1,4 @@
-// covers: tool:aidlc, tool:aidlc-sensor, tool:aidlc-swarm, hook:aidlc-validate-state, hook:aidlc-review-freeze, hook:aidlc-statusline
+// covers: tool:aidlc, function:renderCommandHelp, tool:aidlc-sensor, tool:aidlc-swarm, hook:aidlc-validate-state, hook:aidlc-review-freeze, hook:aidlc-statusline
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -18,11 +18,13 @@ import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import {
   ENGINE_NAMESPACE_HELP,
+  PUBLIC_COMMANDS,
   ROUTES,
   SYSTEM_NAMESPACE_HELP,
   TOOLS,
   type Route,
   renderAllHelp,
+  renderCommandHelp,
   renderEngineHelp,
   renderHumanHelp,
   renderNamespaceHelp,
@@ -1290,6 +1292,89 @@ describe("t230 dispatcher route completeness", () => {
 });
 
 describe("t230 dispatcher help and errors", () => {
+  test("all six public commands have side-effect-free registry-derived help", () => {
+    const projectDir = makeProject();
+    const machineRoot = join(projectDir, "machine-help-probe");
+    const env = {
+      AIDLC_INSTALL_ROOT: machineRoot,
+      AIDLC_BIN_DIR: join(machineRoot, "bin"),
+      AIDLC_RELEASE_BASE_URL: "http://127.0.0.1:9",
+      AIDLC_OFFLINE: "0",
+      AIDLC_DISPATCH_TOOLS_DIR: join(projectDir, "missing-tools"),
+    };
+    const usage: Record<(typeof PUBLIC_COMMANDS)[number], string> = {
+      config: "Usage: aidlc config [options]",
+      doctor: "Usage: aidlc doctor [options]",
+      version: "Usage: aidlc version [--json]",
+      update: "Usage: aidlc update [options]",
+      use: "Usage: aidlc use <version> [options]",
+      uninstall: "Usage: aidlc uninstall [options]",
+    };
+    for (const command of PUBLIC_COMMANDS) {
+      const rendered = renderCommandHelp(command);
+      expect(rendered).toContain(usage[command]);
+      const route = ROUTES.find((candidate) =>
+        candidate.namespace === "public" &&
+        candidate.group === "top" &&
+        candidate.verbs.includes(command)
+      );
+      expect(route).toBeDefined();
+      for (const form of route?.all ?? []) {
+        expect(rendered).toContain(`aidlc ${form}`);
+      }
+
+      for (const args of [[command, "--help"], [command, "-h"]]) {
+        const dev = viaDispatcher(args, projectDir, env);
+        expect(dev.exitCode, args.join(" ")).toBe(0);
+        expect(dev.stdout.toString("utf-8")).toBe(rendered);
+        expect(dev.stderr.toString("utf-8")).toBe("");
+      }
+
+      const compiled = viaImportedCompiledMain(
+        [command, "--help"],
+        projectDir,
+        env,
+      );
+      expect(compiled.exitCode, `compiled ${command}`).toBe(0);
+      expect(compiled.stdout.toString("utf-8")).toBe(rendered);
+      expect(compiled.stderr.toString("utf-8")).toBe("");
+    }
+    expect(entriesUnder(machineRoot)).toEqual([]);
+  }, 60_000);
+
+  test("config help names top-level flags and section help still passes through", () => {
+    const projectDir = makeProject();
+    const config = viaDispatcher(["config", "--help"], projectDir);
+    expect(config.exitCode).toBe(0);
+    const text = config.stdout.toString("utf-8");
+    for (const section of ["models", "runtime", "providers", "trust", "flags", "project"]) {
+      expect(text).toContain(`config ${section}`);
+      const sectionHelp = viaDispatcher(
+        ["config", section, "--help"],
+        projectDir,
+      );
+      expect(sectionHelp.exitCode, section).toBe(0);
+      expect(sectionHelp.stdout.toString("utf-8"), section)
+        .toContain(`Usage: aidlc config ${section}`);
+    }
+    for (const flag of [
+      "--harness",
+      "--from",
+      "--mcp",
+      "--pin",
+      "--unpin",
+      "--dry-run",
+      "--yes",
+      "--json",
+      "--quiet",
+      "--force",
+      "--plan-token",
+      "--project-dir",
+    ]) {
+      expect(text).toContain(flag);
+    }
+  }, 60_000);
+
   test("human help stays short and hides plumbing nouns", () => {
     const text = renderHumanHelp();
     expect(text.trimEnd().split("\n").length).toBeLessThanOrEqual(30);

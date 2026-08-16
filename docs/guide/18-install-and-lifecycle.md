@@ -138,7 +138,7 @@ an ownership baseline. It does not create a workflow intent.
 After a successful scaffold or refresh, config runs a cheap installed-result
 sweep. It checks only the non-interactive hook PATH, host trust files, and
 recorded provider actions; it does not spawn the harness CLI or contact a
-provider. The transaction still exits 0, but human output names every
+provider. The transaction still exits 0. Non-TTY human output names every
 outstanding item and the exact `aidlc config runtime`, `aidlc config trust`, or
 `aidlc config providers --check` follow-up. JSON includes
 `data.outstandingActions`. Quiet output stays one line when clean and appends
@@ -152,7 +152,10 @@ runtime, providers, trust order through their existing questions. Enter means
 yes. `--yes` still does not answer this choice. A healthy rerun shows all seven
 rows as `[ok]` and asks nothing. Section-named commands, non-TTY runs,
 `--dry-run`, `--json`, and `--quiet` keep their existing output and never
-render the map.
+render the map. On the TTY path, the map replaces the pre-map outstanding
+block. Accepting the gate ends with the remaining-action ledger after the walk;
+declining prints that ledger immediately, so each path keeps the exact issue
+ids and remediation commands without repeating them before the map.
 
 ### Config Options
 
@@ -690,8 +693,12 @@ ownership, integrity, active-workflow, or release-authentication refusals.
 
 ## Help and Completions
 
-`aidlc --help` prints exactly the six public commands. `aidlc help --all`
-reveals the hidden `engine` and `system` namespaces and points to
+`aidlc --help` prints exactly the six public commands. Each public command also
+has side-effect-free command help: `aidlc <command> --help` (or `-h`) for
+`config`, `doctor`, `version`, `update`, `use`, and `uninstall`. Config-level
+help names all six policy sections; `aidlc config <section> --help` keeps the
+section-specific help. `aidlc help --all` reveals the hidden `engine` and
+`system` namespaces and points to
 `aidlc engine --help` / `aidlc system --help` for their full inventories.
 The installer places Bash, Zsh, Fish, and PowerShell files under the per-user AI-DLC data root's
 `completions/` directory, generated from the public route registry; there is
