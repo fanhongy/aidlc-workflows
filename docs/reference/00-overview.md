@@ -36,6 +36,7 @@ If you are **using** AI-DLC to build software, start with the [User Guide](../gu
 | [Artifact Vocabulary](16-artifact-vocabulary.md) | Naming rules, collision policy, filesystem mapping, and how to view the live registry |
 | [Engine and Skill System](17-skill-system.md) | The orchestration engine (`next`/`report`/`park`), the typed directive contract, the conductor, plural skills, scope shape, and the swarm referee |
 | [Plugin Mechanism](18-plugin-mechanism.md) | The AIDLC plugin system: manifest, install-time composition as a real host plugin, the additive contribution seam, multi-tenant guards, and as-built status. Authoring walkthrough at [harness-engineering/10](../harness-engineering/10-authoring-a-plugin.md) |
+| [Supply-Chain Security](19-supply-chain-security.md) | Release attestations, SLSA provenance, checksums, workflow hardening, installer defenses, ownership, and enterprise transport |
 | [Diagrams](diagrams.md) | All Mermaid diagrams in one place |
 | [Agents](agents/) | Technical agent reference (frontmatter, tooling, stage ownership) |
 

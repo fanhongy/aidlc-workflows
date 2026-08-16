@@ -1056,6 +1056,24 @@ describe("t244 Windows and completion release surfaces", () => {
       join(REPO_ROOT, ".github", "workflows", "release.yml"),
       "utf-8",
     );
+    const parsed = Bun.YAML.parse(workflow) as {
+      permissions?: Record<string, string>;
+      jobs?: Record<string, { permissions?: Record<string, string> }>;
+    };
+    expect(parsed.permissions).toEqual({ contents: "read" });
+    expect(parsed.jobs?.publish?.permissions).toEqual({
+      contents: "write",
+      "id-token": "write",
+      attestations: "write",
+    });
+    const actionRefs = [...workflow.matchAll(
+      /^\s*(?:-\s+)?uses:\s+([^\s#]+)(?:\s+#.*)?$/gm,
+    )].map((match) => match[1]);
+    expect(actionRefs.length).toBeGreaterThan(0);
+    for (const ref of actionRefs) {
+      expect(ref).toMatch(/^[^@\s]+@[a-f0-9]{40}$/);
+    }
+    expect(workflow).not.toMatch(/^\s*(?:-\s+)?uses:\s+[^@\s]+@v\d/m);
     expect(workflow).toContain("shellcheck scripts/install.sh");
     expect(workflow).toContain("Invoke-ScriptAnalyzer -Path scripts/install.ps1");
     expect(workflow).toContain("unix-lifecycle:");
@@ -1069,7 +1087,13 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(publish).toContain("name: release-candidate");
     expect(publish).toContain("sha256sum -c checksums.txt");
     expect(publish.indexOf("sha256sum -c checksums.txt"))
+      .toBeLessThan(publish.indexOf("name: Attest staged release assets"));
+    expect(publish.indexOf("name: Attest staged release assets"))
+      .toBeLessThan(publish.indexOf("name: Stage offline provenance bundle"));
+    expect(publish.indexOf("name: Stage offline provenance bundle"))
       .toBeLessThan(publish.indexOf("gh release create"));
+    expect(publish).toContain("steps.provenance.outputs.bundle-path");
+    expect(publish).toContain("build/release/aidlc-release.intoto.jsonl");
     expect(publish).not.toContain("scripts/package-release.ts");
     expect(publish).not.toContain("pattern: binary-*");
   });

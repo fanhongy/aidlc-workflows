@@ -79,10 +79,12 @@ The tag-triggered release workflow is deliberately candidate-preserving:
 verification and installer lint run first; target-native jobs produce binaries
 and evidence; `package-release.ts` runs once to create `release-candidate`;
 Unix/Windows lifecycle jobs consume that artifact; and the publish job downloads
-the same candidate, checks tag/version parity, runs `sha256sum -c`, publishes,
-and creates GitHub build-provenance attestations. Never rebuild or repackage in
-the publish job, because that would attest bytes the lifecycle jobs did not
-exercise.
+the same candidate, checks tag/version parity, runs `sha256sum -c`, creates the
+GitHub build-provenance attestation, exports
+`aidlc-release.intoto.jsonl`, and only then publishes the release asset set.
+Never rebuild or repackage in the publish job, because that would attest bytes
+the lifecycle jobs did not exercise. The full trust design is
+[Supply-Chain Security](19-supply-chain-security.md).
 
 ## Testing
 

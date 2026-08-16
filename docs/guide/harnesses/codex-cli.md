@@ -9,11 +9,11 @@ never hand-edit it (the drift guard fails CI).
 
 ## Prerequisites
 
-- **Codex CLI ≥ 0.145.0** — earlier releases defer compact-source
+- **Codex CLI >= 0.145.0** - earlier releases defer compact-source
   `SessionStart` after a mid-turn auto-compaction, so one model continuation
   can run without the restored workflow mission. Releases before 0.139.0 also
   lack reliable subagent role attribution and hyphenated agent-TOML resolution.
-  `/aidlc --doctor` enforces the pin. Check with `codex --version`.
+  `/aidlc --doctor` advises on the pin. Check with `codex --version`.
 - **bun** for the copy channel; its tools and hooks run through Bun. The
   native channel is self-contained.
 - **A Git repository for the target project** — Codex discovers project

@@ -481,9 +481,12 @@ records (and the complete seven-target matrix in release mode), archives each
 `dist-release/<harness>/`, and emits the flat `version.json` plus
 `checksums.txt`, both installers, and binaries. The tag workflow tests the
 staged candidate on Unix and Windows, re-verifies its checksums immediately
-before publishing that same artifact, then attaches GitHub build-provenance
-attestations to every released file. This pipeline does not implement the
-deferred npm channel.
+before publishing that same artifact, attests the staged files, exports the
+attestation bundle as `aidlc-release.intoto.jsonl`, and then creates the GitHub
+Release with the artifacts and bundle. The bundle is a separate trust channel
+and is intentionally absent from `version.json` and `checksums.txt`. This
+pipeline does not implement the deferred npm channel. See
+[Supply-Chain Security](19-supply-chain-security.md).
 
 ## Directory Structure
 

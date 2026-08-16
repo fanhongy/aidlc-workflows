@@ -39,7 +39,9 @@
           "sha256:457ff3626bf6ff4a0f6f1f7a44a1d2cbcd91490600e2332742dcf655da25b7f3",
           "sha256:9be9c5cc4a25e5b4c71b3ae35188e1a543504f19cbd5d0a20892777b0904800e",
           "sha256:bc41aca84970977673af3c0b8212a1f7a4d995a4b47fc7894b1c5b342e4a3601",
-          "sha256:0e1bd12644ca4058130633c7e48ff942a68201f96b26c3cba4d52cabf8434efc"
+          "sha256:b3d4d0d178a01591629dbf79083b00e7a3ad42f59f79cbfc88d05b7615704a70",
+          "sha256:92441f1b9f546249f5d0966a57cf958d00a0440106d046f6b83f7ff588aaed5d",
+          "sha256:4461cd1d2ae40498501d336a23198ab8ad5241ce792e42b8f5f15b6ca73a4741"
         ]
       }
     }
@@ -280,7 +282,7 @@
       "sha256:6783b2835955dbff3c4da631e84acc229101e807ddb0d563ed6b7ebd1b237bad"
     ],
     ".codex/hooks/aidlc-codex-adapter.ts": [
-      "sha256:742615afbe95ae62a911531cdcd18e612e23753ba66335edd1c9d45c63d24aec"
+      "sha256:44888387ee534b412df8be7613dfff00174dd0d8a9589b20e8fb3a73afc1ce05"
     ],
     ".codex/hooks/aidlc-rebuild-stage-graph.ts": [
       "sha256:d497b1a41e20b6c8ebddf66c3b3699c2d543c616f38bbb2c6a8ad2f5984b6d5f"
@@ -328,7 +330,7 @@
       "sha256:85feeb246f5c68a7148dce3d6f2034bf2a0f440f59469bd296f3d9105ac518d8"
     ],
     ".codex/tools/data/aidlc-projection.json": [
-      "sha256:ef133b71539941064358621b7b2f2d181a9eee2f74835c01187dbd10290881b6"
+      "sha256:eba58021636d257b60f6780efcfcfbb63570ecd56f969d2db09a8f03af902924"
     ],
     ".codex/trust-seed.toml": [
       "sha256:afe5b9b1575ac941286d2bcf4b8b11bc8608981067cd9915fe5481ea6aa0c565"

@@ -107,8 +107,13 @@ path traversal, absolute paths, duplicate entries, and oversized expansion.
 
 The release workflow re-verifies `checksums.txt` before publishing and
 publishes a GitHub build-provenance attestation for the release artifacts.
-TLS, SHA-256, and that provenance are the permanent trust model. OS
-code-signing and notarization are not part of it.
+Its exported bundle ships as `aidlc-release.intoto.jsonl` so a mirror or
+offline consumer can verify provenance without fetching the bundle from
+GitHub. The bundle is intentionally outside `version.json` and
+`checksums.txt`: those files cover the release artifacts, while the bundle is
+its own Sigstore trust channel. TLS, SHA-256, and that provenance are the
+permanent trust model. OS code-signing and notarization are not part of it.
+See [Supply-Chain Security](../reference/19-supply-chain-security.md).
 
 The installer refuses an existing mixed-ownership command. It also yields to
 an existing Homebrew or Nix command instead of replacing it. This project does
@@ -549,8 +554,10 @@ harness management is not a public command.
 
 ## Offline Packages
 
-The release asset set is the offline package. Download one complete release on
-a connected machine and transfer that directory unchanged:
+The release asset set is the offline package. It includes
+`aidlc-release.intoto.jsonl` alongside the binaries, runtime, installers,
+`version.json`, and `checksums.txt`. Download one complete release on a
+connected machine and transfer that directory unchanged:
 
 ```bash
 gh release download v2.5.45 --repo awslabs/aidlc-workflows --dir ./aidlc-offline
