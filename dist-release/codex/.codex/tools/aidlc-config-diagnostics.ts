@@ -3,6 +3,7 @@ import {
   accessSync,
   constants,
   existsSync,
+  lstatSync,
   readFileSync,
   readdirSync,
   statSync,
@@ -10,6 +11,7 @@ import {
 } from "node:fs";
 import { homedir, platform as hostPlatform } from "node:os";
 import { delimiter, dirname, extname, join, resolve } from "node:path";
+import { sha256Bytes } from "./aidlc-distribution.ts";
 import { discoverProjectHarnesses } from "./aidlc-runtime-paths.ts";
 import type { ModelHarness } from "./aidlc-model-policy.ts";
 import {
@@ -135,6 +137,7 @@ export type DiagnosticDoctorCheck = {
 export type RuntimeProbeOptions = {
   baselinePath?: string;
   interactivePath?: string;
+  includeHarnessCli?: boolean;
   env?: NodeJS.ProcessEnv;
   home?: string;
   platform?: NodeJS.Platform;
@@ -713,7 +716,11 @@ export function probeRuntime(
   const baselinePath = deriveNonInteractivePath(options);
   const interactivePath = options.interactivePath ?? env.PATH ?? "";
   const commandFiles = runtimeCommandFiles(projectDir, harnessDir);
-  const requirements = runtimeRequirements(commandFiles);
+  const requirements = runtimeRequirements(
+    commandFiles.filter((file) =>
+      !file.replaceAll("\\", "/").includes("/skills/")
+    ),
+  );
   return {
     baselinePath,
     commandFiles,
@@ -721,7 +728,13 @@ export function probeRuntime(
       binaryProbe("bun", requirements.bun, baselinePath, interactivePath, options),
       binaryProbe("aidlc", requirements.aidlc, baselinePath, interactivePath, options),
     ],
-    cli: probeHarnessCli(harness, options),
+    cli: options.includeHarnessCli === false
+      ? {
+          harness,
+          required: false,
+          status: "not-applicable",
+        }
+      : probeHarnessCli(harness, options),
   };
 }
 
@@ -1715,6 +1728,255 @@ export function trustStatus(
   return {
     files: trustFilesForHarness(projectDir, harnessDir, harness),
     issues,
+  };
+}
+
+export type ConfigOutstandingAction = {
+  section: "runtime" | "trust" | "providers";
+  id: string;
+  message: string;
+  command: string;
+};
+
+export function postApplyOutstandingActions(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+  options: {
+    skipSections?: readonly ConfigOutstandingAction["section"][];
+    runtime?: RuntimeProbeOptions;
+    env?: NodeJS.ProcessEnv;
+  } = {},
+): ConfigOutstandingAction[] {
+  const skipped = new Set(options.skipSections ?? []);
+  const actions: ConfigOutstandingAction[] = [];
+  if (!skipped.has("runtime")) {
+    const diagnostics = probeRuntime(projectDir, harnessDir, harness, {
+      ...options.runtime,
+      includeHarnessCli: false,
+    });
+    actions.push(...runtimeIssues(diagnostics).map((issue) => ({
+      section: "runtime" as const,
+      id: issue.id,
+      message: issue.message,
+      command: "aidlc config runtime",
+    })));
+  }
+  if (!skipped.has("trust")) {
+    actions.push(...trustStatus(
+      projectDir,
+      harnessDir,
+      harness,
+      options.env,
+    ).issues.map((issue) => ({
+      section: "trust" as const,
+      id: issue.id,
+      message: issue.message,
+      command: "aidlc config trust",
+    })));
+  }
+  if (!skipped.has("providers")) {
+    try {
+      const record = readConfigDiagnosticRecords(
+        join(projectDir, harnessDir),
+      ).providers;
+      actions.push(...pendingProviderIssues(record).map((issue) => ({
+        section: "providers" as const,
+        id: issue.id,
+        message: issue.message,
+        command: "aidlc config providers --check",
+      })));
+    } catch (error) {
+      actions.push({
+        section: "providers",
+        id: "provider-record-unreadable",
+        message: error instanceof Error ? error.message : String(error),
+        command: "aidlc config providers --check",
+      });
+    }
+  }
+  return actions;
+}
+
+export function managedBlockMarkers(
+  path: string,
+  identity: string,
+): { begin: string; end: string } {
+  return path.endsWith(".md")
+    ? {
+        begin: `<!-- BEGIN AI-DLC:${identity} -->`,
+        end: `<!-- END AI-DLC:${identity} -->`,
+      }
+    : {
+        begin: `# BEGIN AI-DLC:${identity}`,
+        end: `# END AI-DLC:${identity}`,
+      };
+}
+
+type RecordedInstructionContribution =
+  | { policy: "managed-block"; hash: string; marker?: string }
+  | { policy: "whole-file"; hash: string };
+
+type RecordedInstructionBaseline = {
+  files?: Record<string, string>;
+  rootContributions?: Record<string, RecordedInstructionContribution>;
+};
+
+type InstructionState = {
+  path: string;
+  kind: "managed-block" | "whole-file";
+  state: "intact" | "missing" | "conflict";
+};
+
+function instructionStates(
+  projectDir: string,
+  harnessDir: string,
+  harness: ModelHarness,
+): InstructionState[] {
+  const baselinePath = join(
+    projectDir,
+    harnessDir,
+    "tools",
+    "data",
+    "aidlc-manifest.json",
+  );
+  if (!existsSync(baselinePath)) {
+    return [{
+      path: baselinePath,
+      kind: "whole-file",
+      state: "missing",
+    }];
+  }
+  const baseline = JSON.parse(
+    readFileSync(baselinePath, "utf-8"),
+  ) as RecordedInstructionBaseline;
+  const tracked: Array<{
+    path: string;
+    contribution: RecordedInstructionContribution;
+  }> = [];
+  for (const [path, contribution] of Object.entries(
+    baseline.rootContributions ?? {},
+  )) {
+    if (
+      path === "AGENTS.md" ||
+      (path === "opencode.json" && contribution.policy === "whole-file")
+    ) {
+      tracked.push({ path, contribution });
+    }
+  }
+  if (harness === "claude") {
+    const path = `${harnessDir}/CLAUDE.md`;
+    const hash = baseline.files?.[path];
+    if (hash) {
+      tracked.push({
+        path,
+        contribution: { policy: "whole-file", hash },
+      });
+    }
+  }
+  if (tracked.length === 0) {
+    return [{
+      path: baselinePath,
+      kind: "whole-file",
+      state: "missing",
+    }];
+  }
+  return tracked.map(({ path, contribution }) => {
+    const target = join(projectDir, path);
+    if (!existsSync(target) || !lstatSync(target).isFile()) {
+      return {
+        path,
+        kind: contribution.policy,
+        state: existsSync(target) ? "conflict" : "missing",
+      };
+    }
+    const content = readFileSync(target);
+    if (contribution.policy === "whole-file") {
+      return {
+        path,
+        kind: contribution.policy,
+        state: sha256Bytes(content) === contribution.hash ? "intact" : "conflict",
+      };
+    }
+    const text = content.toString("utf-8");
+    const markers = managedBlockMarkers(
+      path,
+      contribution.marker || path.split("/").pop() || path,
+    );
+    const begins = text.split(markers.begin).length - 1;
+    const ends = text.split(markers.end).length - 1;
+    if (begins === 0 && ends === 0) {
+      return { path, kind: contribution.policy, state: "missing" };
+    }
+    const beginAt = text.indexOf(markers.begin);
+    const endAt = text.indexOf(markers.end);
+    if (begins !== 1 || ends !== 1 || endAt < beginAt) {
+      return { path, kind: contribution.policy, state: "conflict" };
+    }
+    const block = text.slice(beginAt, endAt + markers.end.length);
+    return {
+      path,
+      kind: contribution.policy,
+      state: sha256Bytes(block) === contribution.hash ? "intact" : "conflict",
+    };
+  });
+}
+
+export function instructionFileDoctorCheck(
+  projectDir: string,
+  harnessDirHint?: string,
+): DiagnosticDoctorCheck {
+  const selected = selectedHarness(projectDir, harnessDirHint);
+  if (!selected) {
+    return {
+      pass: true,
+      label: "Instruction file: no installed project harness",
+    };
+  }
+  let states: InstructionState[];
+  try {
+    states = instructionStates(
+      projectDir,
+      selected.harnessDir,
+      selected.harness,
+    );
+  } catch (error) {
+    return {
+      pass: false,
+      severity: "warn",
+      label: "Instruction file: ownership baseline unreadable - conflict",
+      fix: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const conflicts = states.filter((item) => item.state === "conflict");
+  if (conflicts.length > 0) {
+    return {
+      pass: false,
+      severity: "warn",
+      label:
+        `Instruction file: hand-modified - conflict (${conflicts.map((item) => item.path).join(", ")})`,
+      fix: "review the local changes, then run `aidlc config`",
+    };
+  }
+  const missing = states.filter((item) => item.state === "missing");
+  if (missing.length > 0) {
+    return {
+      pass: false,
+      severity: "warn",
+      label:
+        `Instruction file: block or file missing - run \`aidlc config\` (${missing.map((item) => item.path).join(", ")})`,
+      fix: "run `aidlc config`",
+    };
+  }
+  const managed = states.some((item) => item.kind === "managed-block");
+  const whole = states.some((item) => item.kind === "whole-file");
+  return {
+    pass: true,
+    label: managed && whole
+      ? "Instruction file: block present, user content preserved; framework-owned file intact"
+      : managed
+      ? "Instruction file: block present, user content preserved"
+      : "Instruction file: framework-owned file intact",
   };
 }
 

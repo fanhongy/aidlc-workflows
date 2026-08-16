@@ -37,7 +37,10 @@ import {
   trustedCommand,
 } from "./aidlc-command.ts";
 import { workspaceManifestChecks } from "./aidlc-workspace-doctor.ts";
-import { runtimeDoctorChecks } from "./aidlc-config-diagnostics.ts";
+import {
+  instructionFileDoctorCheck,
+  runtimeDoctorChecks,
+} from "./aidlc-config-diagnostics.ts";
 import {
   activeIntent,
   activeSpace,
@@ -1330,6 +1333,7 @@ export async function collectDoctorReport(
 ): Promise<DoctorReport> {
   const results: DoctorCheck[] = [];
   results.push(...runtimeDoctorChecks(projectDir, harnessDir()));
+  results.push(instructionFileDoctorCheck(projectDir, harnessDir()));
   const compiled = isCompiledExecutable();
 
   const installedVersion = activeVersion();

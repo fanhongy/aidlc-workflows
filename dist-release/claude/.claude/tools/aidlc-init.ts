@@ -97,11 +97,13 @@ import {
   effectiveProjectFlagValues,
   flagFiles,
   flagIssues,
+  managedBlockMarkers,
   normalizeProvidersRecord,
   normalizeProjectChoicesRecord,
   normalizeRuntimeRecord,
   normalizeTrustRecord,
   pendingProviderIssues,
+  postApplyOutstandingActions,
   probeRuntime,
   providerFiles,
   providerIssues,
@@ -117,6 +119,7 @@ import {
   type ConfigDiagnosticOverrides,
   type ConfigDiagnosticRecords,
   type CompletionShell,
+  type ConfigOutstandingAction,
   type ProjectChoicesRecord,
   type ProvidersRecord,
   type RuntimeRecord,
@@ -1208,6 +1211,25 @@ function diagnosticSummary(
     ],
     notes: ["Trust seeds and permission rules were not regenerated or modified."],
   };
+}
+
+function configCompletionMessage(
+  base: string,
+  actions: readonly ConfigOutstandingAction[],
+  mode: "human" | "quiet" | "json",
+): string {
+  if (actions.length === 0 || mode === "json") return base;
+  if (mode === "quiet") {
+    const commands = [...new Set(actions.map((action) => action.command))];
+    return `${base}\nOutstanding actions: ${commands.join("; ")}`;
+  }
+  return [
+    base,
+    "Outstanding actions:",
+    ...actions.map((action) =>
+      `  ${action.section}/${action.id}: ${action.message} - run \`${action.command}\``
+    ),
+  ].join("\n");
 }
 
 function prepareDiagnosticSection(
@@ -2531,18 +2553,6 @@ function assertRefreshSafe(projectDir: string): void {
   );
 }
 
-function blockMarkers(path: string, identity: string): { begin: string; end: string } {
-  return path.endsWith(".md")
-    ? {
-        begin: `<!-- BEGIN AI-DLC:${identity} -->`,
-        end: `<!-- END AI-DLC:${identity} -->`,
-      }
-    : {
-        begin: `# BEGIN AI-DLC:${identity}`,
-        end: `# END AI-DLC:${identity}`,
-      };
-}
-
 function mergeBlock(
   path: string,
   current: string,
@@ -2556,7 +2566,7 @@ function mergeBlock(
   adoptedLegacy?: boolean;
   error?: string;
 } {
-  const { begin, end } = blockMarkers(path, identity);
+  const { begin, end } = managedBlockMarkers(path, identity);
   const begins = current.split(begin).length - 1;
   const ends = current.split(end).length - 1;
   if (begins > 1 || ends > 1 || (begins === 1) !== (ends === 1)) {
@@ -3189,7 +3199,10 @@ function planRemovedRootIntegrations(
     const text = readFileSync(targetPath, "utf-8");
     if (contribution.policy === "managed-block") {
       const fallback = basename(path).replace(/\.[^.]+$/, "").toLowerCase();
-      const { begin, end } = blockMarkers(path, contribution.marker ?? fallback);
+      const { begin, end } = managedBlockMarkers(
+        path,
+        contribution.marker ?? fallback,
+      );
       const beginAt = text.indexOf(begin);
       const endAt = text.indexOf(end, beginAt + begin.length);
       if (beginAt < 0 || endAt < beginAt) {
@@ -3818,14 +3831,25 @@ export async function main(input: string[]): Promise<void> {
       for (const line of choicesContext.summaryLines) process.stdout.write(`${line}\n`);
       for (const note of choicesContext.notes) process.stdout.write(`  Note: ${note}\n`);
     }
+    const outstandingActions = postApplyOutstandingActions(
+      projectDir,
+      descriptor.harnessDir,
+      modelHarness(stamp.distribution),
+      {
+        skipSections: diagnosticsContext
+          ? [diagnosticsContext.section]
+          : [],
+      },
+    );
+    const baseMessage = choicesContext
+      ? `configured ${choicesContext.section} settings for ${projectDir}`
+      : diagnosticsContext
+      ? `configured ${diagnosticsContext.section} settings for ${projectDir}`
+      : modelsContext
+      ? `configured model policy for ${projectDir}`
+      : `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`;
     emitResult(success(
-      choicesContext
-        ? `configured ${choicesContext.section} settings for ${projectDir}`
-        : diagnosticsContext
-        ? `configured ${diagnosticsContext.section} settings for ${projectDir}`
-        : modelsContext
-        ? `configured model policy for ${projectDir}`
-        : `configured ${projectDir} for ${descriptor.productName} ${stamp.frameworkVersion}; next: ${descriptor.configNextStep}`,
+      configCompletionMessage(baseMessage, outstandingActions, options.mode),
       {
         projectDir,
         distribution: stamp.distribution,
@@ -3833,6 +3857,7 @@ export async function main(input: string[]): Promise<void> {
         counts,
         actions,
         planToken,
+        outstandingActions,
         ...(modelsContext
           ? {
               models: {

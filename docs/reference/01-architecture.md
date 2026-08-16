@@ -394,6 +394,22 @@ project-specific seed set in the user config, Kiro IDE checks the installed
 trusted command entry, and every harness checks required sibling directories.
 No trust seed or permission-rule generator is called by config trust.
 
+Every successful non-dry-run config transaction then runs a cheap post-apply
+sweep against the installed bytes. The runtime leg resolves only the binary
+needed by actual hook command files on the non-interactive PATH and deliberately
+skips the harness CLI version probe. The trust leg reads host trust surfaces,
+and the provider leg reads only recorded pending actions. Human and quiet
+output name exact section follow-ups while JSON carries the structured
+`outstandingActions` array; the exit code remains 0 because the transaction
+committed successfully.
+
+Doctor derives its instruction-file row from
+`tools/data/aidlc-manifest.json`. Managed-block integrations are checked for one
+ordered marker pair and the recorded block hash, while framework-owned
+whole-file instruction surfaces are checked against their recorded file hash.
+The row distinguishes intact, missing, and locally modified states and selects
+the invoking harness in a multi-harness project.
+
 ### Flags and project choices
 
 `aidlc config flags` stores a schema-versioned `flags` record in

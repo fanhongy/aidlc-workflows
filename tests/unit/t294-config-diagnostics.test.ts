@@ -16,7 +16,9 @@ import {
   applyConfigDiagnosticRecords,
   codexTrustIssues,
   detectAwsCredentials,
+  instructionFileDoctorCheck,
   normalizeProvidersRecord,
+  postApplyOutstandingActions,
   probeHarnessCli,
   probeRuntime,
   providerDoctorCheck,
@@ -32,6 +34,7 @@ import {
   type ConfigDiagnosticRecords,
   type ProvidersRecord,
 } from "../../core/tools/aidlc-config-diagnostics.ts";
+import { collectDoctorReport } from "../../core/tools/aidlc-utility.ts";
 
 const BUN = process.execPath;
 const INIT = join(REPO_ROOT, "core", "tools", "aidlc-init.ts");
@@ -98,6 +101,24 @@ function runtimeEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 function writeExecutable(path: string): void {
   writeFileSync(path, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+}
+
+function hookPathEnv(command?: "aidlc" | "bun"): NodeJS.ProcessEnv {
+  const bin = temp("aidlc-t294-hook-path-");
+  writeFileSync(
+    join(bin, "getconf"),
+    `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(bin)}\n`,
+    { mode: 0o755 },
+  );
+  if (command) {
+    for (const name of [command, `${command}.exe`, `${command}.cmd`]) {
+      writeExecutable(join(bin, name));
+    }
+  }
+  return {
+    PATH: bin,
+    SystemRoot: "",
+  };
 }
 
 function emptyRecords(providers: ProvidersRecord | null): ConfigDiagnosticRecords {
@@ -525,6 +546,214 @@ describe("t294 trust diagnostics", () => {
       check.label.includes("Harness CLI: codex")
     )).toBe(true);
   });
+});
+
+describe("t294 post-apply outstanding actions", () => {
+  test("plain config names missing hook runtime in human and JSON output", () => {
+    const project = temp("aidlc-t294-post-runtime-");
+    mkdirSync(join(project, ".git"));
+    const env = hookPathEnv();
+    const applied = run([
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      join(DIST_RELEASE, "claude"),
+      "--harness",
+      "claude",
+      "--mcp",
+      "none",
+      "--yes",
+    ], project, env);
+    expect(applied.status, applied.stdout + applied.stderr).toBe(0);
+    expect(applied.stdout).toContain("Outstanding actions:");
+    expect(applied.stdout).toContain("aidlc is absent from the non-interactive hook PATH");
+    expect(applied.stdout).toContain("aidlc config runtime");
+
+    const json = run([
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      join(DIST_RELEASE, "claude"),
+      "--json",
+      "--yes",
+    ], project, env);
+    expect(json.status, json.stdout + json.stderr).toBe(0);
+    const payload = JSON.parse(json.stdout) as {
+      data: {
+        outstandingActions: Array<{
+          section: string;
+          id: string;
+          command: string;
+        }>;
+      };
+    };
+    expect(payload.data.outstandingActions).toContainEqual(expect.objectContaining({
+      section: "runtime",
+      id: "runtime-aidlc-missing",
+      command: "aidlc config runtime",
+    }));
+  }, 60_000);
+
+  test("Codex config names missing user trust without duplicating trust section output", () => {
+    const project = temp("aidlc-t294-post-trust-");
+    const home = temp("aidlc-t294-post-trust-home-");
+    mkdirSync(join(project, ".git"));
+    const env = {
+      ...hookPathEnv("aidlc"),
+      HOME: home,
+      CODEX_HOME: home,
+    };
+    const applied = run([
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      join(DIST_RELEASE, "codex"),
+      "--harness",
+      "codex",
+      "--yes",
+    ], project, env);
+    expect(applied.status, applied.stdout + applied.stderr).toBe(0);
+    expect(applied.stdout).toContain("codex-hook-trust-missing");
+    expect(applied.stdout).toContain("aidlc config trust");
+
+    const trustSection = run([
+      "config",
+      "trust",
+      "--project-dir",
+      project,
+      "--reset",
+      "--yes",
+    ], project, env);
+    expect(trustSection.status, trustSection.stdout + trustSection.stderr).toBe(0);
+    expect(trustSection.stdout).not.toContain("aidlc config trust");
+  }, 60_000);
+
+  test("provider pending actions appear after plain refresh and healthy quiet stays one line", () => {
+    const project = temp("aidlc-t294-post-provider-");
+    mkdirSync(join(project, ".git"));
+    const env = {
+      ...runtimeEnv(),
+      ...hookPathEnv("aidlc"),
+    };
+    expect(run([
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      join(DIST_RELEASE, "claude"),
+      "--harness",
+      "claude",
+      "--mcp",
+      "none",
+      "--quiet",
+      "--yes",
+    ], project, env).stdout.trim().split("\n")).toHaveLength(1);
+
+    const providerSection = run([
+      "config",
+      "providers",
+      "--project-dir",
+      project,
+      "--provider",
+      "amazon-bedrock",
+      "--region",
+      "us-east-1",
+      "--yes",
+    ], project, env);
+    expect(providerSection.status, providerSection.stdout + providerSection.stderr).toBe(0);
+    expect(providerSection.stdout).not.toContain("aidlc config providers --check");
+
+    const refreshed = run([
+      "config",
+      "--project-dir",
+      project,
+      "--yes",
+    ], project, env);
+    expect(refreshed.status, refreshed.stdout + refreshed.stderr).toBe(0);
+    expect(refreshed.stdout).toContain("bedrock-model-access");
+    expect(refreshed.stdout).toContain("aidlc config providers --check");
+
+    const actions = postApplyOutstandingActions(
+      project,
+      ".claude",
+      "claude",
+      {
+        skipSections: ["runtime", "trust"],
+        runtime: {
+          baselinePath: "/unused",
+          interactivePath: "/unused",
+          which: () => null,
+        },
+      },
+    );
+    expect(actions.map((action) => action.section)).toEqual(["providers"]);
+  }, 60_000);
+});
+
+describe("t294 instruction-file doctor row", () => {
+  test("marker-managed instruction block reports intact, missing, and modified", async () => {
+    const project = install("kiro");
+    const path = join(project, "AGENTS.md");
+    const original = readFileSync(path, "utf-8");
+    const intact = instructionFileDoctorCheck(project, ".kiro");
+    expect(intact.pass).toBe(true);
+    expect(intact.label).toContain("block present, user content preserved");
+    const report = await collectDoctorReport(project);
+    expect(report.checks.some((check) =>
+      check.label.includes("block present, user content preserved")
+    )).toBe(true);
+
+    rmSync(path);
+    const missing = instructionFileDoctorCheck(project, ".kiro");
+    expect(missing.pass).toBe(false);
+    expect(missing.severity).toBe("warn");
+    expect(missing.label).toContain("missing - run `aidlc config`");
+
+    writeFileSync(
+      path,
+      original.replace(
+        "<!-- END AI-DLC:agents -->",
+        "local managed edit\n<!-- END AI-DLC:agents -->",
+      ),
+    );
+    const modified = instructionFileDoctorCheck(project, ".kiro");
+    expect(modified.pass).toBe(false);
+    expect(modified.severity).toBe("warn");
+    expect(modified.label).toContain("hand-modified - conflict");
+  }, 60_000);
+
+  test("whole-file instruction surface reports intact, missing, and modified", () => {
+    const project = install("opencode");
+    const path = join(project, "opencode.json");
+    const original = readFileSync(path, "utf-8");
+    const intact = instructionFileDoctorCheck(project, ".aidlc");
+    expect(intact.pass).toBe(true);
+    expect(intact.label).toContain("framework-owned file intact");
+
+    rmSync(path);
+    expect(instructionFileDoctorCheck(project, ".aidlc").label)
+      .toContain("missing - run `aidlc config`");
+
+    writeFileSync(path, original.replace('"permission"', '"localSetting": true,\n  "permission"'));
+    expect(instructionFileDoctorCheck(project, ".aidlc").label)
+      .toContain("hand-modified - conflict");
+  }, 60_000);
+
+  test("instruction row selects the invoking harness in a dual-harness project", () => {
+    const project = install("claude");
+    const codex = install("codex");
+    cpSync(join(codex, ".codex"), join(project, ".codex"), { recursive: true });
+    cpSync(join(codex, ".agents"), join(project, ".agents"), { recursive: true });
+    cpSync(join(codex, "AGENTS.md"), join(project, "AGENTS.md"));
+    expect(instructionFileDoctorCheck(project, ".claude").pass).toBe(true);
+    expect(instructionFileDoctorCheck(project, ".codex").pass).toBe(true);
+    rmSync(join(project, "AGENTS.md"));
+    expect(instructionFileDoctorCheck(project, ".claude").pass).toBe(true);
+    expect(instructionFileDoctorCheck(project, ".codex").pass).toBe(false);
+  }, 60_000);
 });
 
 describe("t294 config diagnostics CLI", () => {

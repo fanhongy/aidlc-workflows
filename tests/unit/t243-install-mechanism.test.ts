@@ -1220,6 +1220,228 @@ describe("t243 project initialization", () => {
     expect(malformedJson.stdout).toContain("malformed JSON");
   }, 60_000);
 
+  test("removed AGENTS markers with the managed body left behind refuse refresh", () => {
+    const project = temp("aidlc-t243-agents-markers-removed-");
+    mkdirSync(join(project, ".git"));
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], project).status).toBe(0);
+    const path = join(project, "AGENTS.md");
+    const withoutMarkers = readFileSync(path, "utf-8")
+      .replace("<!-- BEGIN AI-DLC:agents -->\n", "")
+      .replace("<!-- END AI-DLC:agents -->\n", "");
+    writeFileSync(path, withoutMarkers);
+    const refreshed = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+    ], project);
+    expect(refreshed.status).toBe(4);
+    expect(refreshed.stdout).toContain("legacy root integration ambiguous");
+    expect(readFileSync(path, "utf-8")).toBe(withoutMarkers);
+  }, 60_000);
+
+  test("two managed AGENTS blocks from different versions are a conflict", () => {
+    const project = temp("aidlc-t243-agents-two-blocks-");
+    mkdirSync(join(project, ".git"));
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], project).status).toBe(0);
+    const path = join(project, "AGENTS.md");
+    const current = readFileSync(path, "utf-8");
+    const block = current.match(
+      /<!-- BEGIN AI-DLC:agents -->[\s\S]*?<!-- END AI-DLC:agents -->/,
+    )?.[0];
+    expect(block).toBeString();
+    writeFileSync(
+      path,
+      `${current}\n${block?.replace(
+        "<!-- END AI-DLC:agents -->",
+        "Legacy version body.\n<!-- END AI-DLC:agents -->",
+      )}\n`,
+    );
+    const refreshed = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+    ], project);
+    expect(refreshed.status).toBe(4);
+    expect(refreshed.stdout).toContain(
+      "managed markers are missing, duplicated, or malformed",
+    );
+  }, 60_000);
+
+  test("managed AGENTS block is stable above or below the user H1 and rules", () => {
+    const below = temp("aidlc-t243-agents-below-h1-");
+    mkdirSync(join(below, ".git"));
+    writeFileSync(join(below, "AGENTS.md"), "# User H1\n\nKeep user rules.\n");
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      below,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], below).status).toBe(0);
+    const belowText = readFileSync(join(below, "AGENTS.md"), "utf-8");
+    expect(belowText.indexOf("# User H1")).toBeLessThan(
+      belowText.indexOf("<!-- BEGIN AI-DLC:agents -->"),
+    );
+
+    const above = temp("aidlc-t243-agents-above-h1-");
+    mkdirSync(join(above, ".git"));
+    writeFileSync(join(above, "AGENTS.md"), "# User H1\n\nKeep user rules.\n");
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      above,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], above).status).toBe(0);
+    const path = join(above, "AGENTS.md");
+    const installed = readFileSync(path, "utf-8");
+    const block = installed.match(
+      /<!-- BEGIN AI-DLC:agents -->[\s\S]*?<!-- END AI-DLC:agents -->/,
+    )?.[0] as string;
+    const user = installed.replace(block, "").trim();
+    writeFileSync(path, `${block}\n\n${user}\n`);
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      above,
+      "--from",
+      KIRO_RELEASES[0],
+    ], above).status).toBe(0);
+    const refreshed = readFileSync(path, "utf-8");
+    expect(refreshed.indexOf("<!-- BEGIN AI-DLC:agents -->")).toBeLessThan(
+      refreshed.indexOf("# User H1"),
+    );
+    expect(refreshed).toContain("Keep user rules.");
+  }, 60_000);
+
+  test("a symlinked AGENTS.md is a root-integration conflict", () => {
+    const project = temp("aidlc-t243-agents-symlink-");
+    const outside = temp("aidlc-t243-agents-symlink-target-");
+    mkdirSync(join(project, ".git"));
+    const target = join(outside, "AGENTS.md");
+    writeFileSync(target, "# External instructions\n");
+    symlinkSync(target, join(project, "AGENTS.md"));
+    const configured = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], project);
+    expect(configured.status).toBe(4);
+    expect(configured.stdout).toContain("root integration is not a regular file");
+    expect(readFileSync(target, "utf-8")).toBe("# External instructions\n");
+    expect(existsSync(join(project, ".kiro"))).toBe(false);
+  }, 60_000);
+
+  test("a project carrying only CLAUDE.md keeps it and gains managed AGENTS.md", () => {
+    const project = temp("aidlc-t243-claude-only-root-");
+    mkdirSync(join(project, ".git"));
+    writeFileSync(join(project, "CLAUDE.md"), "# Claude-only project rules\n");
+    const configured = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], project);
+    expect(configured.status, configured.stdout + configured.stderr).toBe(0);
+    expect(readFileSync(join(project, "CLAUDE.md"), "utf-8"))
+      .toBe("# Claude-only project rules\n");
+    expect(readFileSync(join(project, "AGENTS.md"), "utf-8"))
+      .toContain("<!-- BEGIN AI-DLC:agents -->");
+  }, 60_000);
+
+  test("config in a monorepo subdirectory mutates only the selected project", () => {
+    const monorepo = temp("aidlc-t243-monorepo-");
+    const project = join(monorepo, "packages", "service");
+    mkdirSync(join(monorepo, ".git"));
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, "package.json"), "{}\n");
+    const configured = run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], project);
+    expect(configured.status, configured.stdout + configured.stderr).toBe(0);
+    expect(existsSync(join(project, ".kiro"))).toBe(true);
+    expect(existsSync(join(project, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(monorepo, ".kiro"))).toBe(false);
+    expect(existsSync(join(monorepo, "AGENTS.md"))).toBe(false);
+  }, 60_000);
+
+  test("gitignored AGENTS.md generated by another tool preserves generator bytes", () => {
+    const project = temp("aidlc-t243-generated-agents-");
+    mkdirSync(join(project, ".git"));
+    writeFileSync(join(project, ".gitignore"), "AGENTS.md\n");
+    writeFileSync(
+      join(project, "AGENTS.md"),
+      "# Generated by project-tool\n\nDo not replace this section.\n",
+    );
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+      "--harness",
+      "kiro",
+    ], project).status).toBe(0);
+    const path = join(project, "AGENTS.md");
+    expect(readFileSync(path, "utf-8")).toContain("# Generated by project-tool");
+    expect(readFileSync(join(project, ".gitignore"), "utf-8")).toContain("AGENTS.md");
+
+    writeFileSync(
+      path,
+      readFileSync(path, "utf-8").replace(
+        "Do not replace this section.",
+        "Regenerated project-tool section.",
+      ),
+    );
+    expect(run(INIT, [
+      "config",
+      "--project-dir",
+      project,
+      "--from",
+      KIRO_RELEASES[0],
+    ], project).status).toBe(0);
+    expect(readFileSync(path, "utf-8")).toContain(
+      "Regenerated project-tool section.",
+    );
+  }, 60_000);
+
   test("all local init modes open no internet sockets", () => {
     const strace = Bun.which("strace");
     if (!strace || process.platform !== "linux") return;

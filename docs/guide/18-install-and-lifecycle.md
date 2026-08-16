@@ -135,6 +135,15 @@ aidlc doctor
 tree, the `aidlc/` workspace shell, root integrations, a projection stamp, and
 an ownership baseline. It does not create a workflow intent.
 
+After a successful scaffold or refresh, config runs a cheap installed-result
+sweep. It checks only the non-interactive hook PATH, host trust files, and
+recorded provider actions; it does not spawn the harness CLI or contact a
+provider. The transaction still exits 0, but human output names every
+outstanding item and the exact `aidlc config runtime`, `aidlc config trust`, or
+`aidlc config providers --check` follow-up. JSON includes
+`data.outstandingActions`. Quiet output stays one line when clean and appends
+one outstanding-actions line when follow-up is required.
+
 ### Config Options
 
 | Option | Meaning |
@@ -311,6 +320,13 @@ surface. `--show` lists the selected harness's trust and allowlist files.
 The trust check also verifies the project siblings that copy installs often
 miss: `aidlc/` for every harness, `.agents/` for Codex, and the `.aidlc/`
 engine for opencode and Copilot.
+
+Doctor also classifies the installed instruction file against the config
+ownership baseline. An intact managed block reports `block present, user
+content preserved`; a missing block or file says to run `aidlc config`; a
+hand-modified managed block or framework-owned whole file reports a conflict.
+The row follows the invoking harness when more than one harness tree is
+present.
 
 ### Project Flags
 
