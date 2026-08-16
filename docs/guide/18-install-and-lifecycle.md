@@ -144,6 +144,16 @@ outstanding item and the exact `aidlc config runtime`, `aidlc config trust`, or
 `data.outstandingActions`. Quiet output stays one line when clean and appends
 one outstanding-actions line when follow-up is required.
 
+On a human TTY, a successful bare `aidlc config` also renders a seven-row
+Project setup map for Harnesses, Models, Trust, Flags, Project, Runtime, and
+Providers. Defaults stay `[ok]`; only runtime, provider, or trust findings are
+marked `[NEEDS]`. One `[Y/n]` gate offers to walk those flagged sections in
+runtime, providers, trust order through their existing questions. Enter means
+yes. `--yes` still does not answer this choice. A healthy rerun shows all seven
+rows as `[ok]` and asks nothing. Section-named commands, non-TTY runs,
+`--dry-run`, `--json`, and `--quiet` keep their existing output and never
+render the map.
+
 ### Config Options
 
 | Option | Meaning |

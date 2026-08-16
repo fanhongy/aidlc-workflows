@@ -160,6 +160,12 @@ type ModelsMutationContext = {
 
 type DiagnosticSection = "runtime" | "providers" | "trust";
 type ChoiceSection = "flags" | "project";
+type SetupWalkSection = "runtime" | "providers" | "trust";
+
+type ConfigMainInternal = {
+  setupWalkChild?: boolean;
+  sourceRoot?: string;
+};
 
 type DiagnosticsMutationContext = {
   section: DiagnosticSection;
@@ -838,6 +844,21 @@ function diagnosticOverrides(
   return { [section]: next };
 }
 
+function compactHumanFileList<T>(
+  items: readonly T[],
+  section: DiagnosticSection,
+  render: (item: T) => string,
+): string {
+  const visible = items.length > 8 ? items.slice(0, 5) : items;
+  let output = visible.map((item) => `    ${render(item)}\n`).join("");
+  if (items.length > 8) {
+    output +=
+      `    ... and ${items.length - visible.length} more ` +
+      `(aidlc config ${section} --show --json lists all)\n`;
+  }
+  return output;
+}
+
 function showDiagnosticSection(
   section: DiagnosticSection,
   projectDir: string,
@@ -920,7 +941,11 @@ function showDiagnosticSection(
     if (diagnostics.cli.path) output += ` -> ${diagnostics.cli.path}`;
     output += "\n";
     output += "  Files carrying hook commands:\n";
-    for (const file of diagnostics.commandFiles) output += `    ${file}\n`;
+    output += compactHumanFileList(
+      diagnostics.commandFiles,
+      "runtime",
+      (file) => file,
+    );
   } else if (section === "providers") {
     const record = data.record as ProvidersRecord | null;
     const credentials = data.credentials as ReturnType<typeof detectAwsCredentials>;
@@ -941,7 +966,7 @@ function showDiagnosticSection(
     };
     output += `  Allowlist reviewed: ${status.record?.reviewed === true ? "yes" : "not recorded"}\n`;
     output += "  Trust and allowlist files:\n";
-    for (const file of status.files) output += `    ${file}\n`;
+    output += compactHumanFileList(status.files, "trust", (file) => file);
     for (const issue of status.issues) output += `  Unmet: ${issue.id} - ${issue.message}\n`;
   }
   process.stdout.write(output);
@@ -1232,6 +1257,178 @@ function configCompletionMessage(
   ].join("\n");
 }
 
+// Test-only interactivity seam. It is read at call time so one test process can
+// exercise TTY and non-TTY branches with piped answers. Production behavior is
+// unchanged unless the explicitly test-named variable is set.
+function configInputIsTty(): boolean {
+  return Boolean(
+    process.stdin.isTTY ||
+    process.env.AIDLC_TEST_CONFIG_TTY === "1",
+  );
+}
+
+type SetupMapRow = {
+  label: string;
+  detail: string;
+  section?: SetupWalkSection;
+  needs: boolean;
+};
+
+function setupMapRows(
+  projectDir: string,
+  harnessDir: string,
+  distribution: string,
+  outstanding: readonly ConfigOutstandingAction[],
+): SetupMapRow[] {
+  const root = join(projectDir, harnessDir);
+  const records = readConfigDiagnosticRecords(root);
+  const policy = modelPolicyFromHarnessRoot(root);
+  const runtime = outstanding.filter((action) => action.section === "runtime");
+  const trust = outstanding.filter((action) => action.section === "trust");
+  const providers = outstanding.filter((action) => action.section === "providers");
+  const providerNeeds = records.providers === null || providers.length > 0;
+  const modelDetail = !policy || modelPolicyIsEmpty(policy)
+    ? "shipped defaults"
+    : policy.preset
+    ? `preset ${policy.preset}`
+    : "recorded project policy";
+  const flagDetail = records.flags
+    ? `scope ${records.flags.defaultScope ?? "inherit"}, swarm ${
+        records.flags.swarm === undefined ? "inherit" : records.flags.swarm ? "on" : "off"
+      }`
+    : "defaults";
+  const plugins = readPluginSelection(root);
+  const pluginDetail = plugins === null
+    ? "all installed"
+    : plugins.length > 0
+    ? plugins.join(",")
+    : "none";
+  const projectDetail =
+    `plugins: ${pluginDetail}, MCP: ${records.project?.mcp ?? "none"}, ` +
+    `completions: ${records.project?.completions ?? "none"}`;
+  const trustDetail = trust[0]?.message ??
+    (records.trust?.reviewed ? "review acknowledged" : "no unmet host trust");
+  const providerDetail = records.providers === null
+    ? "no recorded answers; provider access unverified"
+    : providers[0]?.message ??
+      `${records.providers.provider ?? "shipped fallback"}; no pending actions`;
+  return [
+    {
+      label: "Harnesses",
+      detail: `${distribution} recorded`,
+      needs: false,
+    },
+    {
+      label: "Models",
+      detail: modelDetail,
+      needs: false,
+    },
+    {
+      label: "Trust",
+      detail: trustDetail,
+      section: "trust",
+      needs: trust.length > 0,
+    },
+    {
+      label: "Flags",
+      detail: flagDetail,
+      needs: false,
+    },
+    {
+      label: "Project",
+      detail: projectDetail,
+      needs: false,
+    },
+    {
+      label: "Runtime",
+      detail: runtime[0]?.message ?? "hook PATH ready",
+      section: "runtime",
+      needs: runtime.length > 0,
+    },
+    {
+      label: "Providers",
+      detail: providerDetail,
+      section: "providers",
+      needs: providerNeeds,
+    },
+  ];
+}
+
+function renderSetupMap(rows: readonly SetupMapRow[]): SetupWalkSection[] {
+  const needed = rows.filter((row) => row.needs);
+  process.stdout.write(
+    `  Project setup: ${needed.length} of ${rows.length} sections need you\n`,
+  );
+  for (const row of rows) {
+    const state = row.needs ? "[NEEDS]" : "[ok]";
+    process.stdout.write(
+      `    ${state.padEnd(7)}  ${row.label.padEnd(11)} ${row.detail}\n`,
+    );
+  }
+  const order: SetupWalkSection[] = ["runtime", "providers", "trust"];
+  const flagged = new Set(
+    needed.map((row) => row.section).filter(
+      (section): section is SetupWalkSection => section !== undefined,
+    ),
+  );
+  return order.filter((section) => flagged.has(section));
+}
+
+async function runSetupWalk(
+  projectDir: string,
+  harnessDir: string,
+  distribution: string,
+  sourceRoot: string,
+  initialOutstanding: readonly ConfigOutstandingAction[],
+): Promise<void> {
+  const flagged = renderSetupMap(
+    setupMapRows(
+      projectDir,
+      harnessDir,
+      distribution,
+      initialOutstanding,
+    ),
+  );
+  if (flagged.length === 0) return;
+  const answer = prompt(
+    `Walk through the ${flagged.length} sections that need you now? [Y/n]:`,
+  );
+  if (answer && !/^y(?:es)?$/i.test(answer)) return;
+  for (const section of flagged) {
+    await main(
+      [
+        "config",
+        section,
+        "--project-dir",
+        projectDir,
+        "--harness",
+        distribution,
+        "--yes",
+      ],
+      {
+        setupWalkChild: true,
+        sourceRoot,
+      },
+    );
+    if ((process.exitCode ?? EXIT.ok) !== EXIT.ok) break;
+  }
+  const remaining = postApplyOutstandingActions(
+    projectDir,
+    harnessDir,
+    modelHarness(distribution),
+  );
+  process.stdout.write(
+    `Config complete. ${remaining.length} action${
+      remaining.length === 1 ? "" : "s"
+    } still need you\n`,
+  );
+  for (const action of remaining) {
+    process.stdout.write(
+      `  ${action.section}/${action.id}: ${action.message} - run \`${action.command}\`\n`,
+    );
+  }
+}
+
 function prepareDiagnosticSection(
   section: DiagnosticSection,
   argv: string[],
@@ -1304,7 +1501,7 @@ function prepareDiagnosticSection(
       next = { schemaVersion: 1, reviewed: true };
     }
   } else {
-    if (!process.stdin.isTTY) {
+    if (!configInputIsTty()) {
       const flags = section === "runtime"
         ? "--show, --check, --record-paths, or --reset"
         : section === "providers"
@@ -1327,7 +1524,7 @@ function prepareDiagnosticSection(
     return null;
   }
   if (!argv.includes("--dry-run") && !options.yes) {
-    if (!process.stdin.isTTY) {
+    if (!configInputIsTty()) {
       emitResult(
         usage(
           `non-interactive ${section} mutation requires --yes; --yes confirms but never chooses`,
@@ -3433,7 +3630,10 @@ function prepareModelsSection(
   };
 }
 
-export async function main(input: string[]): Promise<void> {
+export async function main(
+  input: string[],
+  internal: ConfigMainInternal = {},
+): Promise<void> {
   let argv = stripVerb(input);
   const options = globalOptions(argv);
   const positionals = configPositionals(argv);
@@ -3531,7 +3731,7 @@ export async function main(input: string[]): Promise<void> {
   }
   const requestedHarnesses = valuesAfter(argv, "--harness");
   const requestedHarness = requestedHarnesses[0];
-  const from = valueAfter(argv, "--from");
+  const from = internal.sourceRoot ?? valueAfter(argv, "--from");
   const mcpValue = valueAfter(argv, "--mcp");
   if (argv.includes("--harness") && !requestedHarness) {
     emitResult(usage("--harness requires a distribution name"), options);
@@ -3831,16 +4031,18 @@ export async function main(input: string[]): Promise<void> {
       for (const line of choicesContext.summaryLines) process.stdout.write(`${line}\n`);
       for (const note of choicesContext.notes) process.stdout.write(`  Note: ${note}\n`);
     }
-    const outstandingActions = postApplyOutstandingActions(
-      projectDir,
-      descriptor.harnessDir,
-      modelHarness(stamp.distribution),
-      {
-        skipSections: diagnosticsContext
-          ? [diagnosticsContext.section]
-          : [],
-      },
-    );
+    const outstandingActions = internal.setupWalkChild
+      ? []
+      : postApplyOutstandingActions(
+          projectDir,
+          descriptor.harnessDir,
+          modelHarness(stamp.distribution),
+          {
+            skipSections: diagnosticsContext
+              ? [diagnosticsContext.section]
+              : [],
+          },
+        );
     const baseMessage = choicesContext
       ? `configured ${choicesContext.section} settings for ${projectDir}`
       : diagnosticsContext
@@ -3894,6 +4096,20 @@ export async function main(input: string[]): Promise<void> {
           : {}),
       },
     ), options);
+    if (
+      !internal.setupWalkChild &&
+      !section &&
+      options.mode === "human" &&
+      configInputIsTty()
+    ) {
+      await runSetupWalk(
+        projectDir,
+        descriptor.harnessDir,
+        stamp.distribution,
+        selected.root,
+        outstandingActions,
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     emitResult(failure(

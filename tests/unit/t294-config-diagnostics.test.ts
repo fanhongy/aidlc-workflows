@@ -951,10 +951,31 @@ describe("t294 config diagnostics CLI", () => {
     ], project, env);
     expect(runtimeShow.status).toBe(0);
     const runtimePayload = JSON.parse(runtimeShow.stdout) as {
-      data: { diagnostics: { baselinePath: string }; files: string[] };
+      data: {
+        diagnostics: { baselinePath: string; commandFiles: string[] };
+        files: string[];
+      };
     };
     expect(runtimePayload.data.diagnostics.baselinePath).toBeString();
     expect(runtimePayload.data.files.length).toBeGreaterThan(0);
+    const runtimeFiles = runtimePayload.data.diagnostics.commandFiles;
+    expect(runtimeFiles.length).toBeGreaterThan(8);
+    const runtimeHuman = run([
+      "config",
+      "runtime",
+      "--project-dir",
+      project,
+      "--show",
+    ], project, env);
+    expect(runtimeHuman.status).toBe(0);
+    for (const file of runtimeFiles.slice(0, 5)) {
+      expect(runtimeHuman.stdout).toContain(file);
+    }
+    expect(runtimeHuman.stdout).not.toContain(runtimeFiles[5]);
+    expect(runtimeHuman.stdout).toContain(
+      `... and ${runtimeFiles.length - 5} more ` +
+        "(aidlc config runtime --show --json lists all)",
+    );
 
     const dataPath = join(project, ".claude", "tools", "data", "harness.json");
     const data = JSON.parse(readFileSync(dataPath, "utf-8"));
@@ -1042,6 +1063,37 @@ describe("t294 config diagnostics CLI", () => {
     ], project, env).status).toBe(0);
     expect(readConfigDiagnosticRecords(join(project, ".claude")).trust)
       .toBeNull();
+  }, 60_000);
+
+  test("trust human show compacts its unbounded file list while JSON stays complete", () => {
+    const project = install("kiro");
+    const json = run([
+      "config",
+      "trust",
+      "--project-dir",
+      project,
+      "--show",
+      "--json",
+    ], project, runtimeEnv());
+    expect(json.status, json.stdout + json.stderr).toBe(0);
+    const files = (JSON.parse(json.stdout) as { data: { files: string[] } })
+      .data.files;
+    expect(files.length).toBeGreaterThan(8);
+
+    const human = run([
+      "config",
+      "trust",
+      "--project-dir",
+      project,
+      "--show",
+    ], project, runtimeEnv());
+    expect(human.status, human.stdout + human.stderr).toBe(0);
+    for (const file of files.slice(0, 5)) expect(human.stdout).toContain(file);
+    expect(human.stdout).not.toContain(files[5]);
+    expect(human.stdout).toContain(
+      `... and ${files.length - 5} more ` +
+        "(aidlc config trust --show --json lists all)",
+    );
   }, 60_000);
 
   test("instruct-only harnesses record acknowledgements and named pending actions", () => {
