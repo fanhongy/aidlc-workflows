@@ -38,6 +38,8 @@ import {
 import { AIDLC_VERSION } from "../../core/tools/aidlc-version.ts";
 import { scanWindowsUninstallJournals } from "../../core/tools/aidlc-windows-uninstall.ts";
 import {
+  type ReleaseFixtureOptions,
+  type ReleaseServerFault,
   serveReleaseFixture,
   writeReleaseFixture,
 } from "../harness/release-fixture.ts";
@@ -78,7 +80,7 @@ function run(
     cwd,
     env: { ...process.env, ...env },
     encoding: "utf-8",
-    timeout: 60_000,
+    timeout: process.platform === "win32" ? 120_000 : 60_000,
   });
   if (result.error) throw result.error;
   return {
@@ -108,14 +110,146 @@ async function runAsync(
   return { status, stdout, stderr };
 }
 
-function fixture(version = AIDLC_VERSION): string {
+async function waitForAbsent(paths: readonly string[]): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (paths.some(existsSync)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`timed out waiting for cleanup: ${paths.filter(existsSync).join(", ")}`);
+    }
+    await Bun.sleep(50);
+  }
+}
+
+async function waitForPresent(paths: readonly string[]): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (paths.some((path) => !existsSync(path))) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `timed out waiting for preserved files: ${
+          paths.filter((path) => !existsSync(path)).join(", ")
+        }`,
+      );
+    }
+    await Bun.sleep(50);
+  }
+}
+
+function fixture(
+  version = AIDLC_VERSION,
+  options: Pick<ReleaseFixtureOptions, "binary"> = {},
+): string {
   const root = temp("aidlc-t241-release-");
   writeReleaseFixture({
     root,
     repoRoot: REPO_ROOT,
     version,
+    ...options,
   });
   return root;
+}
+
+type ReleaseServerHandle = {
+  baseUrl: string;
+  readonly requests: string[];
+  clearRequests(): void;
+  stop(): void | Promise<void>;
+};
+
+async function serveReleaseFixtureForChildren(
+  root: string,
+  fault: ReleaseServerFault = { kind: "none" },
+): Promise<ReleaseServerHandle> {
+  if (process.platform !== "win32") {
+    const server = serveReleaseFixture(root, fault);
+    return {
+      baseUrl: server.baseUrl,
+      get requests() {
+        return server.requests;
+      },
+      clearRequests() {
+        server.requests.length = 0;
+      },
+      stop: () => server.stop(),
+    };
+  }
+
+  const requestLog = join(temp("aidlc-t244-release-server-"), "requests.ndjson");
+  writeFileSync(requestLog, "");
+  const helper = [
+    'import { appendFileSync } from "node:fs";',
+    `import { serveReleaseFixture } from ${
+      JSON.stringify(join(REPO_ROOT, "tests", "harness", "release-fixture.ts"))
+    };`,
+    "const fault = JSON.parse(process.env.AIDLC_RELEASE_FIXTURE_FAULT);",
+    "const server = serveReleaseFixture(process.env.AIDLC_RELEASE_FIXTURE_ROOT, fault);",
+    "const push = server.requests.push.bind(server.requests);",
+    "server.requests.push = (...paths) => {",
+    "  for (const path of paths) {",
+    "    appendFileSync(",
+    "      process.env.AIDLC_RELEASE_FIXTURE_REQUEST_LOG,",
+    '      JSON.stringify(path) + "\\n",',
+    "    );",
+    "  }",
+    "  return push(...paths);",
+    "};",
+    "process.stdout.write(JSON.stringify({ baseUrl: server.baseUrl }) + \"\\n\");",
+    "await new Promise(() => {});",
+  ].join("\n");
+  const child = Bun.spawn([process.execPath, "-e", helper], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      AIDLC_RELEASE_FIXTURE_ROOT: root,
+      AIDLC_RELEASE_FIXTURE_REQUEST_LOG: requestLog,
+      AIDLC_RELEASE_FIXTURE_FAULT: JSON.stringify(fault),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stderr = new Response(child.stderr).text();
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  let startup = "";
+  while (!startup.includes("\n")) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      throw new Error(
+        `release fixture server exited during startup: ${await stderr}`,
+      );
+    }
+    startup += decoder.decode(chunk.value, { stream: true });
+  }
+  const startupEvent = JSON.parse(startup.slice(0, startup.indexOf("\n"))) as {
+    baseUrl: string;
+  };
+  const stdout = (async () => {
+    while (!(await reader.read()).done) {
+      // Drain the helper channel until the process exits.
+    }
+  })();
+  const readRequests = (): string[] => {
+    const content = readFileSync(requestLog, "utf-8").trim();
+    return content
+      ? content.split("\n").map((line) => JSON.parse(line) as string)
+      : [];
+  };
+
+  let stopped = false;
+  return {
+    baseUrl: startupEvent.baseUrl,
+    get requests() {
+      return readRequests();
+    },
+    clearRequests() {
+      writeFileSync(requestLog, "");
+    },
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      child.kill();
+      await Promise.all([child.exited, stdout, stderr]);
+    },
+  };
 }
 
 function envFor(machine: string): NodeJS.ProcessEnv {
@@ -205,8 +339,8 @@ describe("t244 machine configuration and update discovery", () => {
   });
 
   test("doctor explicit refresh honors its mirror and quiet modes stay network-free", async () => {
-    const release = fixture(NEXT_VERSION);
-    const server = serveReleaseFixture(release);
+    const release = fixture(NEXT_VERSION, { binary: "bytes" });
+    const server = await serveReleaseFixtureForChildren(release);
     const machine = temp("aidlc-t240-doctor-update-");
     const keys = [
       "AIDLC_INSTALL_ROOT",
@@ -233,7 +367,7 @@ describe("t244 machine configuration and update discovery", () => {
       expect(server.requests.filter((path) => path.endsWith("/checksums.txt")))
         .toHaveLength(1);
 
-      server.requests.length = 0;
+      server.clearRequests();
       const routed = await runAsync(DISPATCHER, [
         "doctor",
         "--check-updates",
@@ -259,7 +393,7 @@ describe("t244 machine configuration and update discovery", () => {
         .toHaveLength(1);
 
       rmSync(join(machine, "update-check.json"), { force: true });
-      server.requests.length = 0;
+      server.clearRequests();
       await doctorUpdateState({ "release-base-url": server.baseUrl }, false);
       await doctorUpdateState({
         json: "true",
@@ -271,18 +405,18 @@ describe("t244 machine configuration and update discovery", () => {
       }, true);
       expect(server.requests).toHaveLength(0);
     } finally {
-      server.stop();
+      await server.stop();
       for (const key of keys) {
         const value = saved[key];
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
     }
-  }, 10_000);
+  }, process.platform === "win32" ? 30_000 : 10_000);
 
   test("interactive doctor bounds a missing-cache refresh to 750 milliseconds", async () => {
-    const release = fixture(NEXT_VERSION);
-    const server = serveReleaseFixture(release, {
+    const release = fixture(NEXT_VERSION, { binary: "bytes" });
+    const server = await serveReleaseFixtureForChildren(release, {
       kind: "delay",
       asset: "version.json",
       milliseconds: 2_000,
@@ -311,18 +445,18 @@ describe("t244 machine configuration and update discovery", () => {
       expect(elapsed).toBeGreaterThanOrEqual(500);
       expect(elapsed).toBeLessThan(1_500);
     } finally {
-      server.stop();
+      await server.stop();
       for (const key of keys) {
         const value = saved[key];
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
     }
-  }, 5_000);
+  }, process.platform === "win32" ? 15_000 : 5_000);
 
   test("authenticated refresh replaces the cache and every failed refresh preserves it", async () => {
-    const release = fixture(NEXT_VERSION);
-    const server = serveReleaseFixture(release);
+    const release = fixture(NEXT_VERSION, { binary: "bytes" });
+    const server = await serveReleaseFixtureForChildren(release);
     const machine = temp("aidlc-t241-update-");
     const saved = Object.fromEntries(
       ["AIDLC_INSTALL_ROOT", "AIDLC_BIN_DIR", "AIDLC_RELEASE_BASE_URL", "NO_PROXY"]
@@ -341,8 +475,8 @@ describe("t244 machine configuration and update discovery", () => {
       expect(server.requests.filter((path) => path.endsWith("checksums.txt"))).toHaveLength(1);
 
       const before = readFileSync(join(machine, "update-check.json"), "utf-8");
-      server.stop();
-      const captive = serveReleaseFixture(release, {
+      await server.stop();
+      const captive = await serveReleaseFixtureForChildren(release, {
         kind: "captive-portal",
         asset: "version.json",
       });
@@ -350,21 +484,21 @@ describe("t244 machine configuration and update discovery", () => {
       const unavailable = await refreshUpdateState(15_000);
       expect(unavailable.state).toBe("unavailable");
       expect(readFileSync(join(machine, "update-check.json"), "utf-8")).toBe(before);
-      captive.stop();
+      await captive.stop();
     } finally {
-      server.stop();
+      await server.stop();
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
     }
-  });
+  }, process.platform === "win32" ? 30_000 : 5_000);
 
   test("older authenticated metadata cannot replace a newer valid update cache", async () => {
-    const newerRelease = fixture(NEXT_VERSION);
-    const olderRelease = fixture("0.0.1");
-    const newerServer = serveReleaseFixture(newerRelease);
-    const olderServer = serveReleaseFixture(olderRelease);
+    const newerRelease = fixture(NEXT_VERSION, { binary: "bytes" });
+    const olderRelease = fixture("0.0.1", { binary: "bytes" });
+    const newerServer = await serveReleaseFixtureForChildren(newerRelease);
+    const olderServer = await serveReleaseFixtureForChildren(olderRelease);
     const machine = temp("aidlc-t241-update-downgrade-");
     const saved = Object.fromEntries(
       ["AIDLC_INSTALL_ROOT", "AIDLC_BIN_DIR", "AIDLC_RELEASE_BASE_URL", "NO_PROXY"]
@@ -386,17 +520,17 @@ describe("t244 machine configuration and update discovery", () => {
       expect(readFileSync(join(machine, "update-check.json"), "utf-8")).toBe(before);
       expect(readUpdateCache()?.latestVersion).toBe(NEXT_VERSION);
     } finally {
-      newerServer.stop();
-      olderServer.stop();
+      await newerServer.stop();
+      await olderServer.stop();
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
     }
-  });
+  }, process.platform === "win32" ? 30_000 : 5_000);
 
   test("disabled and offline update checks open no socket", async () => {
-    const release = fixture(NEXT_VERSION);
+    const release = fixture(NEXT_VERSION, { binary: "bytes" });
     const server = serveReleaseFixture(release);
     const machine = temp("aidlc-t241-no-socket-");
     const env = {
@@ -420,7 +554,7 @@ describe("t244 machine configuration and update discovery", () => {
       "config", "global", "set", "update-check", "off",
       ], REPO_ROOT, env).status).toBe(0);
       expect((await refreshUpdateState(50)).state).toBe("disabled");
-      const disabledCheck = run(
+      const disabledCheck = await runAsync(
         DISPATCHER,
         ["update", "--check"],
         REPO_ROOT,
@@ -437,7 +571,7 @@ describe("t244 machine configuration and update discovery", () => {
       "config", "global", "set", "offline", "on",
       ], REPO_ROOT, env).status).toBe(0);
       expect((await refreshUpdateState(50)).state).toBe("offline");
-      const offlineCheck = run(
+      const offlineCheck = await runAsync(
         DISPATCHER,
         ["update", "--check"],
         REPO_ROOT,
@@ -452,7 +586,7 @@ describe("t244 machine configuration and update discovery", () => {
         else process.env[key] = value;
       }
     }
-  });
+  }, process.platform === "win32" ? 30_000 : 5_000);
 });
 
 describe("t244 management lifecycle", () => {
@@ -496,7 +630,7 @@ describe("t244 management lifecycle", () => {
   });
 
   test("doctor reports quarantined transaction recovery with manual cleanup", () => {
-    const release = fixture();
+    const release = fixture(AIDLC_VERSION, { binary: "executable" });
     const sandbox = temp("aidlc-t244-doctor-recovery-");
     const machine = join(sandbox, "home", ".local", "share", "aidlc");
     const project = temp("aidlc-t244-doctor-recovery-project-");
@@ -602,7 +736,7 @@ describe("t244 management lifecycle", () => {
   }, 60_000);
 
   test("all harness runtimes install together and config selects one project harness", () => {
-    const release = fixture();
+    const release = fixture(AIDLC_VERSION, { binary: "executable" });
     const machine = temp("aidlc-t241-all-harness-");
     const project = temp("aidlc-t241-all-harness-project-");
     mkdirSync(join(project, ".git"));
@@ -639,7 +773,7 @@ describe("t244 management lifecycle", () => {
   }, 60_000);
 
   test("a missing declared runtime makes the retained version incomplete", () => {
-    const release = fixture();
+    const release = fixture(AIDLC_VERSION, { binary: "executable" });
     const machine = temp("aidlc-t244-missing-runtime-");
     const project = temp("aidlc-t244-missing-runtime-project-");
     mkdirSync(join(project, ".git"));
@@ -656,11 +790,11 @@ describe("t244 management lifecycle", () => {
   }, 60_000);
 
   test("update retains the prior active and pinned versions while pruning older versions", () => {
-    const release = fixture();
-    const nextRelease = fixture(NEXT_VERSION);
-    const livePinRelease = fixture(LIVE_PIN_VERSION);
-    const stalePinRelease = fixture(STALE_PIN_VERSION);
-    const removableRelease = fixture(REMOVABLE_VERSION);
+    const release = fixture(AIDLC_VERSION, { binary: "executable" });
+    const nextRelease = fixture(NEXT_VERSION, { binary: "executable" });
+    const livePinRelease = fixture(LIVE_PIN_VERSION, { binary: "bytes" });
+    const stalePinRelease = fixture(STALE_PIN_VERSION, { binary: "bytes" });
+    const removableRelease = fixture(REMOVABLE_VERSION, { binary: "bytes" });
     const machine = temp("aidlc-t241-prune-");
     const project = temp("aidlc-t241-prune-project-");
     const pinnedProject = temp("aidlc-t241-live-pin-");
@@ -702,10 +836,10 @@ describe("t244 management lifecycle", () => {
       expect(existsSync(join(machine, "versions", version))).toBe(true);
     }
     expect(existsSync(join(machine, "versions", REMOVABLE_VERSION))).toBe(false);
-  }, 120_000);
+  }, process.platform === "win32" ? 300_000 : 120_000);
 
-  test("uninstall removes command and versions while preserving machine state and projects", () => {
-    const release = fixture();
+  test("uninstall removes command and versions while preserving machine state and projects", async () => {
+    const release = fixture(AIDLC_VERSION, { binary: "executable" });
     const machine = temp("aidlc-t241-uninstall-");
     const project = temp("aidlc-t241-uninstall-project-");
     mkdirSync(join(project, ".git"));
@@ -714,8 +848,18 @@ describe("t244 management lifecycle", () => {
     expect(run(LIFECYCLE, [
       "update", "--version", AIDLC_VERSION, "--from", release,
     ], project, env).status).toBe(0);
-    const command = join(machine, "bin", "aidlc");
-    const executable = join(machine, "versions", AIDLC_VERSION, "aidlc");
+    const command = join(
+      machine,
+      "bin",
+      process.platform === "win32" ? "aidlc.cmd" : "aidlc",
+    );
+    const executable = join(
+      machine,
+      "versions",
+      AIDLC_VERSION,
+      process.platform === "win32" ? "aidlc.exe" : "aidlc",
+    );
+    const originalCommand = readFileSync(command);
     rmSync(command);
     writeFileSync(command, "user-owned command\n");
     const mixedOwnership = run(
@@ -727,7 +871,11 @@ describe("t244 management lifecycle", () => {
     expect(mixedOwnership.status).toBe(4);
     expect(readFileSync(command, "utf-8")).toBe("user-owned command\n");
     rmSync(command);
-    symlinkSync(executable, command);
+    if (process.platform === "win32") {
+      writeFileSync(command, originalCommand);
+    } else {
+      symlinkSync(executable, command);
+    }
     expect(run(DISPATCHER, [
       "system",
       "config", "global", "set", "offline", "on",
@@ -737,6 +885,12 @@ describe("t244 management lifecycle", () => {
 
     expect(run(LIFECYCLE, ["uninstall"], project, env).status).toBe(2);
     expect(run(LIFECYCLE, ["uninstall", "--yes"], project, env).status).toBe(0);
+    await waitForAbsent([join(machine, "versions"), command]);
+    await waitForPresent([
+      join(machine, "config.json"),
+      join(machine, "update-check.json"),
+      join(machine, "pins.json"),
+    ]);
     expect(existsSync(join(machine, "versions"))).toBe(false);
     expect(existsSync(command)).toBe(false);
     expect(existsSync(join(machine, "config.json"))).toBe(true);
@@ -749,6 +903,14 @@ describe("t244 management lifecycle", () => {
     ], project, env).status).toBe(0);
     writeFileSync(join(machine, "default-harness"), "claude\n");
     expect(run(LIFECYCLE, ["uninstall", "--purge", "--yes"], project, env).status).toBe(0);
+    await waitForAbsent([
+      join(machine, "versions"),
+      command,
+      join(machine, "config.json"),
+      join(machine, "update-check.json"),
+      join(machine, "pins.json"),
+      join(machine, "default-harness"),
+    ]);
     for (
       const path of [
         "config.json",
@@ -760,7 +922,7 @@ describe("t244 management lifecycle", () => {
       expect(existsSync(join(machine, path))).toBe(false);
     }
     expect(readFileSync(join(project, "keep.txt"), "utf-8")).toBe("project-owned\n");
-  }, 60_000);
+  }, process.platform === "win32" ? 180_000 : 60_000);
 });
 
 describe("t244 installer has no machine-level harness selection", () => {
@@ -845,7 +1007,8 @@ describe("t244 Windows and completion release surfaces", () => {
         [
           'import { basename, dirname } from "node:path";',
           'if (process.argv[2] === "version") {',
-          '  process.stdout.write("aidlc " + basename(dirname(process.execPath)) + "\\n");',
+          "  const version = basename(dirname(process.execPath));",
+          '  process.stdout.write("aidlc " + version + " (runtime " + version + ")\\n");',
           '  process.exit(0);',
           "}",
           'if (process.argv[2] === "probe") {',
@@ -915,18 +1078,14 @@ describe("t244 Windows and completion release surfaces", () => {
       process.env.AIDLC_BIN_DIR = join(machine, "bin");
       try {
         activate("1.0.0");
-        const forwarded = spawnSync(
-          "cmd.exe",
-          [
-            "/d",
-            "/s",
-            "/c",
-            `""${commandPath()}" probe "value with spaces" plain"`,
-          ],
-          { encoding: "utf-8", timeout: 60_000 },
+        const forwarded = Bun.spawnSync(
+          [commandPath(), "probe", "value with spaces", "plain"],
+          { stdout: "pipe", stderr: "pipe" },
         );
-        expect(forwarded.status, forwarded.stderr ?? "").toBe(23);
-        expect(JSON.parse((forwarded.stdout ?? "").trim())).toEqual([
+        const forwardedError = Buffer.from(forwarded.stderr).toString("utf-8");
+        const forwardedOutput = Buffer.from(forwarded.stdout).toString("utf-8").trim();
+        expect(forwarded.exitCode, forwardedError).toBe(23);
+        expect(JSON.parse(forwardedOutput)).toEqual([
           "value with spaces",
           "plain",
         ]);
@@ -1033,12 +1192,14 @@ describe("t244 Windows and completion release surfaces", () => {
       encoding: "utf-8",
     });
     expect(syntax.status, syntax.stderr).toBe(0);
-    const zsh = run(DISPATCHER, ["system", "completions", "zsh"], REPO_ROOT);
-    const zshSyntax = spawnSync("zsh", ["-n"], {
-      input: zsh.stdout,
-      encoding: "utf-8",
-    });
-    expect(zshSyntax.status, zshSyntax.stderr).toBe(0);
+    if (process.platform !== "win32") {
+      const zsh = run(DISPATCHER, ["system", "completions", "zsh"], REPO_ROOT);
+      const zshSyntax = spawnSync("zsh", ["-n"], {
+        input: zsh.stdout,
+        encoding: "utf-8",
+      });
+      expect(zshSyntax.status, zshSyntax.stderr).toBe(0);
+    }
     expect(run(DISPATCHER, ["completions", "bash"], REPO_ROOT).status).toBe(2);
   });
 
@@ -1055,14 +1216,14 @@ describe("t244 Windows and completion release surfaces", () => {
     expect(script).toContain("installer validation failed:");
     expect(script).toContain("$env:Path = \"$binDir;$env:Path\"");
     expect(script).toContain("exceeds the 1 MiB metadata limit");
-    const release = fixture();
+    const release = fixture(AIDLC_VERSION, { binary: "bytes" });
     const manifest = JSON.parse(readFileSync(join(release, "version.json"), "utf-8")) as {
       assets: Array<{ name: string; kind: string }>;
     };
     expect(manifest.assets).toContainEqual(
       expect.objectContaining({ name: "install.ps1", kind: "installer" }),
     );
-  });
+  }, process.platform === "win32" ? 30_000 : 5_000);
 
   test("release workflow lints installers and publishes the tested candidate", () => {
     const workflow = readFileSync(

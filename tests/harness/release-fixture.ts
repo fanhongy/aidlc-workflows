@@ -1,14 +1,21 @@
 #!/usr/bin/env bun
 
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
+  closeSync,
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
+  writeSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +40,109 @@ import {
 import { AIDLC_VERSION } from "../../core/tools/aidlc-version.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const WINDOWS_STUB_PLACEHOLDER = "AIDLC_RELEASE_FIXTURE_VERSION_PLACEHOLDER_0123456789";
+const WINDOWS_STUB_SOURCE = [
+  `const encodedVersion = "${WINDOWS_STUB_PLACEHOLDER}";`,
+  'const version = encodedVersion.replace(/~+$/, "");',
+  'if (process.argv.includes("version")) {',
+  '  console.log("aidlc " + version + " (runtime " + version + ")");',
+  "}",
+  "",
+].join("\n");
+let windowsStubCache: { path: string; offsets: number[] } | undefined;
+
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function cachedWindowsStub(): { path: string; offsets: number[] } {
+  if (windowsStubCache) return windowsStubCache;
+  const sourceHash = createHash("sha256").update(WINDOWS_STUB_SOURCE).digest("hex");
+  const key = createHash("sha256")
+    .update(`${Bun.version}\0${process.platform}\0${process.arch}\0${sourceHash}`)
+    .digest("hex");
+  const cacheRoot = join(tmpdir(), "aidlc-release-fixture-cache");
+  const binaryPath = join(cacheRoot, `${key}.exe`);
+  const sourcePath = join(cacheRoot, `${key}.ts`);
+  const lockPath = join(cacheRoot, `${key}.lock`);
+  mkdirSync(cacheRoot, { recursive: true });
+
+  if (!existsSync(binaryPath)) {
+    const deadline = Date.now() + 180_000;
+    let lock: number | undefined;
+    while (lock === undefined) {
+      try {
+        lock = openSync(lockPath, "wx");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (existsSync(binaryPath)) break;
+        if (Date.now() >= deadline) {
+          throw new Error(`timed out waiting for cached Windows release stub: ${lockPath}`);
+        }
+        sleepSync(100);
+      }
+    }
+    if (lock !== undefined) {
+      const temporaryBinary = join(cacheRoot, `${key}.${process.pid}.exe`);
+      try {
+        if (!existsSync(binaryPath)) {
+          writeFileSync(sourcePath, WINDOWS_STUB_SOURCE);
+          const built = spawnSync(
+            process.execPath,
+            ["build", "--compile", sourcePath, "--outfile", temporaryBinary],
+            { encoding: "utf-8", timeout: 180_000 },
+          );
+          if (built.status !== 0) {
+            throw new Error(
+              `Windows release stub build failed: ${built.stderr || built.stdout}`,
+            );
+          }
+          renameSync(temporaryBinary, binaryPath);
+        }
+      } finally {
+        closeSync(lock);
+        rmSync(lockPath, { force: true });
+        rmSync(temporaryBinary, { force: true });
+      }
+    }
+  }
+
+  const bytes = readFileSync(binaryPath);
+  const placeholder = Buffer.from(WINDOWS_STUB_PLACEHOLDER, "ascii");
+  const offsets: number[] = [];
+  for (
+    let offset = bytes.indexOf(placeholder);
+    offset >= 0;
+    offset = bytes.indexOf(placeholder, offset + placeholder.length)
+  ) {
+    offsets.push(offset);
+  }
+  if (offsets.length === 0) {
+    throw new Error("cached Windows release stub has no version placeholder");
+  }
+  windowsStubCache = { path: binaryPath, offsets };
+  return windowsStubCache;
+}
+
+function writeWindowsStub(path: string, reportedVersion: string): void {
+  const replacement = Buffer.from(
+    reportedVersion.padEnd(WINDOWS_STUB_PLACEHOLDER.length, "~"),
+    "ascii",
+  );
+  if (replacement.length !== WINDOWS_STUB_PLACEHOLDER.length) {
+    throw new Error("release fixture version exceeds the Windows stub placeholder");
+  }
+  const stub = cachedWindowsStub();
+  copyFileSync(stub.path, path);
+  const file = openSync(path, "r+");
+  try {
+    for (const offset of stub.offsets) {
+      writeSync(file, replacement, 0, replacement.length, offset);
+    }
+  } finally {
+    closeSync(file);
+  }
+}
 
 function archiveEntries(root: string): ArchiveEntry[] {
   return walkFiles(root).map((path) => ({
@@ -48,6 +158,7 @@ export type ReleaseFixtureOptions = {
   repoRoot?: string;
   version?: string;
   reportedVersion?: string;
+  binary?: "executable" | "bytes";
   distributions?: readonly string[];
   target?: string;
   hostileRoot?: string;
@@ -77,16 +188,25 @@ export function writeReleaseFixture(options: ReleaseFixtureOptions): ReleaseFixt
   mkdirSync(options.root, { recursive: true, mode: 0o700 });
 
   const binaryName = `aidlc-${target}${target.startsWith("windows-") ? ".exe" : ""}`;
-  writeFileSync(
-    join(options.root, binaryName),
-    [
-      "#!/bin/sh",
-      `if [ "$1" = "version" ]; then printf 'aidlc %s (runtime %s)\\n' '${reportedVersion}' '${reportedVersion}'; exit 0; fi`,
-      "exit 0",
-      "",
-    ].join("\n"),
-    { mode: 0o755 },
-  );
+  const binaryPath = join(options.root, binaryName);
+  if (process.platform === "win32") {
+    if (options.binary === "executable") {
+      writeWindowsStub(binaryPath, reportedVersion);
+    } else {
+      writeFileSync(binaryPath, `aidlc fixture ${reportedVersion}\n`);
+    }
+  } else {
+    writeFileSync(
+      binaryPath,
+      [
+        "#!/bin/sh",
+        `if [ "$1" = "version" ]; then printf 'aidlc %s (runtime %s)\\n' '${reportedVersion}' '${reportedVersion}'; exit 0; fi`,
+        "exit 0",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+  }
   writeFileSync(
     join(options.root, "install.sh"),
     readFileSync(join(repoRoot, "scripts", "install.sh")),

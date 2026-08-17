@@ -73,6 +73,8 @@ const CODEX_RELEASE = join(REPO_ROOT, "dist-release", "codex");
 const KIRO_IDE_COPY = join(REPO_ROOT, "dist", "kiro-ide");
 const KIRO_IDE_RELEASE = join(REPO_ROOT, "dist-release", "kiro-ide");
 const OPENCODE_RELEASE = join(REPO_ROOT, "dist-release", "opencode");
+const COMMAND_NAME = process.platform === "win32" ? "aidlc.cmd" : "aidlc";
+const INSTALLED_EXECUTABLE = process.platform === "win32" ? "aidlc.exe" : "aidlc";
 const KIRO_RELEASES = [
   join(REPO_ROOT, "dist-release", "kiro"),
   join(REPO_ROOT, "dist-release", "kiro-ide"),
@@ -82,6 +84,10 @@ const NEXT_VERSION = (() => {
   return `${major}.${minor}.${patch + 1}`;
 })();
 const temporary: string[] = [];
+
+function releaseBinaryName(): string {
+  return `aidlc-${targetTriple()}${process.platform === "win32" ? ".exe" : ""}`;
+}
 
 afterAll(() => {
   for (const path of temporary) rmSync(path, { recursive: true, force: true });
@@ -136,6 +142,7 @@ async function runAsync(
 function fixtureRelease(
   version = AIDLC_VERSION,
   reportedVersion = version,
+  binary: "executable" | "bytes" = "executable",
 ): string {
   const root = temp("aidlc-t240-release-");
   writeReleaseFixture({
@@ -143,9 +150,14 @@ function fixtureRelease(
     repoRoot: REPO_ROOT,
     version,
     reportedVersion,
+    binary,
     distributions: ["claude"],
   });
   return root;
+}
+
+function fixtureReleaseBytes(version = AIDLC_VERSION): string {
+  return fixtureRelease(version, version, "bytes");
 }
 
 describe("t243 archive and transaction safety", () => {
@@ -308,7 +320,11 @@ describe("t243 archive and transaction safety", () => {
       ],
     }, { failAfter: 2 })).toThrow("injected transaction failure");
     expect(readFileSync(join(root, "mode.txt"), "utf-8")).toBe("old");
-    expect(statSync(join(root, "mode.txt")).mode & 0o777).toBe(0o600);
+    if (process.platform === "win32") {
+      expect(statSync(join(root, "mode.txt")).isFile()).toBe(true);
+    } else {
+      expect(statSync(join(root, "mode.txt")).mode & 0o777).toBe(0o600);
+    }
     expect(readFileSync(join(root, "pointer"), "utf-8")).toBe("first");
 
     symlinkSync(join(root, "missing"), join(root, "dangling"));
@@ -502,12 +518,16 @@ describe("t243 archive and transaction safety", () => {
   });
 
   test("package-manager executable detection yields to Homebrew and Nix", () => {
-    expect(packageManagerForExecutable("/opt/homebrew/Cellar/aidlc/2.5.0/libexec/aidlc"))
-      .toEqual({ name: "Homebrew", remediation: "brew upgrade aidlc" });
-    expect(packageManagerForExecutable("/nix/store/hash-aidlc-2.5.0/bin/aidlc"))
-      .toEqual({ name: "Nix", remediation: "upgrade aidlc through Nix" });
-    expect(packageManagerForExecutable("/home/user/.local/share/aidlc/versions/2.5.0/aidlc"))
-      .toBeNull();
+    if (process.platform === "win32") {
+      expect(packageManagerForExecutable("C:\\aidlc\\versions\\2.5.0\\aidlc.exe")).toBeNull();
+    } else {
+      expect(packageManagerForExecutable("/opt/homebrew/Cellar/aidlc/2.5.0/libexec/aidlc"))
+        .toEqual({ name: "Homebrew", remediation: "brew upgrade aidlc" });
+      expect(packageManagerForExecutable("/nix/store/hash-aidlc-2.5.0/bin/aidlc"))
+        .toEqual({ name: "Nix", remediation: "upgrade aidlc through Nix" });
+      expect(packageManagerForExecutable("/home/user/.local/share/aidlc/versions/2.5.0/aidlc"))
+        .toBeNull();
+    }
   });
 
   test("shared release fixture is byte-deterministic and emits hostile archives", () => {
@@ -533,7 +553,7 @@ describe("t243 archive and transaction safety", () => {
     for (const path of left.hostileArchives) {
       expect(() => readTarGz(path)).toThrow();
     }
-  });
+  }, process.platform === "win32" ? 30_000 : 5_000);
 });
 
 describe("t243 project initialization", () => {
@@ -574,7 +594,7 @@ describe("t243 project initialization", () => {
     expect(wrongHarness.status).toBe(4);
     expect(wrongHarness.stdout).toContain("project uses opencode; refusing claude");
     expect(existsSync(join(project, ".claude"))).toBe(false);
-  });
+  }, process.platform === "win32" ? 20_000 : 5_000);
 
   test("an explicit installed harness never silently yields to the existing project harness", () => {
     const project = temp("aidlc-t240-explicit-harness-");
@@ -1659,7 +1679,7 @@ describe("t243 project initialization", () => {
 
 describe("t243 release lifecycle", () => {
   test("project pins require the retained OpenCode runtime selected by project metadata", () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const machine = temp("aidlc-t240-opencode-pin-machine-");
     const project = temp("aidlc-t240-opencode-pin-project-");
     cpSync(join(REPO_ROOT, "dist", "opencode"), project, { recursive: true });
@@ -1688,7 +1708,7 @@ describe("t243 release lifecycle", () => {
       `${AIDLC_VERSION} does not contain this project's opencode runtime`,
     );
     expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
-  });
+  }, process.platform === "win32" ? 30_000 : 5_000);
 
   test("installer renders order-independent usage failures as valid JSON", () => {
     const result = spawnSync("sh", [
@@ -1730,7 +1750,7 @@ describe("t243 release lifecycle", () => {
   });
 
   test("shared release server covers redirect, delay, truncation, captive portal, oversized metadata, and missing assets", async () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const manifest = JSON.parse(readFileSync(join(release, "version.json"), "utf-8")) as {
       version: string;
       assets: Array<{ name: string }>;
@@ -1794,13 +1814,14 @@ describe("t243 release lifecycle", () => {
   }, 30_000);
 
   test("online acquisition trusts released checksums instead of manifest-synthesized rows", async () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const manifest = JSON.parse(readFileSync(join(release, "version.json"), "utf-8")) as {
       version: string;
       assets: Array<{ name: string }>;
     };
-    const binary = manifest.assets.find((asset) => asset.name.startsWith("aidlc-linux-"))?.name ??
-      manifest.assets.find((asset) => asset.name.startsWith("aidlc-darwin-"))?.name;
+    const binary = manifest.assets.find((asset) =>
+      asset.name === releaseBinaryName()
+    )?.name;
     expect(binary).toBeDefined();
     const requests: string[] = [];
     const server = Bun.serve({
@@ -1830,14 +1851,14 @@ describe("t243 release lifecycle", () => {
   });
 
   test("release verification requires and authenticates version.json", () => {
-    const missing = fixtureRelease();
+    const missing = fixtureReleaseBytes();
     const rows = readFileSync(join(missing, "checksums.txt"), "utf-8")
       .split(/\r?\n/)
       .filter((row) => row && !row.endsWith("  version.json"));
     writeFileSync(join(missing, "checksums.txt"), `${rows.join("\n")}\n`);
     expect(() => verifyReleaseDirectory(missing)).toThrow("no version.json checksum");
 
-    const tampered = fixtureRelease();
+    const tampered = fixtureReleaseBytes();
     const manifestPath = join(tampered, "version.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as { date: string };
     manifest.date = "2026-07-18";
@@ -1846,7 +1867,7 @@ describe("t243 release lifecycle", () => {
   });
 
   test("release manifests reject retired per-distribution data assets", () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const manifestPath = join(release, "version.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
       assets: Array<Record<string, unknown>>;
@@ -1863,7 +1884,7 @@ describe("t243 release lifecycle", () => {
   });
 
   test("release client classifies HTTP failures, follows redirects, and enforces metadata timeout", async () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const manifest = JSON.parse(readFileSync(join(release, "version.json"), "utf-8")) as {
       version: string;
       assets: Array<{ name: string }>;
@@ -1928,7 +1949,7 @@ describe("t243 release lifecycle", () => {
   });
 
   test("release client honors proxy, NO_PROXY, mirror precedence, custom CA, and redaction", async () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const manifest = JSON.parse(readFileSync(join(release, "version.json"), "utf-8")) as {
       version: string;
       assets: Array<{ name: string }>;
@@ -2121,7 +2142,7 @@ describe("t243 release lifecycle", () => {
 
   test("use selects only the machine version while config owns project pins", async () => {
     const release = fixtureRelease();
-    const nextRelease = fixtureRelease(NEXT_VERSION);
+    const nextRelease = fixtureReleaseBytes(NEXT_VERSION);
     expect(verifyReleaseDirectory(release).version).toBe(AIDLC_VERSION);
     const machine = temp("aidlc-t240-machine-");
     const bin = join(machine, "bin");
@@ -2137,7 +2158,7 @@ describe("t243 release lifecycle", () => {
     ], project, env);
     expect(selected.status, selected.stdout + selected.stderr).toBe(0);
     expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
-    expect(existsSync(join(bin, "aidlc"))).toBe(true);
+    expect(existsSync(join(bin, COMMAND_NAME))).toBe(true);
     expect(existsSync(join(project, ".aidlc-version"))).toBe(false);
     expect(existsSync(join(machine, "pins.json"))).toBe(false);
     expect(
@@ -2175,15 +2196,20 @@ describe("t243 release lifecycle", () => {
     expect(pin.status, pin.stdout + pin.stderr).toBe(0);
     expect(readFileSync(join(project, ".aidlc-version"), "utf-8")).toBe(`${NEXT_VERSION}\n`);
     expect(readFileSync(projectPinTargetPath(project), "utf-8")).toBe(
-      `${join(machine, "versions", NEXT_VERSION, "aidlc")}\n`,
+      `${join(machine, "versions", NEXT_VERSION, INSTALLED_EXECUTABLE)}\n`,
     );
     expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
     const pins = readFileSync(join(machine, "pins.json"), "utf-8");
     expect(pins).toContain(NEXT_VERSION);
     const pinnedList = run(LIFECYCLE, ["versions", "list", "--json"], project, env);
     expect(pinnedList.status).toBe(0);
-    expect(pinnedList.stdout).toContain(`"version":"${NEXT_VERSION}"`);
-    expect(pinnedList.stdout).toContain(`"pinPaths":["${project}"]`);
+    const pinnedVersions = JSON.parse(pinnedList.stdout) as {
+      data: { versions: Array<{ version: string; pinPaths: string[] }> };
+    };
+    expect(
+      pinnedVersions.data.versions.find((item) => item.version === NEXT_VERSION)
+        ?.pinPaths,
+    ).toEqual([project]);
 
     expect(run(LIFECYCLE, ["package", "verify", release], project, env).status).toBe(2);
     const unpinned = run(INIT, ["config", "--unpin", "--project-dir", project], project, env);
@@ -2204,7 +2230,7 @@ describe("t243 release lifecycle", () => {
     expect(run(INIT, ["config", "--unpin", "--project-dir", project], project, env).status).toBe(0);
     expect(readFileSync(join(machine, "pins.json"), "utf-8")).not.toContain(project);
 
-    writeFileSync(join(release, `aidlc-${targetTriple()}`), "tampered");
+    writeFileSync(join(release, releaseBinaryName()), "tampered");
     expect(() => verifyReleaseDirectory(release)).toThrow("checksum mismatch");
   }, 60_000);
 
@@ -2340,7 +2366,7 @@ describe("t243 release lifecycle", () => {
     process.env.AIDLC_INSTALL_ROOT = machine;
     process.env.AIDLC_BIN_DIR = bin;
     try {
-      const command = join(bin, "aidlc");
+      const command = join(bin, COMMAND_NAME);
       const oldTarget = readActiveExecutable();
       const oldLauncher = readFileSync(command, "utf-8");
       for (const failAfter of [1, 2, 3]) {
@@ -2353,7 +2379,9 @@ describe("t243 release lifecycle", () => {
 
       activate(nextVersion);
       expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(nextVersion);
-      expect(readActiveExecutable()).toBe(join(machine, "versions", nextVersion, "aidlc"));
+      expect(readActiveExecutable()).toBe(
+        join(machine, "versions", nextVersion, INSTALLED_EXECUTABLE),
+      );
       expect(readFileSync(join(machine, "rollback-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
     } finally {
       if (priorEnv.install === undefined) delete process.env.AIDLC_INSTALL_ROOT;
@@ -2386,7 +2414,9 @@ describe("t243 release lifecycle", () => {
     try {
       expect(() => activate(badVersion)).toThrow("version probe returned");
       expect(readFileSync(join(machine, "active-version"), "utf-8").trim()).toBe(AIDLC_VERSION);
-      expect(readActiveExecutable()).toBe(join(machine, "versions", AIDLC_VERSION, "aidlc"));
+      expect(readActiveExecutable()).toBe(
+        join(machine, "versions", AIDLC_VERSION, INSTALLED_EXECUTABLE),
+      );
       expect(existsSync(join(machine, "rollback-version"))).toBe(false);
     } finally {
       if (priorInstallRoot === undefined) delete process.env.AIDLC_INSTALL_ROOT;
@@ -2397,7 +2427,7 @@ describe("t243 release lifecycle", () => {
   }, 60_000);
 
   test("retained versions reject executable checksum and runtime stamp corruption", () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const machine = temp("aidlc-t240-completeness-machine-");
     const bin = join(machine, "bin");
     const project = temp("aidlc-t240-completeness-project-");
@@ -2411,7 +2441,7 @@ describe("t243 release lifecycle", () => {
       release,
     ], project, env);
     expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-    const executable = join(machine, "versions", AIDLC_VERSION, "aidlc");
+    const executable = join(machine, "versions", AIDLC_VERSION, INSTALLED_EXECUTABLE);
     writeFileSync(executable, "tampered", { mode: 0o755 });
     const badExecutable = run(LIFECYCLE, ["versions", "list", "--json"], project, env);
     expect(badExecutable.stdout).toContain('"complete":false');
@@ -2424,7 +2454,7 @@ describe("t243 release lifecycle", () => {
       ], project, env).status,
     ).toBe(4);
 
-    cpSync(join(release, `aidlc-${targetTriple()}`), executable);
+    cpSync(join(release, releaseBinaryName()), executable);
     const stampPath = join(
       machine,
       "versions",
@@ -2447,7 +2477,7 @@ describe("t243 release lifecycle", () => {
   }, 60_000);
 
   test("lifecycle exit taxonomy distinguishes usage, transport, operation, and integrity", async () => {
-    const release = fixtureRelease();
+    const release = fixtureReleaseBytes();
     const project = temp("aidlc-t240-exits-");
     mkdirSync(join(project, ".git"));
     const invalid = run(LIFECYCLE, [
@@ -2476,7 +2506,7 @@ describe("t243 release lifecycle", () => {
     });
     expect(noRollback.status).toBe(1);
 
-    writeFileSync(join(release, `aidlc-${targetTriple()}`), "tampered");
+    writeFileSync(join(release, releaseBinaryName()), "tampered");
     const integrity = run(LIFECYCLE, [
       "update",
       "--version",
@@ -2512,11 +2542,16 @@ describe("t243 release lifecycle", () => {
 
     const unpinnedRoute = run(DISPATCHER, ["version", "--project-dir", newProject], newProject, env);
     expect(unpinnedRoute.status).toBe(0);
-    expect(readFileSync(join(machine, "pins.json"), "utf-8")).toContain(oldProject);
+    const oldPins = JSON.parse(
+      readFileSync(join(machine, "pins.json"), "utf-8"),
+    ) as Record<string, string>;
+    expect(oldPins[oldProject]).toBe(AIDLC_VERSION);
     run(DISPATCHER, ["--status", "--project-dir", newProject], newProject, env);
-    const pins = readFileSync(join(machine, "pins.json"), "utf-8");
-    expect(pins).toContain(newProject);
-    expect(pins).not.toContain(oldProject);
+    const pins = JSON.parse(
+      readFileSync(join(machine, "pins.json"), "utf-8"),
+    ) as Record<string, string>;
+    expect(pins[newProject]).toBe(AIDLC_VERSION);
+    expect(oldProject in pins).toBe(false);
   }, 60_000);
 });
 
@@ -2549,7 +2584,9 @@ describe("t243 projection channel", () => {
         readFileSync(
           walkFiles(copy)
             .map((path) => join(copy, path))
-            .find((path) => path.endsWith("/tools/data/aidlc-stamp.json")) as string,
+            .find((path) =>
+              path.replaceAll("\\", "/").endsWith("/tools/data/aidlc-stamp.json")
+            ) as string,
           "utf-8",
         ),
       ) as { harnessDir: string };
