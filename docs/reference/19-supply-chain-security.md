@@ -173,16 +173,39 @@ schema.
 
 ## 7. Named ownership
 
-Names are deliberately left for the maintainer design review.
+Ownership is team-based, not individual. Every duty below requires elevated
+repository rights (release editing, tag pushes through protection,
+workflow-adjacent changes), and `@awslabs/aidlc-admins` is the team that
+holds them - consistent with the CODEOWNERS policy already in force, which
+assigns `CHANGELOG.md` and `.github/` to that team alone. Naming the team
+rather than individuals keeps this table valid across membership rotation.
+The focused review confirms the assignment and the qualifiers below.
 
 | Duty | Owner |
 |------|-------|
-| Approve the release-prep PR | OWNER TBD |
-| Authorize the protected tag | OWNER TBD |
-| Publish the GitHub Release | OWNER TBD |
-| Update latest and installer metadata | OWNER TBD |
-| Respond to partial publication failure | OWNER TBD |
-| Supersede a compromised release | OWNER TBD |
+| Approve the release-prep PR | `@awslabs/aidlc-admins` |
+| Authorize the protected tag | `@awslabs/aidlc-admins` |
+| Publish the GitHub Release | `@awslabs/aidlc-admins` |
+| Update latest and installer metadata | `@awslabs/aidlc-admins` |
+| Respond to partial publication failure | `@awslabs/aidlc-admins` |
+| Supersede a compromised release | `@awslabs/aidlc-admins` |
+
+Two qualifiers carry the separation-of-duties intent that individual names
+would otherwise have encoded:
+
+- The release-prep PR must be approved by a team member other than its
+  author. GitHub enforces this mechanically: an author cannot approve their
+  own pull request.
+- A compromised release must be superseded by a team member other than the
+  one who authorized the affected tag, because the compromise vector may be
+  that member's credentials.
+
+The tag-protection ruleset's allowlist names the same team, so the setting
+itself enforces who can authorize a release tag, and membership rotation
+never requires touching the ruleset. The GitHub Release is published by the
+tag-triggered workflow; the team owns that outcome, and the first responder
+for a publication failure is by convention the member who authorized the
+tag, though any member may act.
 
 ## 8. No OS code-signing
 
@@ -240,8 +263,11 @@ and explicit metadata refresh, but does not block a user-requested
 
 ## 11. Open items for focused review
 
-- Apply and verify the protected-tag repository setting.
-- Replace every `OWNER TBD` row with an accountable maintainer name.
+- Apply and verify the protected-tag repository setting, with its allowlist
+  naming `@awslabs/aidlc-admins` per section 7.
+- Confirm the team-based ownership assignment in section 7
+  (`@awslabs/aidlc-admins` on every duty, with its two separation-of-duties
+  qualifiers).
 - Build the isolated organization-controlled workflow required for SLSA Build
   Level 3.
 - Resolve the Windows verification policy. The current implementation marks a
