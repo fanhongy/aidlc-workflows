@@ -240,6 +240,15 @@ and reports the unsupported fields instead of writing inert keys.
 Model policy is agent-scoped. Stage files never carry model or effort keys;
 scopes continue to own stage criticality.
 
+### In-session alias
+
+`/aidlc --config [section]` is the conversational alias for these same config
+sections. The conductor reads the current JSON state before asking, gathers
+only the changes you want, and lands each accepted section through one exact
+`aidlc config <section> <explicit value flags> --yes` command. Leaving a
+section unchanged runs no command. After landing or declining, the alias stops;
+it never advances or resumes workflow work.
+
 ### Runtime Diagnostics
 
 `aidlc config runtime` checks the environment that project hooks actually use.

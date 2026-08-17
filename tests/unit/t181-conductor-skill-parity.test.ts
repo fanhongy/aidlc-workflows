@@ -86,6 +86,15 @@ const LEARNINGS_QUESTION_TOKENS = [
   "never infer `Nothing to add`",
 ];
 
+const CONFIG_ALIAS_TOKENS = [
+  "--config [section]",
+  "**In-session configuration (`--config [section]`).**",
+  "config <section> --show --json",
+  "config <section> <explicit value flags> --yes",
+  "Never invent values",
+  "do not call `next`",
+];
+
 const APPROVAL_REPORT_TOKEN =
   '--result approved --user-input "<exact choice>"';
 
@@ -200,6 +209,26 @@ describe("t181 per-harness conductor-SKILL freshness gate (P11 RESOLVE-2)", () =
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  test("every shipped conductor SKILL carries the in-session config contract", () => {
+    const missing: string[] = [];
+    const blocks = new Map<string, string[]>();
+    for (const rel of skills) {
+      const body = readFileSync(join(REPO_ROOT, rel), "utf-8");
+      for (const token of CONFIG_ALIAS_TOKENS) {
+        if (!body.includes(token)) missing.push(`${rel}  missing: ${token}`);
+      }
+      const start = body.indexOf("**In-session configuration");
+      const end = body.indexOf("**Autonomous reviewer boundary.**");
+      expect(start, `${rel} lacks config alias block`).toBeGreaterThan(-1);
+      expect(end, `${rel} lacks config alias end anchor`).toBeGreaterThan(start);
+      const block = body.slice(start, end).trim();
+      blocks.set(block, [...(blocks.get(block) ?? []), rel]);
+    }
+    expect(missing).toEqual([]);
+    expect([...blocks.values()]).toHaveLength(1);
+    expect([...blocks.values()][0]).toEqual(skills);
   });
 
   test("every shipped conductor SKILL separates in-flight deltas from stock routing", () => {

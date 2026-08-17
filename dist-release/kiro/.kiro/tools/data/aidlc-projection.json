@@ -195,7 +195,7 @@
       "sha256:b4f59e6d93c14d1f08d1afaf4a80e36452951eeeddb5a4baf695acde8664ffb4"
     ],
     ".kiro/hooks/aidlc-kiro-adapter.ts": [
-      "sha256:a9a8e63fa9161cfb74504bc7952681c1fab6677ab06f91370b94e5b738d596df"
+      "sha256:80ce8ef511f31f30c251f163d741bd354ea97624defeb9e2b45f48e0d73fe1fc"
     ],
     ".kiro/hooks/aidlc-rebuild-stage-graph.ts": [
       "sha256:1517ef32c6aa12012f4d7edeb7455fb1024e7badbb82ea0a0ab9fc60db10ae32"
@@ -231,7 +231,7 @@
       "sha256:aaa933bc3a4c6081b5ffdc5e1a24b69e5f7ecee99e53d75202401121489d43ec"
     ],
     ".kiro/skills/aidlc/SKILL.md": [
-      "sha256:8cae63d6ef3a2683fc4d4d637eedb777108c245c598b4916abba5179f1ca2a66"
+      "sha256:f6ee0e4bd2ec82e54383f246d49531868722ff99591a528c21ab289549ab20df"
     ],
     ".kiro/skills/aidlc-approval-handoff/SKILL.md": [
       "sha256:0f9db9f26542fc5208fb2bb5cd33739edd0aa2146cbf13d69458f5ca02a8ebe4"

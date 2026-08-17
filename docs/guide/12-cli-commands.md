@@ -36,6 +36,7 @@ diagnostic and lifecycle routes.
 | `/aidlc space [name]` | List spaces, or switch to an existing space |
 | `/aidlc space-create <name>` | Create a new space from the framework baseline |
 | `/aidlc --status` | Display a read-only status summary |
+| `/aidlc --config [section]` | Configure project policy conversationally, then land exact deterministic config flags |
 | `/aidlc --doctor [--check-updates]` | Run a health check; the explicit flag refreshes update metadata |
 | `/aidlc --doctor --export` | Run a fresh health check, then write a small, redacted diagnostic report for sharing |
 | `/aidlc --stage <slug\|#>` | Jump to a specific stage |
@@ -255,6 +256,26 @@ Display current workflow progress without modifying anything.
 ```
 
 **Behavior:** Reads the active intent's `aidlc-state.md` and displays: current phase, current stage, completed/total stage count, scope, depth, and the stage progress list. If no workflow is active, reports that no workflow is in progress.
+
+---
+
+### `/aidlc --config [section]` - In-session project configuration
+
+Configure one of `models`, `runtime`, `providers`, `trust`, `flags`, or
+`project` without leaving the harness conversation. With no section, the
+conductor asks which sections you want to consider.
+
+The conductor reads current state with
+`aidlc config <section> --show --json`, asks for changes conversationally, and
+uses the native question picker for enumerable choices. Saying "leave it"
+skips that section. Every accepted change lands through one exact
+`aidlc config <section> <explicit value flags> --yes` command; the command and
+its output are shown. The alias never invents values and never runs bare
+`aidlc config --yes`.
+
+This is terminal configuration work. After the change lands, or after you
+decline, the conductor stops without running `next`, advancing, resuming, or
+running a workflow stage.
 
 ---
 

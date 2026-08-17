@@ -242,6 +242,36 @@ describe("t180 verb-intercept turn-clock + read-only/nav latch", () => {
     }
   });
 
+  test("3aa: config alias is engine-pre-dispatched and arms the same-turn latch", () => {
+    const dir = scratchProject();
+    try {
+      const r = runAdapter(dir, "verb-intercept", {
+        prompt: promptWithNext("--config trust"),
+        cwd: dir,
+      });
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("SYSTEM (deterministic engine pre-dispatch)");
+      expect(r.stdout).toContain('"kind":"print"');
+      expect(r.stdout).toContain("config trust --show --json");
+      const latch = JSON.parse(readFileSync(latchPath(dir), "utf-8")) as {
+        turn?: number;
+        flag?: string;
+        source?: string;
+      };
+      expect(latch.turn).toBe(1);
+      expect(latch.flag).toBe("config trust");
+      expect(latch.source).toBe("config-alias");
+
+      const blocked = runAdapter(dir, "guard-tool-call", {
+        tool_input: { command: "aidlc engine orchestrate next" },
+        cwd: dir,
+      });
+      expect(blocked.code).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("3b: positional scope input stamps the complete forwarding vector", () => {
     const dir = scratchProject();
     try {

@@ -5,11 +5,11 @@ description: >
   development lifecycle. Scopes are defined one file per scope under
   `.claude/scopes/`; run
   `bun .claude/tools/aidlc.ts engine orchestrate help` for the authoritative list
-  and descriptions. Utilities: --status, --doctor, --stage,
+  and descriptions. Utilities: --status, --doctor, --config [section], --stage,
   --phase, --scope, --depth, --test-strategy, --review, --version,
   --help, plus the intent and space verbs.
   Or describe what you want to build and the scope will be auto-detected.
-argument-hint: "[description | --status | --stage <slug|#> | --phase <name|#> | --version | --help]"
+argument-hint: "[description | --status | --config [section] | --stage <slug|#> | --phase <name|#> | --version | --help]"
 user-invocable: true
 ---
 
@@ -45,7 +45,7 @@ Loop:
   4. repeat unless directive.kind == done
 ```
 
-Each `next` reads the workflow state and the compiled stage graph and returns **exactly one** typed directive (JSON) on stdout. It mutates nothing. The directive's `kind` names the single move to make; you make that move, then `report` commits the resulting transition so the next `next` reads fresh state. **Report each lifecycle outcome once; never call lifecycle verbs on `aidlc-state.ts` directly** — a gated directive reports `awaiting-approval`, then any `rejected`/`revised` cycles, then `approved`; the engine dispatches every state transition, and a speculative direct call gets the state-guard error. Pass `$ARGUMENTS` through to the first `next` verbatim — the engine parses flags (`--status`, `--stage`, `--scope`, `--depth`, freeform text, …) and resolves the scope, so you do not pre-parse or strip them.
+Each `next` reads the workflow state and the compiled stage graph and returns **exactly one** typed directive (JSON) on stdout. It mutates nothing. The directive's `kind` names the single move to make; you make that move, then `report` commits the resulting transition so the next `next` reads fresh state. **Report each lifecycle outcome once; never call lifecycle verbs on `aidlc-state.ts` directly** - a gated directive reports `awaiting-approval`, then any `rejected`/`revised` cycles, then `approved`; the engine dispatches every state transition, and a speculative direct call gets the state-guard error. Pass `$ARGUMENTS` through to the first `next` verbatim - the engine parses flags (`--status`, `--config`, `--stage`, `--scope`, `--depth`, freeform text, ...) and resolves the scope, so you do not pre-parse or strip them.
 
 Run the engine binary directly via Bash. If a directive looks malformed or names a move you cannot make, say so plainly and stop ("something in the workflow's setup is off", plus the specific detail), never a cue to improvise the routing in prose.
 
@@ -83,6 +83,8 @@ For an isolated run's reviewer, add `--single` to both `aidlc-log.ts review` cal
 | `present-gate` | _(engine-future — not emitted today; folded into `run-stage`'s `gate` field for now.)_ Run the gate ritual described below. |
 
 **Recorded swarm choice.** Resolve `AIDLC_USE_SWARM` env-first. When the environment variable is unset, read `flags.swarm` from `.claude/tools/data/harness.json`; `true` behaves as `"1"`, while `false` or an absent record behaves as unset.
+
+**In-session configuration (`--config [section]`).** When a terminal `print` directive names configuration, read current state first with `bun .claude/tools/aidlc.ts config <section> --show --json`; for a bare alias, ask which sections to consider. Gather changes conversationally, use the native question picker for enumerable choices, and skip any section the human leaves unchanged. Land each accepted section with exactly one `bun .claude/tools/aidlc.ts config <section> <explicit value flags> --yes`, relaying the human's answers verbatim; show the command and output. Never invent values or run bare `bun .claude/tools/aidlc.ts config --yes`. After landing or decline, STOP: do not call `next`, advance, resume, or run a stage.
 
 **Autonomous reviewer boundary.** When an `invoke-swarm` carries `directive.reviewer`, a unit is not claimable at `finalize` merely because `check` passed. In that unit's `prepare`-created worktree, follow the reviewer contract (stage-protocol §12a): record `REVIEW_REQUESTED` with `bun .claude/tools/aidlc.ts engine log review --stage "<directive.stage>" --unit "<unit>" --reviewer "<directive.reviewer>" --iteration <n> --project-dir "<worktree>"`, dispatch the reviewer against `directive.stage_file` plus that worktree's unit artifacts and contracts, then record `REVIEW_COMPLETED` with the same command plus `--verdict <READY|NOT-READY>`. The logger stays in the main workspace while `--project-dir` targets the worktree, which also works when a multi-repo worktree contains only the selected sibling repo. A NOT-READY verdict re-invokes the lead in the same worktree, reruns the convergence check, and repeats the reviewer up to `directive.reviewer_max_iterations`. Put a unit in `--claimed` only after its terminal review receipt exists; `finalize` verifies the receipt before merge and then merges it into the main audit. When `next` returns the settle `run-stage` after all units converge, do not dispatch the reviewer again; the per-unit receipts already cover the stage, so run only the learnings and approval rituals named in the `invoke-swarm` branch. This is model work inside autonomous Construction, not another human prompt.
 

@@ -116,8 +116,9 @@ they do not modify the project.
 ## Usage
 
 Start `kiro-cli chat` in the project, then invoke the conductor with
-`/aidlc <description>`. `/aidlc --status` reports position; `/aidlc --doctor`,
-`--stage`, `--phase`, `--depth`, and `--test-strategy` all work. Workspace
+`/aidlc <description>`. `/aidlc --status` reports position;
+`/aidlc --config [section]` gathers project configuration changes in-session;
+`/aidlc --doctor`, `--stage`, `--phase`, `--depth`, and `--test-strategy` all work. Workspace
 navigation uses `/aidlc intent [name]`, `/aidlc space [name]`, and
 `/aidlc space-create <name>`. The per-stage (`/aidlc-domain-design`) and
 per-scope (`/aidlc-feature`) runner skills are installed too.

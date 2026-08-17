@@ -59,7 +59,7 @@ name: aidlc
 description: >
   AI-DLC workflow orchestrator. Start, resume, or manage an AI-driven
   development lifecycle.
-argument-hint: "[description | --status | --stage <slug|#> | --phase <name|#> | --help]"
+argument-hint: "[description | --status | --config [section] | --stage <slug|#> | --phase <name|#> | --help]"
 user-invocable: true
 ---
 ```

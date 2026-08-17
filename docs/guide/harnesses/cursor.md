@@ -168,6 +168,9 @@ projection directly (no `emit.ts`, no split dot-dir). The distribution is:
   run gated workflows in an interactive Cursor session. This is a property of
   the framework's presence gate, not a Cursor limitation - every harness mints
   presence from a human-prompt event.
+- **In-session configuration is interactive.** Use `/aidlc --config [section]`
+  in a Cursor chat so the conductor can gather choices before landing exact
+  deterministic config flags.
 
 ## Verifying an install
 

@@ -329,6 +329,7 @@ Scopes (set depth, test strategy, and stage count):
 const HELP_TEXT_TAIL = `
 Utilities:
   --status          Show current workflow progress (read-only)
+  --config [section]  Configure models, runtime, providers, trust, flags, or project in-session
   compose "<task>"  Suggest a plan tailored to this task (mid-workflow: adjust the steps not yet run)
   compose --report <path>  Build a plan from a scan report (sort findings into a fix-and-ship run)
   --new-scope "<task>"  Build a custom plan even when a ready-made one matches

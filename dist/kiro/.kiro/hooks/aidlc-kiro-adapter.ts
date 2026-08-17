@@ -176,6 +176,7 @@ function extractNextInvocation(
 }
 
 const PRE_DISPATCH_FLAGS = new Set([
+  "--config",
   "--stage",
   "--phase",
   "--resume",
@@ -269,6 +270,20 @@ if (target === "verb-intercept") {
           rmSync(join(cwd, "aidlc", ".aidlc-forwarding-latch"), {
             force: true,
           });
+          if (args[0] === "--config") {
+            try {
+              writeFileSync(
+                join(cwd, "aidlc", ".aidlc-readonly-latch"),
+                JSON.stringify({
+                  turn,
+                  flag: args.join(" ").replace(/^--/, ""),
+                  source: "config-alias",
+                  ts: Date.now(),
+                }) + "\n",
+                "utf-8",
+              );
+            } catch { /* config-alias latch is best-effort */ }
+          }
           process.stdout.write(
             "SYSTEM (deterministic engine pre-dispatch): The harness has ALREADY " +
               "run the exact first `aidlc-orchestrate.ts next` invocation with " +
@@ -395,7 +410,7 @@ if (target === "guard-tool-call") {
   // exemptions (the engine doesn't parse --init/--force — retired P4 — so listing
   // them here is a harmless superset).
   const ADVANCING_FLAGS = new Set([
-    "--stage", "--phase", "--scope", "--resume", "--depth",
+    "--config", "--stage", "--phase", "--scope", "--resume", "--depth",
     "--test-strategy", "--single", "--init", "--force",
     "--new-scope", "--report",
   ]);

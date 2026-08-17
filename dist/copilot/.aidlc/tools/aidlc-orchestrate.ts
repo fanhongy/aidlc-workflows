@@ -630,6 +630,8 @@ interface ParsedFlags {
   review?: string; // --review <adversarial|advisory|none>: per-run review-class override
   readOnly?: string; // the matched read-only flag, if any
   readOnlyArgs?: string[]; // allowlisted trailing args for the read-only flag (e.g. --doctor --export --output <dir>)
+  config?: boolean; // --config [section]: terminal in-session project configuration alias
+  configSection?: ConfigSection;
   resume?: boolean; // --resume: re-enter an existing workflow (resume choice)
   single?: boolean; // --single: run ONE stage under a synthetic workflow id, never touching the main pointer
   newIntent?: boolean; // --new-intent: the conductor confirmed new-work alongside an active intent → emit the SAME birth directive (with the --label seam) the fresh-start path uses, instead of constructing intent-create from SKILL.md prose
@@ -642,6 +644,16 @@ interface ParsedFlags {
   projectDir?: string;
   parseError?: string;
 }
+
+const CONFIG_SECTIONS = [
+  "models",
+  "runtime",
+  "providers",
+  "trust",
+  "flags",
+  "project",
+] as const;
+type ConfigSection = (typeof CONFIG_SECTIONS)[number];
 
 // Extract the flags the `next` decision rule consumes. --project-dir is pulled
 // out by the caller before this runs; here we read scope/stage/phase/depth/
@@ -659,6 +671,25 @@ function parseNextFlags(args: string[]): ParsedFlags {
   // verb-intercept seam and the engine must never disagree on what is terminal.
   if (args.length === 1 && (args[0] === "help" || args[0] === "-h")) {
     return { readOnly: "--help" };
+  }
+  const configIndex = args.indexOf("--config");
+  if (configIndex >= 0) {
+    const trailing = args.slice(configIndex + 1);
+    if (
+      configIndex !== 0 ||
+      trailing.length > 1 ||
+      (trailing.length === 1 &&
+        !(CONFIG_SECTIONS as readonly string[]).includes(trailing[0]))
+    ) {
+      return {
+        parseError:
+          "Usage: /aidlc --config [models|runtime|providers|trust|flags|project].",
+      };
+    }
+    return {
+      config: true,
+      ...(trailing[0] ? { configSection: trailing[0] as ConfigSection } : {}),
+    };
   }
   const pluginCommand = parsePluginCommand(args);
   if (pluginCommand.kind !== "not-plugin") return { pluginCommand };
@@ -2440,7 +2471,9 @@ function handleNext(args: string[], projectDir: string | undefined): void {
   // latch would make the two predicates disagree about the same command. The
   // same reasoning keeps it before the flag-validation early returns: an
   // errored command still counted on the transcript path.
-  if (!flags.readOnly && !flags.workspaceCommand) touchEngineMarker(projectDir);
+  if (!flags.readOnly && !flags.config && !flags.workspaceCommand) {
+    touchEngineMarker(projectDir);
+  }
 
   if (flags.parseError) {
     emit(errorDirective(flags.parseError));
@@ -2454,6 +2487,7 @@ function handleNext(args: string[], projectDir: string | undefined): void {
     flags.review &&
     (
       flags.readOnly ||
+      flags.config ||
       flags.workspaceCommand ||
       flags.compose ||
       flags.newScope ||
@@ -2483,7 +2517,7 @@ function handleNext(args: string[], projectDir: string | undefined): void {
   // swallowed. Inert on Claude/Codex: the latch files are never written there (no
   // seam) → fresh is always false → falls through. Advisory: any failure fails
   // open to the normal `next`.
-  if (!flags.readOnly && !flags.workspaceCommand && !flags.pluginCommand && !flags.stage && !flags.phase &&
+  if (!flags.readOnly && !flags.config && !flags.workspaceCommand && !flags.pluginCommand && !flags.stage && !flags.phase &&
       !flags.scope && !flags.positionalScope && !flags.intent && !flags.resume &&
       !flags.depth && !flags.testStrategy && !flags.review &&
       !flags.single && !flags.compose && !flags.newScope && !flags.report) {
@@ -2510,11 +2544,29 @@ function handleNext(args: string[], projectDir: string | undefined): void {
       if (counter >= 0 && latchTurn === counter) {
         emit({
           kind: "done",
-          reason: `The read-only/navigation command (${label}) already ran this turn and its output was shown above. This was a read-only utility or a workspace switch, not workflow work — there is nothing to advance. The workflow is unchanged; if one is active it remains paused where it was. STOP.`,
+          reason: `The terminal command (${label}) already ran this turn and its output was shown above. This was a utility, configuration request, or workspace switch, not workflow work - there is nothing to advance. The workflow is unchanged; if one is active it remains paused where it was. STOP.`,
         });
         return;
       }
     } catch { /* advisory: guard is best-effort, never blocks a real next */ }
+  }
+
+  // Branch 1a - in-session configuration alias. Unlike the read-only utilities,
+  // config may mutate project policy, but the routing decision is still
+  // terminal and must happen before state inspection so it can never fall into
+  // the active stage. The conductor owns the human conversation; deterministic
+  // config commands own every read and write.
+  if (flags.config) {
+    const invoke = aidlcInvocation();
+    const selected = flags.configSection;
+    const show = selected
+      ? `${invoke} config ${selected} --show --json`
+      : `${invoke} config <section> --show --json`;
+    const target = selected ? `the ${selected} section` : "project configuration";
+    emit(printDirective(
+      `Configure ${target} conversationally. Read current state first with \`${show}\`; for a bare request, ask which sections the human wants to consider, and skip any section they leave unchanged. Use the native question picker for enumerable choices. Land each accepted change with exactly one \`${invoke} config <section> <explicit value flags> --yes\` command, relaying the human's answers verbatim as flags; show the exact command and its output. Never invent values, regions, or plugin names, and never run bare \`${invoke} config --yes\`. After the changes land, or after the human declines, STOP: do NOT run \`next\`, advance, resume, or run any workflow stage.`,
+    ));
+    return;
   }
 
   // Branch 1 — read-only utility flags dispatch FIRST, before any state

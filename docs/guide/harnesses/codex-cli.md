@@ -165,7 +165,7 @@ config when Codex requests it.
 
 Invoke the orchestrator with `$aidlc` (or `/skills` → aidlc) followed by a
 scope or description — same commands as the Claude harness (`$aidlc --status`,
-`$aidlc --help`, …). Stage runners are explicit-only:
+`$aidlc --config [section]`, `$aidlc --help`, and related forms). Stage runners are explicit-only:
 `$aidlc-domain-design`, `$aidlc-bugfix`, etc. (they are excluded from
 implicit skill matching so 37 runner descriptions don't pollute the index).
 

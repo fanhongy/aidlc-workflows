@@ -74,17 +74,27 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   AIDLC_SRC,
+  REPO_ROOT,
   cleanupTestProject,
   createOrchestrationTestProject,
   createTestProject,
   FIXTURES_DIR,
   resetAidlcEnv,
   runOrchestrateNext,
+  seededStateFile,
   seedStateFile,
 } from "../harness/fixtures.ts";
 
 const BUN = process.execPath; // the bun running this test
 const TOOL = join(AIDLC_SRC, "tools", "aidlc-orchestrate.ts");
+const NATIVE_TOOL = join(
+  REPO_ROOT,
+  "dist-release",
+  "claude",
+  ".claude",
+  "tools",
+  "aidlc-orchestrate.ts",
+);
 const STATE = join(AIDLC_SRC, "tools", "aidlc-state.ts");
 const SKILL_MD = join(AIDLC_SRC, "skills", "aidlc", "SKILL.md");
 
@@ -220,6 +230,70 @@ describe("t114 read-only dispatch + guards", () => {
     expect(
       runNext(proj, ["--stage", "feasibility", "--phase", "ideation"]).out,
     ).toContain("Cannot use --stage and --phase together");
+  });
+});
+
+describe("t114 in-session config alias", () => {
+  test("bare --config emits a terminal print contract without workflow state", () => {
+    proj = createOrchestrationTestProject();
+    const out = runNext(proj, ["--config"]).out;
+    expect(out).toContain('"kind":"print"');
+    expect(out).toContain("bun .claude/tools/aidlc.ts config <section> --show --json");
+    expect(out).toContain("explicit value flags");
+    expect(out).toContain("Never invent values");
+    expect(out).toContain("do NOT run `next`");
+    expect(out).not.toContain('"kind":"run-stage"');
+  });
+
+  test("--config providers names the selected section and exact copy invocation", () => {
+    proj = createOrchestrationTestProject();
+    const out = runNext(proj, ["--config", "providers"]).out;
+    expect(out).toContain('"kind":"print"');
+    expect(out).toContain("Configure the providers section conversationally");
+    expect(out).toContain(
+      "bun .claude/tools/aidlc.ts config providers --show --json",
+    );
+    expect(out).toContain(
+      "bun .claude/tools/aidlc.ts config <section> <explicit value flags> --yes",
+    );
+  });
+
+  test("--config rejects unknown or extra trailing tokens as usage errors", () => {
+    proj = createOrchestrationTestProject();
+    for (const args of [
+      ["--config", "bogus"],
+      ["--config", "trust", "extra"],
+    ]) {
+      const out = runNext(proj, args).out;
+      expect(out).toContain('"kind":"error"');
+      expect(out).toContain(
+        "Usage: /aidlc --config [models|runtime|providers|trust|flags|project].",
+      );
+      expect(out).not.toContain('"kind":"run-stage"');
+    }
+  });
+
+  test("--config over an active workflow never advances or changes state", () => {
+    proj = createOrchestrationTestProject();
+    seedStateFile(proj, MID_IDEATION);
+    const before = readFileSync(seededStateFile(proj), "utf-8");
+    const out = runNext(proj, ["--config", "trust"]).out;
+    expect(out).toContain('"kind":"print"');
+    expect(out).not.toContain('"kind":"run-stage"');
+    expect(readFileSync(seededStateFile(proj), "utf-8")).toBe(before);
+  });
+
+  test("native release projection renders public aidlc config invocation", () => {
+    proj = createOrchestrationTestProject();
+    const result = runOrchestrateNext(
+      NATIVE_TOOL,
+      proj,
+      ["--config", "trust"],
+      { cwd: proj, env: process.env },
+    );
+    expect(result.status).toBe(0);
+    expect(result.out).toContain("aidlc config trust --show --json");
+    expect(result.out).not.toContain("bun .claude/tools/aidlc.ts config trust");
   });
 });
 
