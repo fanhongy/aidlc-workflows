@@ -497,7 +497,7 @@ describe("t294 trust diagnostics", () => {
     cpSync(join(DIST, "codex"), codex, { recursive: true });
     rmSync(join(codex, "aidlc"), { recursive: true, force: true });
     rmSync(join(codex, ".agents"), { recursive: true, force: true });
-    expect(workspaceSiblingIssues(codex, ".codex", "codex").map((item) => item.id))
+    expect(workspaceSiblingIssues(codex, "codex").map((item) => item.id))
       .toEqual([
         "workspace-root-missing",
         "codex-agents-sibling-missing",

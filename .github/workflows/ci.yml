@@ -60,6 +60,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # t244 syntax-checks the generated zsh completion script with `zsh -n`;
+      # ubuntu-latest does not ship zsh, so install it to keep that assertion
+      # exercising the real shell instead of skipping.
+      - name: Install zsh (t244 completion syntax check)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+
       # smoke + unit are the deterministic, credential-free tiers (no AWS /
       # Bedrock / live Claude). The runner exits non-zero on any failed file.
       - name: Run smoke + unit tiers

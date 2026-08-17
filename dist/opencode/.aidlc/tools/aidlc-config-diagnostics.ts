@@ -10,14 +10,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, platform as hostPlatform } from "node:os";
-import { delimiter, dirname, extname, join, resolve } from "node:path";
+import { delimiter, extname, join, resolve } from "node:path";
 import { sha256Bytes } from "./aidlc-distribution.ts";
 import { discoverProjectHarnesses } from "./aidlc-runtime-paths.ts";
 import type { ModelHarness } from "./aidlc-model-policy.ts";
 import {
   normalizeProjectFlagsRecord,
   RECORDABLE_PROJECT_BYPASSES,
-  resolveProjectFlag,
   type ProjectFlagsRecord,
 } from "./aidlc-lib.ts";
 
@@ -1333,7 +1332,6 @@ export function projectChoiceFiles(
   projectDir: string,
   harnessDir: string,
   harness: ModelHarness,
-  record: ProjectChoicesRecord | null,
 ): DiagnosticFileSetting[] {
   const files: DiagnosticFileSetting[] = [{
     setting: "plugin selection, MCP consent, and completion answer",
@@ -1613,7 +1611,6 @@ export function codexTrustIssues(
 
 export function workspaceSiblingIssues(
   projectDir: string,
-  harnessDir: string,
   harness: ModelHarness,
 ): DiagnosticIssue[] {
   const required: Array<{ id: string; path: string; reason: string }> = [{
@@ -1699,7 +1696,7 @@ export function trustStatus(
   harness: ModelHarness,
   env: NodeJS.ProcessEnv = process.env,
 ): TrustStatus {
-  const issues = workspaceSiblingIssues(projectDir, harnessDir, harness);
+  const issues = workspaceSiblingIssues(projectDir, harness);
   if (harness === "codex") {
     issues.push(...codexTrustIssues(projectDir, harnessDir, env));
   }
@@ -2133,11 +2130,7 @@ export function workspaceSiblingDoctorCheck(
   if (!selected) {
     return { pass: true, label: "Workspace siblings: no installed project harness" };
   }
-  const issues = workspaceSiblingIssues(
-    projectDir,
-    selected.harnessDir,
-    selected.harness,
-  );
+  const issues = workspaceSiblingIssues(projectDir, selected.harness);
   return issues.length === 0
     ? { pass: true, label: "Workspace siblings: complete projection is present" }
     : {

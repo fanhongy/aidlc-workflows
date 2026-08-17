@@ -113,7 +113,6 @@ import {
   readPluginSelection,
   readConfigDiagnosticRecords,
   reconcileProviderActions,
-  runtimeCommandFiles,
   runtimeIssues,
   trustStatus,
   type ConfigDiagnosticOverrides,
@@ -1857,7 +1856,6 @@ function showChoiceSection(
         projectDir,
         selected.harnessDir,
         selected.harness,
-        records.project,
       ),
       mcpNote: projectMcpNote(
         projectDir,

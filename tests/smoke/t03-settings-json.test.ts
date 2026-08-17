@@ -129,8 +129,8 @@ describe("statusLine [.sh test 10]", () => {
 
 describe("session model and effort inheritance [.sh test 11]", () => {
   test("model and effortLevel keys are absent", () => {
-    expect(Object.prototype.hasOwnProperty.call(settings, "model")).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(settings, "effortLevel")).toBe(false);
+    expect(Object.hasOwn(settings, "model")).toBe(false);
+    expect(Object.hasOwn(settings, "effortLevel")).toBe(false);
   });
 });
 
