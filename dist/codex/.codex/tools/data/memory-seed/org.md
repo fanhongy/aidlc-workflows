@@ -53,8 +53,11 @@ Until then, our default per scope is:
   code; minimum 80% line coverage; tests run in CI before merge.
 - `bugfix`, `security-patch` → regression test for the specific
   bug/vulnerability; existing test suite must remain green.
-- `poc`, `refactor`, `express` → existing test suite remains green;
-  no new test floor required.
+- `express` → Minimal strategy: requirement-driven unit tests (one per
+  requirement, with a happy-path floor per component); existing tests remain
+  green.
+- `poc`, `refactor` → existing test suite remains green; no new test floor
+  required.
 
 Affirm a stricter posture in `team.md` if the team commits to one.
 

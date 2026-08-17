@@ -1072,7 +1072,7 @@ type RunStageRoute = {
   stateAware: boolean;
   stateHash: string | null;
   codekbCtx: CodekbCtx;
-  unit: string;
+  unit: string | null;
   unitKind: string | null;
   forcePersona: boolean;
 };
@@ -1086,7 +1086,7 @@ type SteeringTokenPayload = {
   d: string;
   r: string;
   a: boolean;
-  u: string;
+  u: string | null;
   k: string | null;
   f: boolean;
   g: GateValue;
@@ -1094,6 +1094,7 @@ type SteeringTokenPayload = {
   x: boolean;
   p: boolean;
   w: boolean;
+  z?: boolean;
   h: string | null;
 };
 
@@ -1422,7 +1423,7 @@ function codekbCtxFor(pd: string): CodekbCtx {
 function resolveArtifactPath(
   name: string,
   owner: GraphStage,
-  unit: string,
+  unit: string | null,
   recordPrefix: string | null,
   codekbCtx?: CodekbCtx,
 ): string {
@@ -1438,7 +1439,7 @@ function resolveArtifactPath(
     return `${relativeCodekbDir(codekbCtx.projectDir, codekbCtx.codekbRepo, codekbCtx.space)}/${filename}`;
   }
   const prefix = recordPrefix ?? relativeSpaceRecordPrefix();
-  if (isPerUnit(owner)) {
+  if (isPerUnit(owner) && unit !== null) {
     return `${prefix}/construction/${unit}/${owner.slug}/${filename}`;
   }
   return `${prefix}/${owner.phase}/${owner.slug}/${filename}`;
@@ -1456,7 +1457,7 @@ function resolveArtifactPath(
 function resolveConsumePath(
   name: string,
   node: GraphStage,
-  unit: string,
+  unit: string | null,
   recordPrefix: string | null,
   codekbCtx?: CodekbCtx,
 ): string {
@@ -1496,7 +1497,7 @@ function resolveConsumes(
   consumes: Consume[],
   node: GraphStage,
   projectType: "brownfield" | "greenfield" | null,
-  unit: string,
+  unit: string | null,
   recordPrefix: string | null,
   codekbCtx?: CodekbCtx,
   unitKind: string | null = null,
@@ -1589,7 +1590,7 @@ function splitConsumesByPresence(
 // behaviour change off the kind path.
 function resolveProduces(
   node: GraphStage,
-  unit: string,
+  unit: string | null,
   recordPrefix: string | null,
   codekbCtx?: CodekbCtx,
   unitKind: string | null = null,
@@ -1888,14 +1889,16 @@ function boundedContextWarnings(warnings: string[]): string[] {
 // conductor never re-derives them) and drops conditional_on consumes-entries
 // against the workflow's Project Type. rules_in_context maps to the node's
 // resolved rule paths; sensors_applicable maps to the node's resolved sensor ids.
-// `unit` is the active Unit of Work for per-unit Construction stages; callers
-// without Bolt context omit it and the per-unit path keeps the {unit-name}
-// placeholder. `scope` + `stateContent` feed the gate computation (the skeleton
-// round-trip) and the first-run-stage persona delivery (decision D-E).
+// `unit` is the active Unit of Work for per-unit Construction stages. The
+// placeholder keeps the documented unresolved shape for isolated/ctx-less
+// callers; null is the explicit zero-Unit fallback and resolves artifacts at the
+// stage-level Construction directory. `scope` + `stateContent` feed the gate
+// computation (the skeleton round-trip) and the first-run-stage persona delivery
+// (decision D-E).
 function buildRunStageDirective(
   node: GraphStage,
   projectType: "brownfield" | "greenfield" | null = null,
-  unit: string = UNIT_NAME_PLACEHOLDER,
+  unit: string | null = UNIT_NAME_PLACEHOLDER,
   scope: string = resolveDefaultScope(DEFAULT_SCOPE),
   stateContent: string | null = null,
   recordPrefix: string | null = null,
@@ -1903,11 +1906,13 @@ function buildRunStageDirective(
   unitKind: string | null = null,
   forcePersona = false,
 ): RunStageDirective {
+  const artifactUnit =
+    scope === "express" && unit === UNIT_NAME_PLACEHOLDER ? null : unit;
   const resolvedConsumes = resolveConsumes(
     node.consumes ?? [],
     node,
     projectType,
-    unit,
+    artifactUnit,
     recordPrefix,
     codekbCtx,
     unitKind,
@@ -1932,7 +1937,13 @@ function buildRunStageDirective(
     gate: computeGate(node, scope, stateContent),
     memory_path: memoryPathFor(node.phase, node.slug, recordPrefix),
     consumes: present,
-    produces: resolveProduces(node, unit, recordPrefix, codekbCtx, unitKind),
+    produces: resolveProduces(
+      node,
+      artifactUnit,
+      recordPrefix,
+      codekbCtx,
+      unitKind,
+    ),
     rules_in_context:
       ruleEntries?.map((entry) => entry.rel) ??
       (node.rules_in_context ?? []).map((r) => r.path),
@@ -2279,7 +2290,7 @@ function decodeSteeringToken(
       typeof p.d !== "string" ||
       typeof p.r !== "string" ||
       typeof p.a !== "boolean" ||
-      typeof p.u !== "string" ||
+      (p.u !== null && typeof p.u !== "string") ||
       (p.k !== null && typeof p.k !== "string") ||
       typeof p.f !== "boolean" ||
       (typeof p.g !== "boolean" && p.g !== GATE_UNRESOLVED) ||
@@ -2287,6 +2298,7 @@ function decodeSteeringToken(
       typeof p.x !== "boolean" ||
       typeof p.p !== "boolean" ||
       typeof p.w !== "boolean" ||
+      (p.z !== undefined && typeof p.z !== "boolean") ||
       (p.h !== null && typeof p.h !== "string")
     ) {
       return null;
@@ -2321,6 +2333,7 @@ function steeringTokenPayload(
     x: directive.single === true,
     p: directive.unit !== undefined,
     w: directive.wave !== undefined,
+    z: directive.swarm_settled === true,
     h: route.stateHash,
   };
 }
@@ -3255,6 +3268,17 @@ function isSettledAutonomousSwarm(
   return units.every((unit) => converged.has(unit));
 }
 
+function applySettledSwarmShape(
+  directive: RunStageDirective,
+): RunStageDirective {
+  delete directive.reviewer;
+  delete directive.review_class;
+  delete directive.reviewer_max_iterations;
+  directive.protocol_modules = ["construction", "swarm"];
+  directive.swarm_settled = true;
+  return directive;
+}
+
 // Try to handle an eligible autonomous swarm stage, returning true (and emitting)
 // ONLY when every trigger condition holds:
 //   - the slug resolves to a Construction stage that is the per-unit build stage
@@ -3336,7 +3360,10 @@ function tryEmitSwarm(
       node, projectType, lastUnit, scope, stateContent, recordPrefix, codekbCtx,
     );
     directive.unit = lastUnit;
-    emit(directive);
+    // Gate-only resume surface: every Unit body and reviewer already converged
+    // inside the swarm. Keep that fact explicit across fresh sessions and remove
+    // the ordinary body/reviewer modules so settlement cannot repeat work.
+    emit(applySettledSwarmShape(directive));
     return true;
   }
 
@@ -3821,25 +3848,57 @@ function emitPerUnitRunStage(
   resolution?: BoltBatchesResolution,
   allowWave = true,
 ): void {
+  const r = resolution ?? resolveBoltBatches(projectDir);
+
   // GATE precedence: never iterate per-unit until the walking-skeleton gate is
-  // RESOLVED. If this is the skeleton-gate stage and no stance is recorded yet,
+  // RESOLVED when a real Unit DAG exists. If this is the skeleton-gate stage,
+  // the DAG is present, and no stance is recorded yet,
   // buildRunStageDirective would emit gate:"unresolved" (the classify
   // round-trip). The conductor must classify the stance FIRST, there is no
   // per-unit work to do while the gate is undetermined, so emit the normal
   // single directive (with the {unit-name} placeholder + the unresolved gate)
   // and return. The follow-up `next` (after `report --skeleton-stance`) resolves
   // the gate and re-enters here to begin per-unit iteration.
-  if (isSkeletonGateStage(node, scope) && readSkeletonStance(stateContent) === null) {
+  const zeroUnitScope = r.state === "none" && scope === "express";
+  if (
+    !zeroUnitScope &&
+    isSkeletonGateStage(node, scope) &&
+    readSkeletonStance(stateContent) === null
+  ) {
     emitRunStageForSlug(node.slug, projectType, scope, stateContent, recordPrefix, codekbCtx);
     return;
   }
 
-  const r = resolution ?? resolveBoltBatches(projectDir);
   switch (r.state) {
     case "none":
-      // No dependency artifact exists on disk: degrade to today's single
-      // {unit-name} directive for genuinely zero-unit scopes.
-      emitRunStageForSlug(node.slug, projectType, scope, stateContent, recordPrefix, codekbCtx);
+      if (!zeroUnitScope) {
+        emitRunStageForSlug(
+          node.slug,
+          projectType,
+          scope,
+          stateContent,
+          recordPrefix,
+          codekbCtx,
+        );
+        return;
+      }
+      // No dependency artifact exists on disk: run one stage-level iteration.
+      // There is no Bolt, Unit, skeleton classification, ladder, or swarm path,
+      // so paths omit the synthetic {unit-name} segment and the ordinary gated
+      // stage contract applies directly.
+      {
+        const directive = buildRunStageDirective(
+          node,
+          projectType,
+          null,
+          scope,
+          stateContent,
+          recordPrefix,
+          codekbCtx,
+        );
+        directive.gate = true;
+        emit(directive);
+      }
       return;
     case "malformed":
       emit({
@@ -5753,13 +5812,14 @@ function handleContinue(args: string[], projectDir: string | undefined): void {
     payload.f,
   );
   directive.gate = payload.g;
-  if (payload.p) directive.unit = payload.u;
+  if (payload.p && payload.u !== null) directive.unit = payload.u;
   if (payload.n === undefined) {
     delete directive.next_stage;
   } else {
     directive.next_stage = payload.n;
   }
   if (payload.x) directive.single = true;
+  if (payload.z === true) applySettledSwarmShape(directive);
   if (payload.w) {
     const resolution = resolveBoltDag(pd);
     if (resolution.state === "ok") {

@@ -1,6 +1,17 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [2.6.9] - 2026-08-17
+
+Scope defaults and lightweight routing have been revised. Freeform fallback now uses `classic`, not `feature`; the existing `workshop` scope remains supported, while `classic` adds a separate v1-style production default. To retain the old full 33-stage default behavior, run `/aidlc --scope feature`. Organizations can override the project default with `AWS_AIDLC_DEFAULT_SCOPE`. **Upgrade:** refresh your `dist/<harness>/` shell; no Workshop state or configuration migration is required.
+
+* NEW `express` scope and `/aidlc-express` runner: Minimal depth, reviewers disabled through `review_cap: none`, and a 10-stage requirements-to-deploy grid with a conditional deploy tail.
+* `classic` is now the freeform default, reproducing the v1-style lifecycle without Ideation while its conditional design and Operation stages self-select.
+* Existing `workshop`, `lab`, and `training` routing remains on the compatible Workshop scope, including its Minimal test-strategy override; `classic` independently inherits the production Standard test floor.
+* Express's no-Unit Construction path now uses stage-level artifact paths, skips Bolt/skeleton/swarm ceremony, applies the Minimal new-test floor, and documents requirements/workspace fallbacks for its conditional deployment tail.
+* The cold-start compose offer now anchors its examples with live `express` / `classic` / `feature` stage counts, making the lightweight options visible while users choose between a stock plan and a tailored one.
+* Reviewer, ensemble, Construction, and swarm machinery now lives in conditionally loaded protocol modules selected by each directive's `protocol_modules` hint. Swarm settlement is explicitly marked and cannot repeat converged reviews after resume.
+
 ## [2.6.8] - 2026-08-15
 
 The reviewer work loop gets a hard backstop: both review-only agents (`aidlc-architecture-reviewer-agent`, `aidlc-product-lead-agent`) now carry a 60-turn cap - authored once as `maxTurns: 60` in the persona frontmatter, enforced natively on every harness with a lever (Claude Code `maxTurns`, opencode `steps`) and mirrored as a harness-neutral `## Turn Budget` persona section everywhere - and the stage protocol closes the previously undefined branch where a reviewer that dies before writing its verdict (turn cap, crash, context exhaustion) left the conductor reading a stale, partial, or missing `## Review`. A review now counts only when it parses: exactly one current `## Review` section with exactly one canonical READY/NOT-READY verdict. Anything else is an incomplete attempt that retries the same review once with `--retry-pending` (consuming no review iteration - an advisory budget is one pass) and then records a terminal `NOT-READY` receipt with the finding "review did not complete within its turn budget", so the gate is never presented on - or deadlocked by - a silently missing verdict. Before every reviewer dispatch the conductor now deletes any existing `## Review` section (review history lives in the audit ledger), closing the revision-path gap where a stale pre-revision READY could be misread as covering revised work. The GitHub Copilot orchestrator also catches up to the review-class engine. **Upgrade:** re-copy your `dist/<harness>/` tree into the project (the reviewer agent files, `aidlc-common/protocols/stage-protocol.md`, and every orchestrator SKILL.md changed).
@@ -10,16 +21,6 @@ The reviewer work loop gets a hard backstop: both review-only agents (`aidlc-arc
 * Stage protocol §12a step 3 now validates the verdict: a missing `## Review` section, a verdict-less section, or duplicated sections/verdicts is an incomplete attempt - retried once via `--retry-pending` without consuming a review iteration, then recorded as a terminal `NOT-READY` receipt with the finding "review did not complete within its turn budget". Mirrored in all seven harness SKILL.md reviewer bullets.
 * Stage protocol §12a step 1 now deletes any pre-existing `## Review` section before every dispatch (first entry, NOT-READY re-invoke, and post-rejection re-review alike): "no current section" means "incomplete review" on every path, no stale pre-revision READY survives a revision, and no superseded reviewer prose accumulates in artifacts or leaks into the claim-sources scan.
 * GitHub Copilot reviewer step brought up to the review-class contract (`directive.review_class` branch, advisory single-pass terminality, terminal-receipt freeze wording, `--retry-pending` recovery), and the §12a dispatch-record roster now names Copilot among the reviewer-scope-enforcing harnesses.
-
-## [2.6.7] - 2026-08-14
-
-Scope defaults and lightweight routing have been revised. **Breaking:** freeform fallback now uses `classic`, not `feature`, and the former `workshop` scope has been renamed to `classic`, so `--scope workshop` now errors; use `--scope classic`. To retain the old full 33-stage default behavior, run `/aidlc --scope feature`. Organizations can override the project default with `AWS_AIDLC_DEFAULT_SCOPE`. **Upgrade:** refresh your `dist/<harness>/` shell and update scripts, CI, or saved configuration that name `workshop`.
-
-* NEW `express` scope and `/aidlc-express` runner: Minimal depth, reviewers disabled through `review_cap: none`, and a 10-stage requirements-to-deploy grid with a conditional deploy tail.
-* `classic` is now the freeform default, reproducing the v1-style lifecycle without Ideation while its conditional design and Operation stages self-select.
-* `classic` uses the production test floor: the former `workshop` scope's `testStrategy: Minimal` override has been removed, so test strategy inherits Standard depth.
-* The cold-start compose offer now anchors its examples with live `express` / `classic` / `feature` stage counts, making the lightweight options visible while users choose between a stock plan and a tailored one.
-* Reviewer, ensemble, Construction, and swarm machinery now lives in conditionally loaded protocol modules selected by each directive's `protocol_modules` hint, reducing the fixed protocol context loaded in every session without changing stage behavior.
 
 ## [2.6.2] - 2026-08-13
 
