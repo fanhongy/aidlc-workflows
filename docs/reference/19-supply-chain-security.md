@@ -274,5 +274,9 @@ and explicit metadata refresh, but does not block a user-requested
   host-runnable windows-x64 artifact `VERIFIED` after its full-runtime gates
   pass (`scripts/build-binaries.ts`). The RFC proposed retaining
   `UNVERIFIED` until milestone 3 Windows journeys are green; that hold is not
-  implemented, so the review must decide whether the current Windows gates
-  satisfy the milestone or whether the label policy must change.
+  implemented. The condition the hold was waiting on has since been met: the
+  milestone 3 Windows journeys ran green end to end on a real Windows Server
+  2025 host (2026-08-17), and both host-runnable Windows artifacts completed
+  all 49 runtime gates with exact `VERIFIED` full-runtime verification
+  objects. The review's decision is therefore whether that evidence lets the
+  current label stand as-is, not whether to build the hold.
