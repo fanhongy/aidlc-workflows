@@ -12,6 +12,7 @@ import {
 import { AIDLC_VERSION } from "./aidlc-version.ts";
 import {
   discoverProjectHarnesses,
+  isCompiledExecutable,
   packagedDistributionRoot,
   runtimeHarnessDir,
 } from "./aidlc-runtime-paths.ts";
@@ -1757,7 +1758,7 @@ async function runAdapter(action: Extract<Action, { type: "adapter" }>): Promise
   const previousHarness = process.env.AIDLC_HARNESS_DIR;
   const previousExecutable = process.env.AIDLC_COMPILED_EXECUTABLE;
   process.env.AIDLC_HARNESS_DIR = ADAPTER_HARNESS_LEAF[action.harness];
-  if (import.meta.url.includes("/$bunfs/")) {
+  if (isCompiledExecutable()) {
     process.env.AIDLC_COMPILED_EXECUTABLE = process.execPath;
   }
   try {
@@ -1833,7 +1834,7 @@ async function runSensorScriptFile(
 }
 
 async function execute(action: Action): Promise<number> {
-  const isCompiled = import.meta.url.includes("/$bunfs/");
+  const isCompiled = isCompiledExecutable();
   if (action.type === "delegate") {
     // Tool modules are imported lazily in compiled mode to keep dev-mode startup
     // fast and to avoid loading every tool for help/version calls.
@@ -2150,7 +2151,7 @@ export async function main(argv: string[]): Promise<void> {
     text(1, renderCommandHelp(commandHelp));
     return;
   }
-  if (import.meta.url.includes("/$bunfs/") && !process.env.AIDLC_HARNESS_DIR) {
+  if (isCompiledExecutable() && !process.env.AIDLC_HARNESS_DIR) {
     // Compiled, no explicit harness: discover the project install from its
     // shipped stamp/harness metadata. Module-relative derivation cannot work
     // from $bunfs, and every delegate and sibling tool reads this env, so pin

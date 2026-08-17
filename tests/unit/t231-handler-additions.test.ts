@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   cleanupTestProject,
@@ -22,6 +22,9 @@ const CORE_TOOLS_DIR = join(REPO_ROOT, "core", "tools");
 const UTILITY = join(CORE_TOOLS_DIR, "aidlc-utility.ts");
 const DISPATCHER = join(CORE_TOOLS_DIR, "aidlc.ts");
 const PACKAGE_TS = join(REPO_ROOT, "scripts", "package.ts");
+const POSIX_SH = process.platform === "win32"
+  ? join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "sh.exe")
+  : "/bin/sh";
 const PLUGIN_COMPOSE_TEMPLATE = join(
   REPO_ROOT,
   "scripts",
@@ -361,12 +364,12 @@ describe("t231 emitted plugin hook command", () => {
     writeFileSync(join(binDir, "bun"), `#!/bin/sh\ntouch "${fallbackMarker}"\nexit 0\n`);
     chmodSync(join(binDir, "aidlc"), 0o755);
     chmodSync(join(binDir, "bun"), 0o755);
-    const invoked = spawnSync("/bin/sh", ["-c", command], {
+    const invoked = spawnSync(POSIX_SH, ["-c", command], {
       cwd: outDir,
       encoding: "utf-8",
       env: {
         ...process.env,
-        PATH: `${binDir}:/bin:/usr/bin`,
+        PATH: [binDir, dirname(POSIX_SH), process.env.PATH ?? ""].join(delimiter),
         CLAUDE_PLUGIN_ROOT: outDir,
         CLAUDE_PROJECT_DIR: outDir,
       },

@@ -365,7 +365,14 @@ function syncPath(path: string): void {
     fsyncSync(descriptor);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (!["EINVAL", "ENOTSUP", "EISDIR", "EBADF"].includes(code ?? "")) throw error;
+    const unsupportedWindowsSync =
+      process.platform === "win32" && code === "EPERM";
+    if (
+      !unsupportedWindowsSync &&
+      !["EINVAL", "ENOTSUP", "EISDIR", "EBADF"].includes(code ?? "")
+    ) {
+      throw error;
+    }
   } finally {
     if (descriptor !== null) closeSync(descriptor);
   }

@@ -92,7 +92,7 @@ function cleanupScript(journal: WindowsUninstallJournal): string {
     "  [IO.File]::WriteAllBytes($entry.Key, $entry.Value)",
     "}",
     "$journal.status = 'completed'",
-    "$journal.completedAt = [DateTime]::UtcNow.ToString('o')",
+    "$journal | Add-Member -NotePropertyName completedAt -NotePropertyValue ([DateTime]::UtcNow.ToString('o')) -Force",
     "$journal | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $JournalPath",
     "Remove-Item -LiteralPath $fence -Force -ErrorAction Stop",
     "if ($fenceInsideRoot -and $saved.Count -eq 0) { Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue }",
@@ -225,19 +225,45 @@ function launch(path: string, journal: WindowsUninstallJournal): void {
   };
   writeFileSync(path, `${JSON.stringify(recovering, null, 2)}\n`, { mode: 0o600 });
   try {
-    Bun.spawn(
+    const processArgument = (value: string): string =>
+      `'"${quoted(value)}"'`;
+    const broker = [
+      "$ErrorActionPreference = 'Stop'",
+      [
+        "Start-Process -FilePath 'powershell.exe' -ArgumentList @(",
+        [
+          "'-NoProfile'",
+          "'-NonInteractive'",
+          "'-ExecutionPolicy'",
+          "'Bypass'",
+          "'-File'",
+          processArgument(recovering.cleanupPath),
+          processArgument(path),
+        ].join(","),
+        ") -WindowStyle Hidden",
+      ].join(""),
+    ].join("; ");
+    const launched = Bun.spawnSync(
       [
         "powershell.exe",
         "-NoProfile",
         "-NonInteractive",
         "-ExecutionPolicy",
         "Bypass",
-        "-File",
-        recovering.cleanupPath,
-        path,
+        "-Command",
+        broker,
       ],
-      { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
-    ).unref();
+      {
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        windowsHide: true,
+      },
+    );
+    if (launched.exitCode !== 0) {
+      const stderr = Buffer.from(launched.stderr).toString("utf-8").trim();
+      throw new Error(`Windows uninstall cleanup launch failed${stderr ? `: ${stderr}` : ""}`);
+    }
   } catch (error) {
     writeFileSync(
       path,

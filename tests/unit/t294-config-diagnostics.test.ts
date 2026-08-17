@@ -105,19 +105,31 @@ function writeExecutable(path: string): void {
 
 function hookPathEnv(command?: "aidlc" | "bun"): NodeJS.ProcessEnv {
   const bin = temp("aidlc-t294-hook-path-");
-  writeFileSync(
-    join(bin, "getconf"),
-    `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(bin)}\n`,
-    { mode: 0o755 },
-  );
+  if (process.platform === "win32") {
+    writeFileSync(
+      join(bin, "powershell.cmd"),
+      `@echo off\r\necho ${bin}\r\n`,
+      "utf-8",
+    );
+  } else {
+    writeFileSync(
+      join(bin, "getconf"),
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(bin)}\n`,
+      { mode: 0o755 },
+    );
+  }
   if (command) {
-    for (const name of [command, `${command}.exe`, `${command}.cmd`]) {
-      writeExecutable(join(bin, name));
+    if (process.platform === "win32") {
+      writeFileSync(join(bin, `${command}.cmd`), "@exit /b 0\r\n", "utf-8");
+    } else {
+      for (const name of [command, `${command}.exe`, `${command}.cmd`]) {
+        writeExecutable(join(bin, name));
+      }
     }
   }
   return {
     PATH: bin,
-    SystemRoot: "",
+    ...(process.platform === "win32" ? {} : { SystemRoot: "" }),
   };
 }
 
@@ -1044,7 +1056,7 @@ describe("t294 config diagnostics CLI", () => {
     ], project, env);
     expect(trustShow.status).toBe(0);
     expect(trustShow.stdout).toContain("Trust and allowlist files");
-    expect(trustShow.stdout).toContain(".claude/settings.json");
+    expect(trustShow.stdout.replaceAll("\\", "/")).toContain(".claude/settings.json");
     expect(run([
       "config",
       "trust",

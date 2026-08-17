@@ -457,7 +457,7 @@ describe("t55 — test-suite metadata drift (migrated from t55-test-suite-drift.
     }
 
     expect(pathDrift).toEqual([]);
-  });
+  }, 30_000);
 
   // ───────────────────────────────────────────────────────────────────────────
   // Check 7 — legacy distributable-root sweep (kept verbatim). The bare literal

@@ -41,19 +41,31 @@ function hookPathEnv(
   extra: NodeJS.ProcessEnv = {},
 ): NodeJS.ProcessEnv {
   const bin = temp("aidlc-t296-hook-path-");
-  writeFileSync(
-    join(bin, "getconf"),
-    `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(bin)}\n`,
-    { mode: 0o755 },
-  );
+  if (process.platform === "win32") {
+    writeFileSync(
+      join(bin, "powershell.cmd"),
+      `@echo off\r\necho ${bin}\r\n`,
+      "utf-8",
+    );
+  } else {
+    writeFileSync(
+      join(bin, "getconf"),
+      `#!/bin/sh\nprintf '%s\\n' ${JSON.stringify(bin)}\n`,
+      { mode: 0o755 },
+    );
+  }
   if (command) {
-    for (const name of [command, `${command}.exe`, `${command}.cmd`]) {
-      writeExecutable(join(bin, name));
+    if (process.platform === "win32") {
+      writeFileSync(join(bin, `${command}.cmd`), "@exit /b 0\r\n", "utf-8");
+    } else {
+      for (const name of [command, `${command}.exe`, `${command}.cmd`]) {
+        writeExecutable(join(bin, name));
+      }
     }
   }
   return {
     PATH: bin,
-    SystemRoot: "",
+    ...(process.platform === "win32" ? {} : { SystemRoot: "" }),
     AIDLC_RUNTIME_ROOT: join(REPO_ROOT, "dist-release"),
     ...(interactive ? { AIDLC_TEST_CONFIG_TTY: "1" } : {}),
     ...extra,

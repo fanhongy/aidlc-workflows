@@ -35,6 +35,7 @@ import { launcherRouteUsesPin } from "../../core/tools/aidlc-command.ts";
 import { targetTriple } from "../../core/tools/aidlc-install-paths.ts";
 import {
   discoverProjectHarnesses,
+  isCompiledModuleUrl,
   runtimeHarnessDir,
 } from "../../core/tools/aidlc-runtime-paths.ts";
 import { parseSensorManifest } from "../../core/tools/aidlc-sensor-schema.ts";
@@ -814,6 +815,13 @@ describe("t230 dispatcher global flag translation", () => {
 });
 
 describe("t230 dispatcher dev and compiled in-process modes", () => {
+  test("compiled URL detection recognizes Bun virtual roots on Unix and Windows", () => {
+    expect(isCompiledModuleUrl("file:///$bunfs/root/aidlc.ts")).toBe(true);
+    expect(isCompiledModuleUrl("file:///B:/%7EBUN/root/aidlc.exe")).toBe(true);
+    expect(isCompiledModuleUrl("B:\\~BUN\\root\\aidlc.exe")).toBe(true);
+    expect(isCompiledModuleUrl("file:///workspace/core/tools/aidlc.ts")).toBe(false);
+  });
+
   const cases = [
     { name: "version", args: ["version"] },
     { name: "graph artifacts", args: ["engine", "graph", "artifacts", "--help"] },

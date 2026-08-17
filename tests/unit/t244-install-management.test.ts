@@ -779,6 +779,19 @@ describe("t244 installer has no machine-level harness selection", () => {
 });
 
 describe("t244 Windows and completion release surfaces", () => {
+  test("Windows uninstall cleanup supports adding completion metadata in PowerShell 5.1", () => {
+    const source = readFileSync(
+      join(REPO_ROOT, "core", "tools", "aidlc-windows-uninstall.ts"),
+      "utf-8",
+    );
+    expect(source).toContain(
+      "$journal | Add-Member -NotePropertyName completedAt",
+    );
+    expect(source).not.toContain("$journal.completedAt =");
+    expect(source).toContain("Start-Process -FilePath 'powershell.exe'");
+    expect(source).toContain("const launched = Bun.spawnSync");
+  });
+
   test("install-profile usage names the invoking user's shell profile", () => {
     const result = run(
       DISPATCHER,

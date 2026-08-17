@@ -297,7 +297,7 @@ describe("t156 method relocation to aidlc/spaces/default/memory/ + per-harness i
           walk(full);
           continue;
         }
-        const rel = full.slice(REPO_ROOT.length + 1);
+        const rel = full.slice(REPO_ROOT.length + 1).replaceAll("\\", "/");
         // A method file (org/team/project.md) or a flat aidlc-phase-*.md / a
         // phases/<p>.md that is NOT under core/memory/ is a second copy.
         const isMethodTop = METHOD_BASENAMES.has(e.name);

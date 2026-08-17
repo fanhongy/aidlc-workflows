@@ -956,6 +956,7 @@ describe("t276 cursor adapter payload conversion", () => {
     registerTaskParent(proj);
     runAdapter(proj, "guards", payload("preToolUseTask", proj));
     expect(ledgerFilesFor(proj)).toHaveLength(1);
+    const shellPath = (path: string): string => path.replaceAll("\\", "/");
 
     for (const target of [ledgerDirFor(proj), dispatch]) {
       const removal = runAdapter(
@@ -976,11 +977,11 @@ describe("t276 cursor adapter payload conversion", () => {
     }
 
     for (const command of [
-      `rm -f ${dispatch.slice(0, -1)}*`,
-      `rm -f ${dispatch.slice(0, -1)}[n]`,
-      `rm -rf ${join(dirname(record), "*")}`,
-      `rm -rf ${join(proj, "aidlc", ".aidlc-cursor-sub*")}`,
-      `rm -rf ${join(proj, "aidlc", ".aidlc-*")}`,
+      `rm -f ${shellPath(dispatch.slice(0, -1))}*`,
+      `rm -f ${shellPath(dispatch.slice(0, -1))}[n]`,
+      `rm -rf ${shellPath(join(dirname(record), "*"))}`,
+      `rm -rf ${shellPath(join(proj, "aidlc", ".aidlc-cursor-sub*"))}`,
+      `rm -rf ${shellPath(join(proj, "aidlc", ".aidlc-*"))}`,
     ]) {
       const removal = runAdapter(
         proj,

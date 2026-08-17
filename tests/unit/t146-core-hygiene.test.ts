@@ -71,7 +71,7 @@ describe("t146 core hygiene — no stray harness-dir path literals in core/ pros
   test("every harness-dir path literal in core/*.md is the {{HARNESS_DIR}} token or a named carve-out", () => {
     const stray: string[] = [];
     for (const file of walkMd(CORE)) {
-      const rel = relative(CORE, file);
+      const rel = relative(CORE, file).replaceAll("\\", "/");
       const lines = readFileSync(file, "utf-8").split("\n");
       lines.forEach((line, i) => {
         if (!HARNESS_PATH_RE.test(line)) return;

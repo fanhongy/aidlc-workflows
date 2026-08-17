@@ -373,6 +373,9 @@ describe("t238 build-binaries release builder", () => {
       });
       expect(obsoleteHarness.status).toBe(2);
 
+      // The remaining checks exercise install.sh, Homebrew, and POSIX profiles.
+      if (process.platform === "win32") return;
+
       const managerRoot = join(installFixture, "manager");
       const managerBin = join(managerRoot, "Cellar", "aidlc", "1.0.0", "bin");
       const managerCommandDir = join(managerRoot, "prefix", "bin");

@@ -387,7 +387,7 @@ describe("t145 packager contract regressions", () => {
       );
       const run = runPackage(root, "kiro", "--check");
       expect(run.status).not.toBe(0);
-      expect(output(run)).toContain(
+      expect(output(run).replaceAll("\\", "/")).toContain(
         "ORPHAN in dist: kiro/.kiro/hooks/aidlc-kiro-adapter.ts",
       );
     } finally {

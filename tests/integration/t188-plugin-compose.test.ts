@@ -15,7 +15,7 @@
 // in-tree generators (aidlc-graph compile); running them as children mirrors how
 // a host's SessionStart hook invokes them and isolates their temp builds.
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +35,7 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PACKAGE_TS = join(REPO_ROOT, "scripts", "package.ts");
 const BUN = process.execPath; // the bun running this test — robust for hooks
 const TIMEOUT_MS = 60_000;
+setDefaultTimeout(TIMEOUT_MS);
 
 const PLUGIN = "test-pro";
 const CLAUDE_DIST = join(REPO_ROOT, "dist", "claude", ".claude");
@@ -400,18 +401,44 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     cpSync(CURSOR_DIST, cursorProject, { recursive: true });
     const binDir = join(tmp, "cursor-fake-bin");
     mkdirSync(binDir, { recursive: true });
-    const aidlc = join(binDir, "aidlc");
-    writeFileSync(
-      aidlc,
-      [
-        "#!/bin/sh",
-        `exec ${JSON.stringify(BUN)} ${JSON.stringify(
-          join(cursorProject, ".cursor", "tools", "aidlc.ts"),
-        )} "$@"`,
-        "",
-      ].join("\n"),
-    );
-    chmodSync(aidlc, 0o755);
+    const aidlc = join(binDir, process.platform === "win32" ? "aidlc.exe" : "aidlc");
+    const dispatcher = join(cursorProject, ".cursor", "tools", "aidlc.ts");
+    if (process.platform === "win32") {
+      const source = join(binDir, "aidlc-forwarder.ts");
+      writeFileSync(
+        source,
+        [
+          'import { spawnSync } from "node:child_process";',
+          `const result = spawnSync(${JSON.stringify(BUN)}, [${JSON.stringify(dispatcher)}, ...process.argv.slice(2)], {`,
+          '  stdio: "inherit",',
+          "  env: process.env,",
+          "});",
+          "process.exit(result.status ?? 1);",
+          "",
+        ].join("\n"),
+      );
+      const built = Bun.spawnSync([
+        BUN,
+        "build",
+        "--compile",
+        source,
+        "--outfile",
+        aidlc,
+      ]);
+      if (built.exitCode !== 0) {
+        throw new Error(`fake aidlc build failed: ${built.stderr.toString()}`);
+      }
+    } else {
+      writeFileSync(
+        aidlc,
+        [
+          "#!/bin/sh",
+          `exec ${JSON.stringify(BUN)} ${JSON.stringify(dispatcher)} "$@"`,
+          "",
+        ].join("\n"),
+      );
+      chmodSync(aidlc, 0o755);
+    }
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -2497,7 +2524,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     const drops = hookDrops(collideProj);
     expect(drops).toContain(`scopes "test-pro-validation.md" collides`);
     expect(drops).toContain(`agents "test-pro-metrics-agent.md" collides`);
-    expect(drops).toContain(`knowledge "test-pro-metrics-agent/methodology.md" collides`);
+    expect(drops).toContain(`knowledge "${join("test-pro-metrics-agent", "methodology.md")}" collides`);
   });
 
   test("agent frontmatter name collision is dropped before copy and install remains usable", () => {
@@ -2521,7 +2548,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     expect(existsSync(join(proj, ".claude", "agents", "x-unique-file.md"))).toBe(false);
     expect(drops).toContain("[degraded]");
     expect(drops).toContain('plugin "syn-agent-name"');
-    expect(drops).toContain("agents/x-unique-file.md");
+    expect(drops).toContain(join("agents", "x-unique-file.md"));
     expect(drops).toContain("aidlc-quality-agent");
     expect(drops).toContain("aidlc-quality-agent.md");
 
@@ -2713,7 +2740,7 @@ describe("t188 plugin compose — emit + compose the contribution seam", () => {
     // The bad stage never landed, the drop names the file + the schema error,
     // and the install's graph still compiles (self-heal probe unaffected).
     expect(existsSync(join(proj, ".claude", "aidlc-common", "stages", "construction", "syn-stale-stage.md"))).toBe(false);
-    expect(drops).toContain('stage file "construction/syn-stale-stage.md" not composed');
+    expect(drops).toContain(`stage file "${join("construction", "syn-stale-stage.md")}" not composed`);
     expect(drops).toContain("bundle: was renamed");
     const compile = spawnSync(BUN, [join(proj, ".claude", "tools", "aidlc-graph.ts"), "compile"], {
       cwd: proj, encoding: "utf-8", timeout: TIMEOUT_MS - 5_000,

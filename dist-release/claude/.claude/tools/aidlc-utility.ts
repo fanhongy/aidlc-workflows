@@ -992,7 +992,7 @@ async function handlePluginSync(projectDir: string): Promise<void> {
       CLAUDE_PLUGIN_ROOT: item.root,
       PLUGIN_ROOT: item.root,
     };
-    if (import.meta.url.includes("/$bunfs/")) {
+    if (isCompiledExecutable()) {
       const envKeys = [
         "AIDLC_HARNESS_DIR",
         "AIDLC_HARNESS_NAME",

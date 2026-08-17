@@ -119,8 +119,12 @@ export function discoverProjectHarnesses(projectDir: string): ProjectHarness[] {
   return harnesses;
 }
 
+export function isCompiledModuleUrl(url: string): boolean {
+  return /\/(?:\$bunfs|%7ebun|~bun)\//i.test(url.replace(/\\/g, "/"));
+}
+
 export function isCompiledExecutable(): boolean {
-  return import.meta.url.includes("/$bunfs/");
+  return isCompiledModuleUrl(import.meta.url);
 }
 
 export function compiledExecutable(): string | null {

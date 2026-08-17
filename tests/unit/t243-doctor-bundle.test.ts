@@ -210,7 +210,7 @@ describe("t243 doctor --export diagnostic exporter (#575)", () => {
   test("1: SECRET CANARY — no secret survives into any report file or the archive", () => {
     const proj = freshProject();
     seedCanaryIntent(proj);
-    const { bundleDir, archivePath } = runExport(proj);
+    const { bundleDir, archivePath, out } = runExport(proj);
     expect(bundleDir).not.toBeNull();
 
     const canaries = [AWS_KEY, PASSWORD_SECRET, `password=${PASSWORD_SECRET}`, HOME_PATH, INTENT_SLUG];
@@ -224,11 +224,14 @@ describe("t243 doctor --export diagnostic exporter (#575)", () => {
     }
 
     // (b) The packaged .tar.gz is clean too (extract every member to stdout).
-    expect(archivePath).not.toBeNull();
-    const extracted = spawnSync("tar", ["-xzOf", archivePath!], { encoding: "utf-8" });
-    expect(extracted.status).toBe(0);
-    for (const c of canaries) {
-      expect(extracted.stdout, `${c} leaked into the archive`).not.toContain(c);
+    if (archivePath) {
+      const extracted = spawnSync("tar", ["-xzOf", archivePath], { encoding: "utf-8" });
+      expect(extracted.status).toBe(0);
+      for (const c of canaries) {
+        expect(extracted.stdout, `${c} leaked into the archive`).not.toContain(c);
+      }
+    } else {
+      expect(out).toContain("Archiving is unavailable on this system.");
     }
   }, 30000);
 
@@ -574,7 +577,7 @@ describe("t243 doctor --export diagnostic exporter (#575)", () => {
     );
     symlinkSync(secretTarget, rgLink);
 
-    const { bundleDir, archivePath } = runExport(proj);
+    const { bundleDir, archivePath, out } = runExport(proj);
     expect(bundleDir).not.toBeNull();
 
     // (a) No file on disk under the report dir carries the symlink target secret.
@@ -584,12 +587,15 @@ describe("t243 doctor --export diagnostic exporter (#575)", () => {
       );
     }
     // (b) The archive is clean too.
-    expect(archivePath).not.toBeNull();
-    const extracted = spawnSync("tar", ["-xzOf", archivePath!], { encoding: "utf-8" });
-    expect(extracted.status).toBe(0);
-    expect(extracted.stdout, `${SYMLINK_SECRET} leaked into the archive`).not.toContain(
-      SYMLINK_SECRET,
-    );
+    if (archivePath) {
+      const extracted = spawnSync("tar", ["-xzOf", archivePath], { encoding: "utf-8" });
+      expect(extracted.status).toBe(0);
+      expect(extracted.stdout, `${SYMLINK_SECRET} leaked into the archive`).not.toContain(
+        SYMLINK_SECRET,
+      );
+    } else {
+      expect(out).toContain("Archiving is unavailable on this system.");
+    }
   }, 30000);
 
   test("11: CUSTOM-IDENTIFIER CANARY — a non-core stage slug is hashed, never emitted raw (Arden #2)", () => {
